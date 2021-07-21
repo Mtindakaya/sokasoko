@@ -1,0 +1,63 @@
+{
+  "name": "sokasoko",
+  "version": "0.0.1",
+  "description": "sokasoko",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon src/server.js",
+    "prepare": "husky install",
+    "commit": "git-cz",
+    "commit:all": "git add -A && git-cz",
+    "lint": "eslint --fix --ext .js src/ test/"
+  },
+  "author": "rijkerd",
+  "license": "MIT",
+  "dependencies": {
+    "@lykmapipo/express-common": "^0.18.16",
+    "express": "^4.17.1",
+    "lodash": "^4.17.21",
+    "mongoose": "^5.13.3"
+  },
+  "engines": {
+    "node": ">=14.1.0",
+    "npm": ">=6.14.4"
+  },
+  "devDependencies": {
+    "eslint": "^7.16.0",
+    "eslint-config-airbnb-base": "^14.2.1",
+    "eslint-config-prettier": "^7.1.0",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-mocha": "^8.0.0",
+    "eslint-plugin-prettier": "^3.3.0",
+    "@commitlint/cli": "^11.0.0",
+    "@commitlint/config-conventional": "^11.0.0",
+    "@commitlint/travis-cli": "^11.0.0",
+    "husky": "^7.0.1",
+    "lint-staged": "^11.0.1",
+    "nodemon": "^2.0.12",
+    "prettier": "^2.2.1"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "lint-staged": {
+    "src/**/*.js": [
+      "npm run lint",
+      "npm run commit"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
+    }
+  }
+}
