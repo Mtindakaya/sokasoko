@@ -23,6 +23,12 @@ const AcademySchema = new Schema({
     type: Boolean,
     default: false,
   },
+  accountNumber: {
+    type: Number,
+    unique: true,
+    trim: true,
+    index: true,
+  },
   phone: {
     type: String,
     required: true,
