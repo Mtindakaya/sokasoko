@@ -1,13 +1,31 @@
-const { start, app } = require('@lykmapipo/express-common');
+const { start, app, mount } = require('@lykmapipo/express-common');
+const { connect } = require('@lykmapipo/mongoose-common');
+const { getNumber, getString } = require('@lykmapipo/env');
 
+const PlayerRouter = require('./Player/player.http.router');
+const GuardianRouter = require('./Guardian/guardian.http.router');
+const CoachRouter = require('./Coach/coach.http.router');
+const AcademyRouter = require('./Academy/academy.http.router');
+
+const PORT = getNumber('PORT', 5000);
+const MONGODB_URI = getString('MONGODB_URI');
+
+// TODO: Setup Password Hashing on creation on Entity
 app.get('/', (req, res) => {
-  res.ok('Working');
+  res.send({ status: 'working' });
 });
 
-start((error, env) => {
-  if (error) {
-    throw error;
-  }
+connect(MONGODB_URI, (error) => {
+  if (error) throw new Error(error);
 
-  console.log(`visit http://0.0.0.0:${env.PORT}`);
+  mount([PlayerRouter, GuardianRouter, CoachRouter, AcademyRouter]);
+
+  start(PORT, (err) => {
+    if (err) {
+      throw new Error(err);
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`visit http://0.0.0.0:${PORT}/v1/`);
+  });
 });
