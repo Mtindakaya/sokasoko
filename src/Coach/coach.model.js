@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const actions = require('mongoose-rest-actions');
 
 const { Schema, model } = mongoose;
 
@@ -7,7 +8,6 @@ const CoachSchema = new Schema({
   firstName: {
     type: String,
     required: [true, 'firstName is required'],
-    unique: true,
     trim: true,
     fake: {
       generator: 'name',
@@ -17,17 +17,23 @@ const CoachSchema = new Schema({
   lastName: {
     type: String,
     required: [true, 'lastName is required'],
-    unique: true,
     trim: true,
     fake: {
       generator: 'name',
       type: 'lastName',
     },
   },
+  accountNumber: {
+    type: Number,
+    unique: true,
+    trim: true,
+    index: true,
+  },
   phone: {
     type: String,
     required: true,
     unique: true,
+    index: true,
     trim: true,
     fake: {
       generator: 'phone',
@@ -68,6 +74,6 @@ const CoachSchema = new Schema({
   password: { type: String },
 });
 
-mongoose.plugin(require('@lykmapipo/mongoose-faker'));
+mongoose.plugin(actions);
 
 module.exports = model('Coach', CoachSchema);
