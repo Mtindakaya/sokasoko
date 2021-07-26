@@ -14,25 +14,31 @@
   "author": "rijkerd",
   "license": "MIT",
   "dependencies": {
+    "@lykmapipo/env": "^0.17.34",
     "@lykmapipo/express-common": "^0.18.16",
+    "@lykmapipo/express-rest-actions": "^0.8.28",
+    "@lykmapipo/mongoose-common": "^0.39.0",
+    "@lykmapipo/mongoose-faker": "^0.11.2",
     "express": "^4.17.1",
+    "express-mquery": "^1.2.14",
     "lodash": "^4.17.21",
-    "mongoose": "^5.13.3"
+    "mongoose": "^5.13.3",
+    "mongoose-rest-actions": "^0.30.6"
   },
   "engines": {
     "node": ">=14.1.0",
     "npm": ">=6.14.4"
   },
   "devDependencies": {
+    "@commitlint/cli": "^11.0.0",
+    "@commitlint/config-conventional": "^11.0.0",
+    "@commitlint/travis-cli": "^11.0.0",
     "eslint": "^7.16.0",
     "eslint-config-airbnb-base": "^14.2.1",
     "eslint-config-prettier": "^7.1.0",
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-mocha": "^8.0.0",
     "eslint-plugin-prettier": "^3.3.0",
-    "@commitlint/cli": "^11.0.0",
-    "@commitlint/config-conventional": "^11.0.0",
-    "@commitlint/travis-cli": "^11.0.0",
     "husky": "^7.0.1",
     "lint-staged": "^11.0.1",
     "nodemon": "^2.0.12",
