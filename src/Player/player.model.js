@@ -80,6 +80,7 @@ const PlayerSchema = new Schema(
         type: 'datetime',
       },
     },
+    age: { type: Number, required: true },
     nationality: {
       type: String,
       fake: {
