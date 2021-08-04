@@ -120,6 +120,8 @@ const PlayerSchema = new Schema(
   SCHEMA_OPTIONS
 );
 
+PlayerSchema.index({ firstName: 'text', lastName: 'text' });
+
 PlayerSchema.pre('validate', function cb(next) {
   next();
 });
