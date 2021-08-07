@@ -36,20 +36,12 @@ const PlayerSchema = new Schema(
       required: [true, 'firstName is required'],
       searchable: true,
       trim: true,
-      fake: {
-        generator: 'name',
-        type: 'firstName',
-      },
     },
     lastName: {
       type: String,
       required: [true, 'lastName is required'],
       searchable: true,
       trim: true,
-      fake: {
-        generator: 'name',
-        type: 'lastName',
-      },
     },
     accountNumber: {
       type: Number,
@@ -63,36 +55,35 @@ const PlayerSchema = new Schema(
       unique: true,
       index: true,
       trim: true,
-      fake: {
-        generator: 'phone',
-        type: 'phoneNumber',
-      },
     },
-    location: {
+    region: {
       type: String,
       trim: true,
       index: true,
       searchable: true,
-      fake: {
-        generator: 'address',
-        type: 'streetAddress',
-      },
+      default: 'Dar es Salaam',
+    },
+    district: {
+      type: String,
+      trim: true,
+      index: true,
+      searchable: true,
+      default: 'Ilala Municipal',
+    },
+    ward: {
+      type: String,
+      trim: true,
+      index: true,
+      searchable: true,
+      default: 'Ilala',
     },
     dob: {
       type: Date,
       required: true,
-      fake: {
-        generator: 'datatype',
-        type: 'datetime',
-      },
     },
     age: { type: Number, required: true },
     nationality: {
       type: String,
-      fake: {
-        generator: 'address',
-        type: 'country',
-      },
     },
     gender: {
       type: String,
