@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
 const actions = require('mongoose-rest-actions');
+const Counter = require('../Counter/counter.model');
+const { generateHash } = require('../Utils/utils');
 
 const { Schema, model } = mongoose;
+
+mongoose.plugin(actions);
 
 const SCHEMA_OPTIONS = {
   id: false,
@@ -30,6 +34,7 @@ const PlayerSchema = new Schema(
     firstName: {
       type: String,
       required: [true, 'firstName is required'],
+      searchable: true,
       trim: true,
       fake: {
         generator: 'name',
@@ -39,6 +44,7 @@ const PlayerSchema = new Schema(
     lastName: {
       type: String,
       required: [true, 'lastName is required'],
+      searchable: true,
       trim: true,
       fake: {
         generator: 'name',
@@ -116,17 +122,27 @@ const PlayerSchema = new Schema(
       index: true,
       searchable: true,
     },
-    password: { type: String },
+    password: { type: String, required: true },
   },
   SCHEMA_OPTIONS
 );
 
 PlayerSchema.index({ firstName: 'text', lastName: 'text' });
 
-PlayerSchema.pre('validate', function cb(next) {
-  next();
+PlayerSchema.pre('validate', function preValidate(done) {
+  this.preValidate(done);
 });
 
-mongoose.plugin(actions, require('@lykmapipo/mongoose-faker'));
+PlayerSchema.methods.preValidate = async function preValidate(done) {
+  try {
+    this.accountNumber = await Counter.getNextSequenceValue('memberId');
+    this.password = await generateHash(this.password);
+    return done(null, this);
+  } catch (error) {
+    return done(error);
+  }
+};
+
+mongoose.plugin(require('@lykmapipo/mongoose-faker'));
 
 module.exports = model('Player', PlayerSchema);
