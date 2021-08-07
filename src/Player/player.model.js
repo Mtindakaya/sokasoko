@@ -122,6 +122,7 @@ const PlayerSchema = new Schema(
       index: true,
       searchable: true,
     },
+    profileImage: { type: String },
     password: { type: String, required: true },
   },
   SCHEMA_OPTIONS
