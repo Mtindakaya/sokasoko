@@ -9,8 +9,7 @@ const {
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
-const _ = require('lodash');
-const Counter = require('../Counter/counter.model');
+const { uploadFor } = require('../Utils/uploader');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/players/:id';
@@ -43,17 +42,18 @@ router.get(
 router.get(
   PATH_LIST,
   getFor({
-    get: (options, done) => Player.get(options, done),
+    get: (options, done) => {
+      return Player.get(options, done);
+    },
   })
 );
 
 router.post(
   PATH_LIST,
+  uploadFor(),
   postFor({
-    post: async (body, done) => {
-      const value = await Counter.getNextSequenceValue('memberId');
-      const payload = _.assign(body, { accountNumber: value });
-      return Player.post(payload, done);
+    post: (body, done) => {
+      return Player.post(body, done);
     },
   })
 );
