@@ -10,7 +10,6 @@ const AcademyRouter = require('./Academy/academy.http.router');
 const PORT = getNumber('PORT', 5000);
 const MONGODB_URI = getString('MONGODB_URI');
 
-// TODO: Setup Password Hashing on creation on Entity
 app.get('/', (req, res) => {
   res.send({ status: 'working' });
 });
