@@ -135,6 +135,4 @@ PlayerSchema.methods.preValidate = async function preValidate(done) {
   }
 };
 
-mongoose.plugin(require('@lykmapipo/mongoose-faker'));
-
 module.exports = model('Player', PlayerSchema);
