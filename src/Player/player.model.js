@@ -81,7 +81,7 @@ const PlayerSchema = new Schema(
       type: Date,
       required: true,
     },
-    age: { type: Number, required: true },
+    age: { type: Number },
     nationality: {
       type: String,
     },
