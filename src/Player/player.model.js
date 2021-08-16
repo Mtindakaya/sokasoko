@@ -44,7 +44,7 @@ const PlayerSchema = new Schema(
       trim: true,
     },
     accountNumber: {
-      type: Number,
+      type: String,
       unique: true,
       trim: true,
       index: true,
@@ -127,7 +127,8 @@ PlayerSchema.pre('validate', function preValidate(done) {
 
 PlayerSchema.methods.preValidate = async function preValidate(done) {
   try {
-    this.accountNumber = await Counter.getNextSequenceValue('memberId');
+    const seqNumber = await Counter.getNextSequenceValue('memberId');
+    this.accountNumber = `TFH-P-A${seqNumber}`;
     this.password = await generateHash(this.password);
     return done(null, this);
   } catch (error) {
