@@ -27,7 +27,7 @@ CounterSchema.statics.getNextSequenceValue =
     if (!counter) {
       const newCounter = new Counter({
         _id: sequenceName,
-        seq_value: 1000,
+        seq_value: 100001,
       });
       const document = await newCounter.save();
       countValue = document.seq_value;
