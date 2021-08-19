@@ -70,6 +70,7 @@ const PlayerSchema = new Schema(
       searchable: true,
       default: 'Ilala Municipal',
     },
+    type: { type: String, default: 'PLAYER' },
     ward: {
       type: String,
       trim: true,
@@ -89,7 +90,7 @@ const PlayerSchema = new Schema(
       type: String,
       index: true,
       searchable: true,
-      enum: ['F', 'M'],
+      enum: ['FEMALE', 'MALE'],
     },
     weight: {
       type: Number,
