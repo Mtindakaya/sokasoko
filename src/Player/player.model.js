@@ -1,11 +1,10 @@
 const mongoose = require('mongoose');
 const actions = require('mongoose-rest-actions');
+const { FileTypes } = require('@lykmapipo/file');
 const Counter = require('../Counter/counter.model');
 const { generateHash } = require('../Utils/utils');
 
 const { Schema, model } = mongoose;
-
-mongoose.plugin(actions);
 
 const SCHEMA_OPTIONS = {
   id: false,
@@ -114,7 +113,11 @@ const PlayerSchema = new Schema(
       index: true,
       searchable: true,
     },
-    profileImage: { type: String },
+    profileImage: {
+      type: Schema.Types.ObjectId,
+      ref: FileTypes.File.ref,
+      autopopulate: true,
+    },
     password: { type: String, required: true },
   },
   SCHEMA_OPTIONS
@@ -136,5 +139,7 @@ PlayerSchema.methods.preValidate = async function preValidate(done) {
     return done(error);
   }
 };
+
+mongoose.plugin(actions);
 
 module.exports = model('Player', PlayerSchema);

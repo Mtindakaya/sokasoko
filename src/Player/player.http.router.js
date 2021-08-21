@@ -9,7 +9,7 @@ const {
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
-const { uploadFor } = require('../Utils/uploader');
+const { uploaderFor } = require('@lykmapipo/file');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/players/:id';
@@ -50,7 +50,7 @@ router.get(
 
 router.post(
   PATH_LIST,
-  uploadFor(),
+  uploaderFor(),
   postFor({
     post: (body, done) => {
       return Player.post(body, done);
@@ -60,15 +60,21 @@ router.post(
 
 router.patch(
   PATH_SINGLE,
+  uploaderFor(),
   patchFor({
-    patch: (body, done) => Player.patch(body, done),
+    patch: (body, done) => {
+      return Player.patch(body, done);
+    },
   })
 );
 
 router.put(
   PATH_SINGLE,
+  uploaderFor(),
   putFor({
-    put: (body, done) => Player.put(body, done),
+    put: (body, done) => {
+      return Player.put(body, done);
+    },
   })
 );
 
