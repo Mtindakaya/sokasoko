@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const actions = require('mongoose-rest-actions');
 const { FileTypes } = require('@lykmapipo/file');
-const Counter = require('../Counter/counter.model');
 const { generateHash } = require('../Utils/utils');
 
 const { Schema, model } = mongoose;
@@ -47,6 +46,7 @@ const PlayerSchema = new Schema(
       unique: true,
       trim: true,
       index: true,
+      exists: true,
     },
     phone: {
       type: String,
@@ -131,8 +131,6 @@ PlayerSchema.pre('validate', function preValidate(done) {
 
 PlayerSchema.methods.preValidate = async function preValidate(done) {
   try {
-    const seqNumber = await Counter.getNextSequenceValue('memberId');
-    this.accountNumber = `TFH-P-A${seqNumber}`;
     this.password = await generateHash(this.password);
     return done(null, this);
   } catch (error) {

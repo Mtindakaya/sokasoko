@@ -10,6 +10,7 @@ const {
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
 const { uploaderFor } = require('@lykmapipo/file');
+const Counter = require('../Counter/counter.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/players/:id';
@@ -52,8 +53,10 @@ router.post(
   PATH_LIST,
   uploaderFor(),
   postFor({
-    post: (body, done) => {
-      return Player.post(body, done);
+    post: async (body, done) => {
+      const counter = await Counter.getNextSequenceValue('memberId');
+      const accountNumber = `TFH-P-A${counter}`;
+      return Player.post({ ...body, accountNumber }, done);
     },
   })
 );
