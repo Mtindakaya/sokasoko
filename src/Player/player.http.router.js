@@ -11,6 +11,7 @@ const {
 const { getString } = require('@lykmapipo/env');
 const { uploaderFor } = require('@lykmapipo/file');
 const Counter = require('../Counter/counter.model');
+const { leftFillNum } = require('../Utils/utils');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/players/:id';
@@ -55,7 +56,7 @@ router.post(
   postFor({
     post: async (body, done) => {
       const counter = await Counter.getNextSequenceValue('memberId');
-      const accountNumber = `TFH-P-A${counter}`;
+      const accountNumber = `TFH-P-A${leftFillNum(counter, 6)}`;
       return Player.post({ ...body, accountNumber }, done);
     },
   })
