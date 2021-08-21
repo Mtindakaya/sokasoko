@@ -20,4 +20,8 @@ const compare = async (password, hash) => {
   return false;
 };
 
-module.exports = { generateHash, compare };
+const leftFillNum = (num, targetLength) => {
+  return num.toString().padStart(targetLength, 0);
+};
+
+module.exports = { generateHash, compare, leftFillNum };
