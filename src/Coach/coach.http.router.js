@@ -9,8 +9,9 @@ const {
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
-const _ = require('lodash');
+const { uploaderFor } = require('@lykmapipo/file');
 const Counter = require('../Counter/counter.model');
+const { leftFillNum } = require('../Utils/utils');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/coachs/:id';
@@ -49,17 +50,19 @@ router.get(
 
 router.post(
   PATH_LIST,
+  uploaderFor(),
   postFor({
     post: async (body, done) => {
-      const value = await Counter.getNextSequenceValue('memberId');
-      const payload = _.assign(body, { accountNumber: value });
-      return Coach.post(payload, done);
+      const counter = await Counter.getNextSequenceValue('coachId');
+      const accountNumber = `TFH-C-A${leftFillNum(counter, 6)}`;
+      return Coach.post({ ...body, accountNumber }, done);
     },
   })
 );
 
 router.patch(
   PATH_SINGLE,
+  uploaderFor(),
   patchFor({
     patch: (body, done) => Coach.patch(body, done),
   })
@@ -67,6 +70,7 @@ router.patch(
 
 router.put(
   PATH_SINGLE,
+  uploaderFor(),
   putFor({
     put: (body, done) => Coach.put(body, done),
   })
