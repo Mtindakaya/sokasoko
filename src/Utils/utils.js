@@ -2,26 +2,17 @@ const bcrypt = require('bcryptjs');
 const axios = require('axios');
 const https = require('https');
 const btoa = require('btoa');
+const { info, error } = require('@lykmapipo/logger');
 const { getString } = require('@lykmapipo/env');
 
 const generateHash = async (password, saltRounds = 10) => {
   try {
-    //   Generate Salt
     const salt = await bcrypt.genSalt(saltRounds);
     const payload = await bcrypt.hash(password, salt);
     return payload;
-  } catch (error) {
-    throw Error(error);
+  } catch (err) {
+    return error(err);
   }
-};
-
-const compare = async (password, hash) => {
-  try {
-    return await bcrypt.compare(password, hash);
-  } catch (error) {
-    console.log(error); //eslint-disable-line
-  }
-  return false;
 };
 
 const leftFillNum = (num, targetLength) => {
@@ -59,8 +50,10 @@ const sendSms = async (text, sender) => {
         }),
       }
     )
-    .then((response) => console.log(response, `${apiKey}:${secretKey}`))
-    .catch((error) => console.error(error.response.data));
+    .then((response) => {
+      info({ message: response.data });
+    })
+    .catch((err) => error({ message: err.data.message }));
 };
 
-module.exports = { generateHash, compare, leftFillNum, sendSms };
+module.exports = { generateHash, leftFillNum, sendSms };
