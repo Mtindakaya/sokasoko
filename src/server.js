@@ -7,6 +7,7 @@ const PlayerRouter = require('./Player/player.http.router');
 const GuardianRouter = require('./Guardian/guardian.http.router');
 const CoachRouter = require('./Coach/coach.http.router');
 const AcademyRouter = require('./Academy/academy.http.router');
+const UserRouter = require('./User/user.http.router');
 
 const PORT = getNumber('PORT', 5000);
 const MONGODB_URI = getString('MONGODB_URI');
@@ -20,7 +21,14 @@ connect(MONGODB_URI, (error) => {
 
   createModels();
 
-  mount([fileRouter, PlayerRouter, GuardianRouter, CoachRouter, AcademyRouter]);
+  mount([
+    fileRouter,
+    PlayerRouter,
+    GuardianRouter,
+    CoachRouter,
+    AcademyRouter,
+    UserRouter,
+  ]);
 
   start(PORT, (err) => {
     if (err) {
