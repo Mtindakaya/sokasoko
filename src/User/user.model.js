@@ -3,15 +3,13 @@ const actions = require('mongoose-rest-actions');
 const bcrypt = require('bcryptjs');
 const { FileTypes } = require('@lykmapipo/file');
 
-const { generateHash, sendSms } = require('../Utils/utils');
+const { generateHash } = require('../Utils/utils');
 
 const { Schema, model } = mongoose;
 
-// mongoose.set('debug', true);
-
 const SCHEMA_OPTIONS = {
   id: false,
-  timestamps: false,
+  timestamps: true,
   toJSON: { getters: true },
   toObject: { getters: true },
   emitIndexErrors: true,
@@ -31,7 +29,7 @@ const positions = [
 
 const foot = ['RIGHT', 'LEFT', 'BOTH'];
 
-const types = ['P', 'C', 'G'];
+const types = ['PLAYER', 'COACH', 'GUARDIAN'];
 
 const UserSchema = new Schema(
   {
@@ -133,13 +131,6 @@ UserSchema.index({ firstName: 'text', lastName: 'text' });
 
 UserSchema.pre('save', function preValidate(done) {
   return this.preValidate(done);
-});
-
-UserSchema.post('save', function postSave(done) {
-  const sender = this.phone;
-  const payload = sender.replace(sender.charAt(0), '255');
-  sendSms(`Hello, Account Number : ${this.accountNumber}`, payload);
-  return done;
 });
 
 UserSchema.methods.preValidate = async function preValidate(done) {
