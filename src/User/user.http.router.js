@@ -116,7 +116,7 @@ router.delete(
   })
 );
 
-router.post(PATH_LOGIN, (request, response, next) => {
+router.post(PATH_LOGIN, (request, response) => {
   const identifier = _.get(request.body, 'identifier');
   const password = _.get(request.body, 'password');
 
@@ -124,19 +124,19 @@ router.post(PATH_LOGIN, (request, response, next) => {
     $or: [{ phone: identifier }, { accountNumber: identifier }],
   }).exec((err, user) => {
     if (err) {
-      return next(err);
+      return response.error(err);
     }
 
-    if (!_.isNull(user)) {
-      user.comparePassword(password, (error, isMatch) => {
-        if (isMatch) {
-          return response.ok(user);
-        }
-        return response.notFound();
-      });
+    if (_.isNull(user)) {
+      return response.notFound();
     }
 
-    return next;
+    return user.comparePassword(password, (error, isMatch) => {
+      if (isMatch) {
+        return response.ok(user);
+      }
+      return response.error('Failed to Login');
+    });
   });
 });
 
