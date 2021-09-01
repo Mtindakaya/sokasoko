@@ -15,6 +15,7 @@ const Counter = require('../Counter/counter.model');
 const { leftFillNum, sendSms } = require('../Utils/utils');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
+
 const PATH_SINGLE = '/users/:id';
 const PATH_LIST = '/users';
 const PATH_LOGIN = '/users/login';
@@ -37,17 +38,26 @@ router.get(
 );
 
 router.get(
-  PATH_SINGLE,
-  getByIdFor({
-    getById: (options, done) => User.get(options, done),
-  })
-);
-
-router.get(
   PATH_LIST,
   getFor({
     get: (options, done) => {
       return User.get(options, done);
+    },
+  })
+);
+
+router.get(
+  PATH_SINGLE,
+  getByIdFor({
+    getById: (options, done) => {
+      const id = _.get(options, 'id');
+
+      User.findById(id, (err, data) => {
+        if (err) {
+          return done(err, null);
+        }
+        return done(data, null);
+      });
     },
   })
 );
@@ -117,12 +127,14 @@ router.post(PATH_LOGIN, (request, response, next) => {
       return next(err);
     }
 
-    user.comparePassword(password, (error, isMatch) => {
-      if (isMatch) {
-        return response.ok(user);
-      }
-      return response.notFound();
-    });
+    if (!_.isNull(user)) {
+      user.comparePassword(password, (error, isMatch) => {
+        if (isMatch) {
+          return response.ok(user);
+        }
+        return response.notFound();
+      });
+    }
 
     return next;
   });
