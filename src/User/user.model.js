@@ -47,7 +47,6 @@ const UserSchema = new Schema(
     },
     accountNumber: {
       type: String,
-      unique: true,
       trim: true,
       index: true,
       exists: true,
@@ -150,6 +149,15 @@ UserSchema.methods.comparePassword = function comparePassword(password, done) {
     }
     return done(null, isMatch);
   });
+};
+
+UserSchema.methods.setAccountNumber = function setAccountNumber(
+  criteria,
+  done
+) {
+  this.accountNumber = criteria;
+  this.save();
+  return done;
 };
 
 mongoose.plugin(actions);
