@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const actions = require('mongoose-rest-actions');
+const _ = require('lodash');
 const { FileTypes } = require('@lykmapipo/file');
 
 const { Schema, model } = mongoose;
@@ -14,6 +15,17 @@ const AdvertSchema = new Schema({
     required: true,
   },
 });
+
+AdvertSchema.pre('save', function preValidate(done) {
+  return this.preValidate(done);
+});
+
+AdvertSchema.methods.preValidate = async function preValidate(done) {
+  if (_.isEmpty(this.description)) {
+    this.description = this.title;
+  }
+  return done();
+};
 
 mongoose.plugin(actions);
 
