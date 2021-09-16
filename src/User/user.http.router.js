@@ -80,7 +80,7 @@ router.post(
         data.setAccountNumber(accountNumber);
         const payload = data.phone.replace(data.phone.charAt(0), '255');
         sendSms(
-          `Karibu Sokasoko, ${data.firstName} ${data.lastName}.Tarakimu zako za usajili ni : ${data.accountNumber}`,
+          `Karibu Sokasoko ${data.firstName} ${data.lastName}, Tafadhali tunza tarakimu zako hizi za usajili. ${data.accountNumber}`,
           payload
         );
         return done(null, data);
