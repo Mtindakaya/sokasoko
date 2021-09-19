@@ -8,7 +8,7 @@ const { Schema, model } = mongoose;
 const AdvertSchema = new Schema({
   title: { type: String, required: true },
   description: String,
-  image: {
+  photo: {
     type: Schema.Types.ObjectId,
     ref: FileTypes.File.ref,
     autopopulate: true,
