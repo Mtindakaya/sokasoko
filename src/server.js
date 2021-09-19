@@ -3,9 +3,6 @@ const { connect } = require('@lykmapipo/mongoose-common');
 const { getNumber, getString } = require('@lykmapipo/env');
 const { fileRouter, createModels } = require('@lykmapipo/file');
 
-const PlayerRouter = require('./Player/player.http.router');
-const GuardianRouter = require('./Guardian/guardian.http.router');
-const CoachRouter = require('./Coach/coach.http.router');
 const AcademyRouter = require('./Academy/academy.http.router');
 const UserRouter = require('./User/user.http.router');
 const AdvertRouter = require('./Advert/advert.http.router');
@@ -22,15 +19,7 @@ connect(MONGODB_URI, (error) => {
 
   createModels();
 
-  mount([
-    fileRouter,
-    PlayerRouter,
-    GuardianRouter,
-    CoachRouter,
-    AcademyRouter,
-    UserRouter,
-    AdvertRouter,
-  ]);
+  mount([fileRouter, AcademyRouter, UserRouter, AdvertRouter]);
 
   start(PORT, (err) => {
     if (err) {
