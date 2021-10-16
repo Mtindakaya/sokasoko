@@ -66,25 +66,53 @@ router.post(
   PATH_LIST,
   uploaderFor(),
   postFor({
+    // eslint-disable-next-line consistent-return
     post: async (body, done) => {
       const userType = _.get(body, 'type', 'PLAYER');
-      User.post({ ...body }, async (err, data) => {
-        if (err) {
-          return done(err, null);
-        }
-        const counter = await Counter.getNextSequenceValue('memberId');
-        const accountNumber = `TFH-${userType.charAt(0)}-A${leftFillNum(
-          counter,
-          6
-        )}`;
-        data.setAccountNumber(accountNumber);
-        const payload = data.phone.replace(data.phone.charAt(0), '255');
-        sendSms(
-          `Karibu Sokasoko ${data.firstName} ${data.lastName}, Tafadhali tunza tarakimu zako hizi za usajili. ${data.accountNumber}`,
-          payload
-        );
-        return done(null, data);
-      });
+      const phone = _.get(body, 'phone');
+      const isOwner = _.get(body, 'subAccount', 'false');
+
+      const isPhoneExists = await User.where('phone', phone).count();
+
+      if (isPhoneExists === 0) {
+        User.post({ ...body }, async (err, data) => {
+          if (err) {
+            return done(err, null);
+          }
+          const counter = await Counter.getNextSequenceValue('memberId');
+          const accountNumber = `TFH-${userType.charAt(0)}-A${leftFillNum(
+            counter,
+            6
+          )}`;
+          data.setAccountNumber(accountNumber);
+          const payload = data.phone.replace(data.phone.charAt(0), '255');
+          sendSms(
+            `Karibu Sokasoko ${data.firstName} ${data.lastName}, Tafadhali tunza tarakimu zako hizi za usajili. ${data.accountNumber}`,
+            payload
+          );
+          return done(null, data);
+        });
+      } else if (isPhoneExists > 0 && isOwner === 'true') {
+        User.post({ ...body }, async (err, data) => {
+          if (err) {
+            return done(err, null);
+          }
+          const counter = await Counter.getNextSequenceValue('memberId');
+          const accountNumber = `TFH-${userType.charAt(0)}-A${leftFillNum(
+            counter,
+            6
+          )}`;
+          data.setAccountNumber(accountNumber);
+          const payload = data.phone.replace(data.phone.charAt(0), '255');
+          sendSms(
+            `Karibu Sokasoko umemsajili ${data.firstName} ${data.lastName}, Tafadhali tunza tarakimu zako hizi zake za usajili. ${data.accountNumber}`,
+            payload
+          );
+          return done(null, data);
+        });
+      } else {
+        return done(new Error('Phone number exists'), null);
+      }
     },
   })
 );

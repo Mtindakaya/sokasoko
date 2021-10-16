@@ -54,7 +54,6 @@ const UserSchema = new Schema(
     phone: {
       type: String,
       required: [true, 'Phone Number already exists'],
-      unique: true,
       index: true,
       trim: true,
     },
@@ -121,6 +120,7 @@ const UserSchema = new Schema(
       ref: FileTypes.File.ref,
       autopopulate: true,
     },
+    subAccount: { type: Boolean, default: false },
     password: { type: String, required: true },
   },
   SCHEMA_OPTIONS
@@ -159,6 +159,10 @@ UserSchema.methods.setAccountNumber = function setAccountNumber(
   this.save();
   return done;
 };
+
+// UserSchema.statics.checkPhone = function checkPhone(phone, cb) {
+//   return this.model.findOne({ phone }, cb);
+// };
 
 mongoose.plugin(actions);
 
