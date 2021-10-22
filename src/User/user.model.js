@@ -53,7 +53,6 @@ const UserSchema = new Schema(
     },
     phone: {
       type: String,
-      required: [true, 'Phone Number already exists'],
       index: true,
       trim: true,
     },
@@ -118,10 +117,20 @@ const UserSchema = new Schema(
     profileImage: {
       type: Schema.Types.ObjectId,
       ref: FileTypes.File.ref,
-      autopopulate: true,
+      // autopopulate: true,
     },
+    email: { type: String, trim: true },
+    contact_number: { type: String, trim: true },
+    facebook: { type: String, trim: true },
+    youtube: { type: String, trim: true },
+    instagram: { type: String, trim: true },
+    twitter: { type: String, trim: true },
+    linkedin: { type: String, trim: true },
     subAccount: { type: Boolean, default: false },
     password: { type: String, required: true },
+    fifaId: { type: String, trim: true },
+    license_level: { type: String, trim: true },
+    education_level: { type: String, trim: true },
   },
   SCHEMA_OPTIONS
 );
@@ -159,10 +168,6 @@ UserSchema.methods.setAccountNumber = function setAccountNumber(
   this.save();
   return done;
 };
-
-// UserSchema.statics.checkPhone = function checkPhone(phone, cb) {
-//   return this.model.findOne({ phone }, cb);
-// };
 
 mongoose.plugin(actions);
 
