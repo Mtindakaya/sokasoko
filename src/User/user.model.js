@@ -29,7 +29,7 @@ const positions = [
 
 const foot = ['RIGHT', 'LEFT', 'BOTH'];
 
-const types = ['PLAYER', 'COACH', 'GUARDIAN'];
+const types = ['PLAYER', 'COACH', 'GUARDIAN', 'ACADEMY'];
 
 const UserSchema = new Schema(
   {
@@ -117,7 +117,14 @@ const UserSchema = new Schema(
     profileImage: {
       type: Schema.Types.ObjectId,
       ref: FileTypes.File.ref,
-      // autopopulate: true,
+      autopopulate: true,
+      default: null,
+    },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      autopopulate: true,
+      default: null,
     },
     email: { type: String, trim: true },
     contact_number: { type: String, trim: true },
@@ -131,6 +138,10 @@ const UserSchema = new Schema(
     fifaId: { type: String, trim: true },
     license_level: { type: String, trim: true },
     education_level: { type: String, trim: true },
+    academy_name: { type: String, trim: true },
+    academy_registration: { type: String, trim: true },
+    academy_description: { type: String, trim: true },
+    tafoca: { type: String, enum: ['YES', 'NO'] },
   },
   SCHEMA_OPTIONS
 );
