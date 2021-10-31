@@ -6,6 +6,7 @@ const { fileRouter, createModels } = require('@lykmapipo/file');
 const AcademyRouter = require('./Academy/academy.http.router');
 const UserRouter = require('./User/user.http.router');
 const AdvertRouter = require('./Advert/advert.http.router');
+const CvRouter = require('./Cv/cv.http.router');
 const MediaRouter = require('./Media/media.http.router');
 
 const PORT = getNumber('PORT', 5000);
@@ -20,7 +21,14 @@ connect(MONGODB_URI, (error) => {
 
   createModels();
 
-  mount([fileRouter, AcademyRouter, MediaRouter, UserRouter, AdvertRouter]);
+  mount([
+    fileRouter,
+    AcademyRouter,
+    CvRouter,
+    MediaRouter,
+    UserRouter,
+    AdvertRouter,
+  ]);
 
   start(PORT, (err) => {
     if (err) {
