@@ -19,6 +19,7 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/users/:id';
 const PATH_LIST = '/users';
 const PATH_LOGIN = '/users/login';
+const PATH_IMAGE = '/users/upload/:id';
 const PATH_SCHEMA = '/users/schema/';
 
 const User = require('./user.model');
@@ -165,6 +166,23 @@ router.post(PATH_LOGIN, (request, response) => {
       return response.error('Failed to Login');
     });
   });
+});
+
+router.patch(PATH_IMAGE, uploaderFor(), (request, response) => {
+  const id = _.get(request, 'params.id');
+  const profile = _.get(request, 'body.profileImage');
+
+  User.findByIdAndUpdate(
+    { _id: id },
+    { profileImage: profile },
+    { new: false },
+    (err, doc) => {
+      if (err) {
+        return response.error(err);
+      }
+      return response.ok(doc);
+    }
+  );
 });
 
 module.exports = router;
