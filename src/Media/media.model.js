@@ -3,12 +3,14 @@ const actions = require('mongoose-rest-actions');
 
 const { Schema, model } = mongoose;
 
+const MediaTypes = ['File', 'Link'];
+
 const MediaSchema = new Schema(
   {
     title: { type: String, required: true },
     description: String,
-    content: { type: String, required: true },
-    type: { type: String, required: true },
+    content: { type: Schema.Types.Mixed, required: true },
+    type: { type: String, required: true, enum: MediaTypes },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
