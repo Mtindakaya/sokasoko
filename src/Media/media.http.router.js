@@ -8,6 +8,7 @@ const {
   putFor,
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
+const { uploaderFor } = require('@lykmapipo/file');
 const { getString } = require('@lykmapipo/env');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
@@ -47,8 +48,10 @@ router.get(
 
 router.post(
   PATH_LIST,
+  uploaderFor(),
   postFor({
     post: async (body, done) => {
+      console.log(body);
       return Media.post(body, done);
     },
   })
