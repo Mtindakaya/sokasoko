@@ -110,8 +110,29 @@ router.post(
           data.setAccountNumber(accountNumber);
           return done(null, data);
         });
+      } else if (!_.isUndefined(phone) && isOwner.toLowerCase() === 'true') {
+        User.post({ ...body }, async (err, data) => {
+          if (err) {
+            return done(err, null);
+          }
+          const counter = await Counter.getNextSequenceValue('memberId');
+          const accountNumber = `TFH-${userType.charAt(0)}-A${leftFillNum(
+            counter,
+            6
+          )}`;
+          data.setAccountNumber(accountNumber);
+          const payload = data.phone.replace(data.phone.charAt(0), '255');
+          sendSms(
+            `Karibu Sokasoko ${data.firstName} ${data.lastName}, Tafadhali tunza tarakimu zako hizi za usajili. ${data.accountNumber}`,
+            payload
+          );
+          return done(null, data);
+        });
       } else {
-        return done(new Error('Phone number exists'), null);
+        return done(
+          new Error('An Error occured. Please contact the Administrator'),
+          null
+        );
       }
     },
   })
