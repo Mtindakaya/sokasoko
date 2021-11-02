@@ -123,7 +123,6 @@ const UserSchema = new Schema(
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      autopopulate: true,
       default: null,
     },
     email: { type: String, trim: true },
