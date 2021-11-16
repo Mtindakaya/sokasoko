@@ -17,6 +17,10 @@ const CvSchema = new Schema(
       type: Date,
       required: true,
     },
+    teamInfo: {
+      type: Schema.Types.ObjectId,
+      ref: 'Team',
+    },
     end_date: {
       type: Date,
     },
