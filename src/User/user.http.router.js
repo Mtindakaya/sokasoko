@@ -10,7 +10,8 @@ const {
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
 const _ = require('lodash');
-const { uploaderFor } = require('@lykmapipo/file');
+// const { uploaderFor } = require('@lykmapipo/file');
+const { uploadFor } = require('../Utils/uploader');
 const Counter = require('../Counter/counter.model');
 const { leftFillNum, sendSms } = require('../Utils/utils');
 
@@ -65,7 +66,7 @@ router.get(
 
 router.post(
   PATH_LIST,
-  uploaderFor(),
+  uploadFor(),
   postFor({
     // eslint-disable-next-line consistent-return
     post: async (body, done) => {
@@ -140,7 +141,7 @@ router.post(
 
 router.patch(
   PATH_SINGLE,
-  uploaderFor(),
+  uploadFor(),
   patchFor({
     patch: (body, done) => {
       return User.patch(body, done);
@@ -150,7 +151,7 @@ router.patch(
 
 router.put(
   PATH_SINGLE,
-  uploaderFor(),
+  uploadFor(),
   putFor({
     put: (body, done) => {
       return User.put(body, done);
@@ -189,7 +190,7 @@ router.post(PATH_LOGIN, (request, response) => {
   });
 });
 
-router.patch(PATH_IMAGE, uploaderFor(), (request, response) => {
+router.patch(PATH_IMAGE, uploadFor(), (request, response) => {
   const id = _.get(request, 'params.id');
   const profile = _.get(request, 'body.profileImage');
 
