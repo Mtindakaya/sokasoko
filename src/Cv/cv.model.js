@@ -9,17 +9,13 @@ const CvSchema = new Schema(
       required: [true, 'name is required'],
       trim: true,
     },
-    description: {
-      type: String,
-    },
     isCurrent: { type: Boolean, default: false },
+    person: { type: String },
+    type: { type: String, enum: ['Manager', 'Coach'] },
+    phone: String,
     start_date: {
       type: Date,
       required: true,
-    },
-    teamInfo: {
-      type: Schema.Types.ObjectId,
-      ref: 'Team',
     },
     end_date: {
       type: Date,
