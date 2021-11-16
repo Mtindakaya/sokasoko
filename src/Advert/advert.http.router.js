@@ -8,8 +8,8 @@ const {
   putFor,
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
-const { uploaderFor } = require('@lykmapipo/file');
 const { getString } = require('@lykmapipo/env');
+const { uploadFor } = require('../Utils/uploader');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/adverts/:id';
@@ -48,7 +48,7 @@ router.get(
 
 router.post(
   PATH_LIST,
-  uploaderFor(),
+  uploadFor(),
   postFor({
     post: async (body, done) => {
       return Advert.post(body, done);
@@ -58,7 +58,7 @@ router.post(
 
 router.patch(
   PATH_SINGLE,
-  uploaderFor(),
+  uploadFor(),
   patchFor({
     patch: (body, done) => Advert.patch(body, done),
   })
@@ -66,7 +66,7 @@ router.patch(
 
 router.put(
   PATH_SINGLE,
-  uploaderFor(),
+  uploadFor(),
   putFor({
     put: (body, done) => Advert.put(body, done),
   })

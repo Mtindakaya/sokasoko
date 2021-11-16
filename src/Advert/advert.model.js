@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const actions = require('mongoose-rest-actions');
 const _ = require('lodash');
-const { FileTypes } = require('@lykmapipo/file');
 
 const { Schema, model } = mongoose;
 
@@ -9,9 +8,7 @@ const AdvertSchema = new Schema({
   title: { type: String, required: true },
   description: String,
   photo: {
-    type: Schema.Types.ObjectId,
-    ref: FileTypes.File.ref,
-    autopopulate: true,
+    type: String,
     required: true,
   },
 });
