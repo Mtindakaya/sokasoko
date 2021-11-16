@@ -1,21 +1,14 @@
 const mongoose = require('mongoose');
 const actions = require('mongoose-rest-actions');
-const { FileTypes } = require('@lykmapipo/file');
 
 const { Schema, model } = mongoose;
 
-const MediaTypes = ['File', 'Link'];
+const MediaTypes = ['Image', 'Link'];
 
 const MediaSchema = new Schema(
   {
     title: { type: String, required: true },
     description: String,
-    content: {
-      type: Schema.Types.ObjectId,
-      ref: FileTypes.File.ref,
-      autopopulate: true,
-      default: null,
-    },
     url: { type: String },
     type: { type: String, required: true, enum: MediaTypes },
     createdBy: {
