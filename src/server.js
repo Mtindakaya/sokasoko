@@ -1,7 +1,7 @@
 const { start, app, mount } = require('@lykmapipo/express-common');
 const { connect } = require('@lykmapipo/mongoose-common');
 const { getNumber, getString } = require('@lykmapipo/env');
-const { fileRouter, createModels } = require('@lykmapipo/file');
+// const { fileRouter, createModels } = require('@lykmapipo/file');
 
 const AcademyRouter = require('./Academy/academy.http.router');
 const UserRouter = require('./User/user.http.router');
@@ -19,10 +19,10 @@ app.get('/', (req, res) => {
 connect(MONGODB_URI, (error) => {
   if (error) throw new Error(error);
 
-  createModels();
+  // createModels();
 
   mount([
-    fileRouter,
+    // fileRouter,
     AcademyRouter,
     CvRouter,
     MediaRouter,
