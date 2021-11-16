@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const actions = require('mongoose-rest-actions');
 const bcrypt = require('bcryptjs');
-const { FileTypes } = require('@lykmapipo/file');
 
 const { generateHash } = require('../Utils/utils');
 
@@ -115,10 +114,8 @@ const UserSchema = new Schema(
       searchable: true,
     },
     profileImage: {
-      type: Schema.Types.ObjectId,
-      ref: FileTypes.File.ref,
-      autopopulate: true,
-      default: null,
+      type: String,
+      default: 'https://sokasoko.s3.us-west-2.amazonaws.com/avatar.png',
     },
     createdBy: {
       type: Schema.Types.ObjectId,
