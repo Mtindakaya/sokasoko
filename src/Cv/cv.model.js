@@ -12,6 +12,7 @@ const CvSchema = new Schema(
     description: {
       type: String,
     },
+    isCurrent: { type: Boolean, default: false },
     start_date: {
       type: Date,
       required: true,
