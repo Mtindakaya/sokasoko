@@ -17,6 +17,7 @@ const uploadS3 = multer({
     metadata: (req, file, cb) => {
       cb(null, { fieldName: file.fieldname });
     },
+    contentType: multers3.AUTO_CONTENT_TYPE,
     key: (req, file, cb) => {
       cb(null, `${Date.now().toString()}-${file.originalname}`);
     },
