@@ -142,7 +142,11 @@ const UserSchema = new Schema(
   SCHEMA_OPTIONS
 );
 
-UserSchema.index({ firstName: 'text', lastName: 'text' });
+UserSchema.index({
+  firstName: 'text',
+  lastName: 'text',
+  accountNumber: 'text',
+});
 
 UserSchema.pre('save', function preValidate(done) {
   return this.preValidate(done);
