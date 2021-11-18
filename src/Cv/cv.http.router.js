@@ -49,7 +49,6 @@ router.post(
   PATH_LIST,
   postFor({
     post: async (body, done) => {
-      console.log(body);
       return Cv.post(body, done);
     },
   })
