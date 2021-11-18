@@ -19,6 +19,7 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 
 const PATH_SINGLE = '/users/:id';
 const PATH_LIST = '/users';
+const PATH_SEARCH = '/users/search';
 const PATH_LOGIN = '/users/login';
 const PATH_IMAGE = '/users/upload/:id';
 const PATH_SCHEMA = '/users/schema/';
@@ -47,6 +48,27 @@ router.get(
     },
   })
 );
+
+router.get(PATH_SEARCH, (request, response) => {
+  const { mquery } = request;
+  const query = _.get(mquery, 'filter.text', '');
+  User.find(
+    {
+      $or: [
+        { firstName: { $regex: query, $options: 'i' } },
+        { lastName: { $regex: query, $options: 'i' } },
+        { accountNumber: { $regex: query, $options: 'i' } },
+      ],
+    },
+    (error, data) => {
+      if (error) {
+        return response.error(error);
+      }
+
+      return response.ok(data);
+    }
+  );
+});
 
 router.get(
   PATH_SINGLE,
