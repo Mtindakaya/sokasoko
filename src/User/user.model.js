@@ -6,6 +6,8 @@ const { generateHash } = require('../Utils/utils');
 
 const { Schema, model } = mongoose;
 
+// mongoose.set('debug', true);
+
 const SCHEMA_OPTIONS = {
   id: false,
   timestamps: true,
