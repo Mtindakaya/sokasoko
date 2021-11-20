@@ -11,6 +11,7 @@ const {
 const { getString } = require('@lykmapipo/env');
 const _ = require('lodash');
 // const { uploaderFor } = require('@lykmapipo/file');
+// const autoParse = require('auto-parse');
 const { uploadFor } = require('../Utils/uploader');
 const Counter = require('../Counter/counter.model');
 const { leftFillNum, sendSms } = require('../Utils/utils');
@@ -44,6 +45,21 @@ router.get(
   PATH_LIST,
   getFor({
     get: (options, done) => {
+      const { filter } = options;
+      let values;
+      if (filter.start_range || filter.end_range) {
+        values = {
+          dob: { $gte: filter.start_range, $lte: filter.end_range },
+        };
+      }
+
+      const payload = _.assign({}, filter, { ...values });
+
+      const data = _.omit(payload, ['start_range', 'end_range']);
+
+      // eslint-disable-next-line no-param-reassign
+      options.filter = data;
+      console.log(options);
       return User.get(options, done);
     },
   })
@@ -65,7 +81,7 @@ router.get(PATH_SEARCH, (request, response) => {
         return response.error(error);
       }
 
-      return response.ok(data);
+      return response.ok({ data });
     }
   );
 });
