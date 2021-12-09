@@ -99,7 +99,7 @@ router.get(
         if (err) {
           return done(err, null);
         }
-        return done(data, null);
+        return done(null, data);
       });
     },
   })
