@@ -8,26 +8,25 @@ const UserRouter = require('./User/user.http.router');
 const AdvertRouter = require('./Advert/advert.http.router');
 const CvRouter = require('./Cv/cv.http.router');
 const MediaRouter = require('./Media/media.http.router');
+const AgentRouter = require('./Agent/agent.http.router');
 
 const PORT = getNumber('PORT', 5000);
 const MONGODB_URI = getString('MONGODB_URI');
 
-app.get('/', (req, res) => {
-  res.send({ status: 'working' });
+app.get('/', (request, response) => {
+  return response.ok({ status: 'working' });
 });
 
 connect(MONGODB_URI, (error) => {
   if (error) throw new Error(error);
 
-  // createModels();
-
   mount([
-    // fileRouter,
     AcademyRouter,
     CvRouter,
     MediaRouter,
     UserRouter,
     AdvertRouter,
+    AgentRouter,
   ]);
 
   start(PORT, (err) => {
