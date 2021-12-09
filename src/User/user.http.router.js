@@ -47,19 +47,22 @@ router.get(
     get: (options, done) => {
       const { filter } = options;
       let values;
-      if (filter.start_range || filter.end_range) {
+      if (filter && (filter.start_range || filter.end_range)) {
         values = {
-          dob: { $gte: filter.start_range, $lte: filter.end_range },
+          dob: {
+            $gte: options.filter.start_range,
+            $lte: options.filter.end_range,
+          },
         };
+
+        const payload = _.assign({}, options.filter, { ...values });
+        const data = _.omit(payload, ['start_range', 'end_range']);
+
+        // eslint-disable-next-line no-param-reassign
+        options.filter = data;
+        return User.get(options, done);
       }
 
-      const payload = _.assign({}, filter, { ...values });
-
-      const data = _.omit(payload, ['start_range', 'end_range']);
-
-      // eslint-disable-next-line no-param-reassign
-      options.filter = data;
-      console.log(options);
       return User.get(options, done);
     },
   })
