@@ -7,6 +7,7 @@ const AgentSchema = new Schema(
   {
     name: { type: String, required: true },
     phone: String,
+    associatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   {
     id: false,
