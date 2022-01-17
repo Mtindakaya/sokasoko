@@ -1,68 +1,39 @@
 const mongoose = require('mongoose');
+const actions = require('mongoose-rest-actions');
 
 const { Schema, model } = mongoose;
 
-// TODO: Should Add contact info and Created By
-const AcademySchema = new Schema({
-  name: {
-    type: String,
-    required: [true, 'name is required'],
-    unique: true,
-    trim: true,
-    fake: {
-      generator: 'company',
-      type: 'companyName',
-    },
-  },
-  registrationNumber: {
-    type: String,
-    unique: true,
-    trim: true,
-  },
-  isTafoca: {
-    type: Boolean,
-    default: false,
-  },
-  accountNumber: {
-    type: Number,
-    unique: true,
-    trim: true,
-    index: true,
-  },
-  phone: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    fake: {
-      generator: 'phone',
-      type: 'phoneNumber',
-    },
-  },
-  bio: {
-    type: String,
-  },
-  location: {
-    type: String,
-    trim: true,
-    index: true,
-    searchable: true,
-    fake: {
-      generator: 'address',
-      type: 'streetAddress',
-    },
-  },
-  dob: {
-    type: Date,
-    required: true,
-    fake: {
-      generator: 'datatype',
-      type: 'datetime',
-    },
-  },
-  password: { type: String },
-});
+const levels = ['U20', 'U17', 'U15', 'U13', 'U11', 'U9'];
 
-mongoose.plugin(require('@lykmapipo/mongoose-faker'));
+const AcademySchema = new Schema(
+  {
+    player: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      autopopulate: true,
+    },
+    level: {
+      type: String,
+      enum: levels,
+      required: true,
+    },
+    addedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      autopopulate: true,
+    },
+  },
+  {
+    id: false,
+    timestamps: true,
+    toJSON: { getters: true },
+    toObject: { getters: true },
+    emitIndexErrors: true,
+  }
+);
+
+mongoose.plugin(actions);
 
 module.exports = model('Academy', AcademySchema);
