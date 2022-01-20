@@ -124,6 +124,7 @@ const UserSchema = new Schema(
       ref: 'User',
       default: null,
     },
+    street: String,
     email: { type: String, trim: true },
     contact_number: { type: String, trim: true },
     facebook: { type: String, trim: true },
