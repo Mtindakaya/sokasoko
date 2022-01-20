@@ -149,6 +149,8 @@ UserSchema.index({
   firstName: 'text',
   lastName: 'text',
   accountNumber: 'text',
+  academy_name: 'text',
+  type: 'text',
 });
 
 UserSchema.pre('save', function preValidate(done) {
