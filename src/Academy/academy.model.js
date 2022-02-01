@@ -12,6 +12,7 @@ const AcademySchema = new Schema(
       ref: 'User',
       required: true,
       autopopulate: true,
+      unique: true,
     },
     level: {
       type: String,
