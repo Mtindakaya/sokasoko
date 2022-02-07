@@ -78,7 +78,6 @@ router.get(PATH_SEARCH, (request, response) => {
         { lastName: { $regex: query, $options: 'i' } },
         { accountNumber: { $regex: query, $options: 'i' } },
         { academy_name: { $regex: query, $options: 'i' } },
-        { accountNumber: { $regex: query, $options: 'i' } },
         { type: { $regex: query, $options: 'i' } },
       ],
     },
