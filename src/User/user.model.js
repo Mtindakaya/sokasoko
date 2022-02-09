@@ -22,7 +22,7 @@ const positions = [
   'RIGHT BACK',
   'LEFT BACK',
   'WING BACK',
-  'OFFENSIVE BACK',
+  'OFFENSIVE MIDFIELD',
   'DEFENSIVE MIDFIELD',
   'STRIKER',
   'WINGER',
