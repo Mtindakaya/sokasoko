@@ -50,7 +50,7 @@ router.get(
 router.post(
   PATH_LIST,
   postFor({
-    post: async (body, done) => {
+    post: (body, done) => {
       return Academy.post(body, (error, data) => {
         if (error) return done(error, null);
 
@@ -88,7 +88,23 @@ router.put(
 router.delete(
   PATH_SINGLE,
   deleteFor({
-    del: (options, done) => Academy.del(options, done),
+    del: (options, done) => {
+      return Academy.del(options, (error, data) => {
+        if (error) return done(error, null);
+
+        const playerId = _.get(data, 'player._id');
+
+        return User.findById(playerId, (err, player) => {
+          if (err) return done(err, null);
+
+          // eslint-disable-next-line no-param-reassign
+          player.academy = null;
+          player.save();
+
+          return done(null, data);
+        });
+      });
+    },
   })
 );
 
