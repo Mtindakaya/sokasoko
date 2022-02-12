@@ -45,24 +45,6 @@ router.get(
   PATH_LIST,
   getFor({
     get: (options, done) => {
-      const { filter } = options;
-      let values;
-      if (filter && (filter.start_range || filter.end_range)) {
-        values = {
-          dob: {
-            $gte: options.filter.start_range,
-            $lte: options.filter.end_range,
-          },
-        };
-
-        const payload = _.assign({}, options.filter, { ...values });
-        const data = _.omit(payload, ['start_range', 'end_range']);
-
-        // eslint-disable-next-line no-param-reassign
-        options.filter = data;
-        return User.get(options, done);
-      }
-
       return User.get(options, done);
     },
   })
