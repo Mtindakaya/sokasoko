@@ -141,7 +141,12 @@ const UserSchema = new Schema(
     academy_registration: { type: String, trim: true },
     academy_description: { type: String, trim: true },
     tafoca: { type: String, enum: ['YES', 'NO'] },
-    academy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    academy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      autopopulate: true,
+    },
   },
   SCHEMA_OPTIONS
 );
