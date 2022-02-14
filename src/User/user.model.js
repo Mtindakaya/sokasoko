@@ -143,7 +143,7 @@ const UserSchema = new Schema(
     tafoca: { type: String, enum: ['YES', 'NO'] },
     academy: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Academy',
       default: null,
       autopopulate: true,
     },
@@ -180,6 +180,19 @@ UserSchema.methods.comparePassword = function comparePassword(password, done) {
     }
     return done(null, isMatch);
   });
+};
+
+UserSchema.methods.changePassword = async function changePassword(
+  newPassword,
+  done
+) {
+  try {
+    this.password = await generateHash(newPassword);
+
+    return done(null, this);
+  } catch (e) {
+    return done(e, null);
+  }
 };
 
 UserSchema.methods.setAccountNumber = function setAccountNumber(
