@@ -14,15 +14,15 @@ const _ = require('lodash');
 // const autoParse = require('auto-parse');
 const { uploadFor } = require('../Utils/uploader');
 const Counter = require('../Counter/counter.model');
-const { leftFillNum, sendSms } = require('../Utils/utils');
+const { leftFillNum, sendSms, generateHash } = require('../Utils/utils');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 
 const PATH_SINGLE = '/users/:id';
+const PATH_RESET = '/users/reset/:id';
 const PATH_LIST = '/users';
 const PATH_SEARCH = '/users/search';
 const PATH_LOGIN = '/users/login';
-const PATH_IMAGE = '/users/upload/:id';
 const PATH_SCHEMA = '/users/schema/';
 
 const User = require('./user.model');
@@ -90,6 +90,26 @@ router.get(
 );
 
 router.post(
+  PATH_RESET,
+  postFor({
+    post: (options, done) => {
+      const id = _.get(options, 'params.id');
+      const newPassword = _.get(options, 'password', 'sokasoko');
+      User.findById(id, (error, user) => {
+        if (error) {
+          return done(error, null);
+        }
+
+        user.changePassword(newPassword);
+
+        return done(null, user);
+      });
+      // return done(null, 'Accepted');
+    },
+  })
+);
+
+router.post(
   PATH_LIST,
   uploadFor(),
   postFor({
@@ -100,13 +120,14 @@ router.post(
       const isOwner = _.get(body, 'subAccount', 'false');
 
       const isPhoneExists = await User.where('phone', phone).count();
-
+      const passwordValue = _.get(body, 'password', 'sokasoko');
+      const password = await generateHash(passwordValue);
       if (
         !_.isUndefined(phone) &&
         isPhoneExists === 0 &&
         isOwner.toLowerCase() === 'false'
       ) {
-        User.post({ ...body }, async (err, data) => {
+        User.post({ ...body, password }, async (err, data) => {
           if (err) {
             return done(err, null);
           }
@@ -124,7 +145,7 @@ router.post(
           return done(null, data);
         });
       } else if (_.isUndefined(phone) && isOwner.toLowerCase() === 'true') {
-        User.post({ ...body }, async (err, data) => {
+        User.post({ ...body, password }, async (err, data) => {
           if (err) {
             return done(err, null);
           }
@@ -137,7 +158,7 @@ router.post(
           return done(null, data);
         });
       } else if (!_.isUndefined(phone) && isOwner.toLowerCase() === 'true') {
-        User.post({ ...body }, async (err, data) => {
+        User.post({ ...body, password }, async (err, data) => {
           if (err) {
             return done(err, null);
           }
@@ -213,23 +234,6 @@ router.post(PATH_LOGIN, (request, response) => {
       return response.error('Failed to Login');
     });
   });
-});
-
-router.patch(PATH_IMAGE, uploadFor(), (request, response) => {
-  const id = _.get(request, 'params.id');
-  const profile = _.get(request, 'body.profileImage');
-
-  User.findByIdAndUpdate(
-    { _id: id },
-    { profileImage: profile },
-    { new: false },
-    (err, doc) => {
-      if (err) {
-        return response.error(err);
-      }
-      return response.ok(doc);
-    }
-  );
 });
 
 module.exports = router;
