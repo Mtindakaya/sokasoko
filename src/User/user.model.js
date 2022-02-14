@@ -164,12 +164,6 @@ UserSchema.pre('save', function preValidate(done) {
 });
 
 UserSchema.methods.preValidate = async function preValidate(done) {
-  if (!this.isModified('password')) {
-    return done();
-  }
-
-  this.password = await generateHash(this.password);
-
   return done();
 };
 
@@ -183,15 +177,16 @@ UserSchema.methods.comparePassword = function comparePassword(password, done) {
 };
 
 UserSchema.methods.changePassword = async function changePassword(
-  newPassword,
+  password,
   done
 ) {
   try {
-    this.password = await generateHash(newPassword);
+    this.password = await generateHash(password);
+    this.save();
 
-    return done(null, this);
+    return done;
   } catch (e) {
-    return done(e, null);
+    return new Error('Error changing Password');
   }
 };
 
