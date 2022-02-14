@@ -55,7 +55,7 @@ router.post(
         if (error) return done(error, null);
 
         const playerId = _.get(data, 'player._id');
-        const academyId = _.get(data, 'addedBy._id');
+        const academyId = _.get(data, '_id');
 
         return User.findById(playerId, (err, player) => {
           if (err) return done(err, null);
