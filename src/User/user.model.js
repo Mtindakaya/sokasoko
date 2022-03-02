@@ -148,8 +148,13 @@ const UserSchema = new Schema(
     license_level: { type: String, trim: true },
     education_level: { type: String, trim: true },
     academy_name: { type: String, trim: true },
+    company_name: { type: String, trim: true },
+    company_title: { type: String, trim: true },
+    vendor_type: { type: String, trim: true },
+    company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
     academy_description: { type: String, trim: true },
+    referee_license_level: { type: String, trim: true },
     tafoca: { type: String, enum: ['YES', 'NO'] },
     academy: {
       type: Schema.Types.ObjectId,
@@ -167,6 +172,7 @@ UserSchema.index({
   accountNumber: 'text',
   academy_name: 'text',
   type: 'text',
+  company_name: 'text',
 });
 
 UserSchema.pre('save', function preValidate(done) {
