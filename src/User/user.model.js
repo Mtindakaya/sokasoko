@@ -30,7 +30,17 @@ const positions = [
 
 const foot = ['RIGHT', 'LEFT', 'BOTH'];
 
-const types = ['PLAYER', 'COACH', 'GUARDIAN', 'ACADEMY'];
+const types = [
+  'PLAYER',
+  'COACH',
+  'GUARDIAN',
+  'ACADEMY',
+  'VENDOR',
+  'CLUB',
+  'SPONSOR',
+  'AGENT',
+  'REFEREE',
+];
 
 const UserSchema = new Schema(
   {
