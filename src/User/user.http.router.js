@@ -138,8 +138,12 @@ router.post(
           )}`;
           data.setAccountNumber(accountNumber);
           const payload = data.phone.replace(data.phone.charAt(0), '255');
+          const text =
+            data.type === 'SPONSOR' && data.sponsor_type === 'Entity'
+              ? `${data.entity_name}`
+              : `${data.firstName} ${data.lastName}`;
           sendSms(
-            `Karibu Sokasoko ${data.firstName} ${data.lastName}, Tafadhali tunza tarakimu zako hizi za usajili. ${data.accountNumber}`,
+            `Karibu Sokasoko ${text}, Tafadhali tunza tarakimu zako hizi za usajili. ${data.accountNumber}`,
             payload
           );
           return done(null, data);
