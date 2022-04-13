@@ -40,7 +40,7 @@ router.get(PATH_SEARCH, (request, response) => {
   Media.find(
     {
       $or: [
-        { firstName: { $regex: query, $options: 'i' } },
+        { title: { $regex: query, $options: 'i' } },
         { createdBy: { $regex: query, $options: 'i' } },
       ],
     },
