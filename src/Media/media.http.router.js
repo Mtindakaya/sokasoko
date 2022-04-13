@@ -41,7 +41,6 @@ router.get(PATH_SEARCH, (request, response) => {
     {
       $or: [
         { firstName: { $regex: query, $options: 'i' } },
-        { createdAt: { $regex: query, $options: 'i' } },
         { createdBy: { $regex: query, $options: 'i' } },
       ],
     },

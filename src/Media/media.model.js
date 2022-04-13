@@ -29,7 +29,6 @@ const MediaSchema = new Schema(
 
 MediaSchema.index({
   title: 'text',
-  createdAt: 'date',
   createdBy: 'text',
 });
 
