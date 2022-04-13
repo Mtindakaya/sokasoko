@@ -9,12 +9,14 @@ const {
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
+const _ = require('lodash');
 const { uploadFor } = require('../Utils/uploader');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/medias/:id';
 const PATH_LIST = '/medias';
 const PATH_SCHEMA = '/medias/schema/';
+const PATH_SEARCH = '/medias/search';
 
 const Media = require('./media.model');
 
@@ -31,6 +33,27 @@ router.get(
     },
   })
 );
+
+router.get(PATH_SEARCH, (request, response) => {
+  const { mquery } = request;
+  const query = _.get(mquery, 'filter.text', '');
+  Media.find(
+    {
+      $or: [
+        { firstName: { $regex: query, $options: 'i' } },
+        { createdAt: { $regex: query, $options: 'i' } },
+        { createdBy: { $regex: query, $options: 'i' } },
+      ],
+    },
+    (error, data) => {
+      if (error) {
+        return response.error(error);
+      }
+
+      return response.ok({ data });
+    }
+  );
+});
 
 router.get(
   PATH_SINGLE,

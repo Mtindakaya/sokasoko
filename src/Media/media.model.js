@@ -27,6 +27,12 @@ const MediaSchema = new Schema(
   }
 );
 
+MediaSchema.index({
+  title: 'text',
+  createdAt: 'date',
+  createdBy: 'text',
+});
+
 MediaSchema.pre('save', function preValidate(done) {
   return this.preValidate(done);
 });
