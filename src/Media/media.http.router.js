@@ -38,12 +38,10 @@ router.get(PATH_SEARCH, (request, response) => {
   const { mquery } = request;
   const query = _.get(mquery, 'filter.text', '');
   Media.find(
-    [
-      { type: 'Link' },
-      {
-        $or: [{ title: { $regex: query, $options: 'i' } }],
-      },
-    ],
+    {
+      type: 'Link',
+      $or: [{ title: { $regex: query, $options: 'i' } }],
+    },
     (error, data) => {
       if (error) {
         return response.error(error);
