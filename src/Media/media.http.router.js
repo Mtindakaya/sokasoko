@@ -39,10 +39,8 @@ router.get(PATH_SEARCH, (request, response) => {
   const query = _.get(mquery, 'filter.text', '');
   Media.find(
     {
-      $or: [
-        { title: { $regex: query, $options: 'i' } },
-        { createdBy: { $regex: query, $options: 'i' } },
-      ],
+      $or: [{ title: { $regex: query, $options: 'i' } }],
+      $and: [{ type: 'Link' }],
     },
     (error, data) => {
       if (error) {

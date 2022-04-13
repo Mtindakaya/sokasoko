@@ -29,7 +29,6 @@ const MediaSchema = new Schema(
 
 MediaSchema.index({
   title: 'text',
-  createdBy: 'text',
 });
 
 MediaSchema.pre('save', function preValidate(done) {
