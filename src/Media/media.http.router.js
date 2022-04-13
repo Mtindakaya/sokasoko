@@ -40,7 +40,6 @@ router.get(PATH_SEARCH, (request, response) => {
   Media.find(
     {
       $or: [{ title: { $regex: query, $options: 'i' } }],
-      $and: [{ type: 'Link' }],
     },
     (error, data) => {
       if (error) {
