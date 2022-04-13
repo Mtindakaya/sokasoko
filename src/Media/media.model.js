@@ -15,6 +15,7 @@ const MediaSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+      autopopulate: true,
     },
   },
   {
