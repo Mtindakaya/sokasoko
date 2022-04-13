@@ -9,6 +9,7 @@ const AdvertRouter = require('./Advert/advert.http.router');
 const CvRouter = require('./Cv/cv.http.router');
 const MediaRouter = require('./Media/media.http.router');
 const AgentRouter = require('./Agent/agent.http.router');
+const PlaylistRouter = require('./Playlist/playlist.http.router');
 
 const PORT = getNumber('PORT', 5000);
 const MONGODB_URI = getString('MONGODB_URI');
@@ -27,6 +28,7 @@ connect(MONGODB_URI, (error) => {
     UserRouter,
     AdvertRouter,
     AgentRouter,
+    PlaylistRouter,
   ]);
 
   start(PORT, (err) => {
