@@ -132,6 +132,7 @@ const UserSchema = new Schema(
       ref: 'User',
       default: null,
     },
+    suspend: { type: Boolean, default: false },
     street: String,
     email: { type: String, trim: true },
     contact_number: { type: String, trim: true },

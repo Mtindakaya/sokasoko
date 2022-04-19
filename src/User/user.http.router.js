@@ -20,6 +20,8 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 
 const PATH_SINGLE = '/users/:id';
 const PATH_RESET = '/users/reset/:id';
+const PATH_SUSPEND = '/users/suspend/:id';
+const PATH_UNSUSPEND = '/users/unsuspend/:id';
 const PATH_LIST = '/users';
 const PATH_SEARCH = '/users/search';
 const PATH_LOGIN = '/users/login';
@@ -102,6 +104,57 @@ router.post(
         }
 
         user.changePassword(newPassword);
+
+        return done(null, user);
+      });
+    },
+  })
+);
+
+router.post(
+  PATH_SUSPEND,
+  postFor({
+    post: (options, done) => {
+      const id = _.get(options, 'params.id');
+      const message = _.get(options, 'message', 'Account Suspended');
+
+      User.findById(id, async (error, user) => {
+        if (error) {
+          return done(error, null);
+        }
+
+        // eslint-disable-next-line no-param-reassign
+        user.suspend = true;
+        user.save();
+
+        await sendSms(
+          `Sokasoko Account Suspended due to ${message}`,
+          user.phone.replace(user.phone.charAt(0), '255')
+        );
+
+        return done(null, user);
+      });
+    },
+  })
+);
+
+router.post(
+  PATH_UNSUSPEND,
+  postFor({
+    post: (options, done) => {
+      const id = _.get(options, 'params.id');
+      const message = 'Your Account has been reactivated';
+
+      User.findById(id, async (error, user) => {
+        if (error) {
+          return done(error, null);
+        }
+
+        // eslint-disable-next-line no-param-reassign
+        user.suspend = false;
+        user.save();
+
+        await sendSms(message, user.phone.replace(user.phone.charAt(0), '255'));
 
         return done(null, user);
       });
