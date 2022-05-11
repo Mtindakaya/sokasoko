@@ -9,14 +9,17 @@ const {
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
+const _ = require('lodash');
 const { uploadFor } = require('../Utils/uploader');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/adverts/:id';
 const PATH_LIST = '/adverts';
+const CurrentAdvert = '/currentAdvert';
 const PATH_SCHEMA = '/adverts/schema/';
 
 const Advert = require('./advert.model');
+const User = require('../User/user.model');
 
 const router = new Router({
   version: API_VERSION,
@@ -52,6 +55,22 @@ router.post(
   postFor({
     post: async (body, done) => {
       return Advert.post(body, done);
+    },
+  })
+);
+
+router.post(
+  CurrentAdvert,
+  postFor({
+    post: async (body, done) => {
+      const link = _.get(body, 'link');
+      console.log(link);
+      return User.updateMany({}, { advertVideo: link }, (error, res) => {
+        if (error) {
+          return done(error, null);
+        }
+        return done(null, res);
+      });
     },
   })
 );
