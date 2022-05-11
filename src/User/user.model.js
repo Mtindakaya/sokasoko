@@ -163,6 +163,11 @@ const UserSchema = new Schema(
       default: null,
       autopopulate: true,
     },
+    advertVideo: {
+      type: String,
+      // default: 'https://www.youtube.com/watch?v=ui3bUGnNPqw',
+      default: 'https://www.youtube.com/watch?v=eyGPIpZ7208',
+    },
   },
   SCHEMA_OPTIONS
 );
