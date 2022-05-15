@@ -48,6 +48,11 @@ const UserSchema = new Schema(
       searchable: true,
       trim: true,
     },
+    middleName: {
+      type: String,
+      searchable: true,
+      trim: true,
+    },
     lastName: {
       type: String,
       required: [true, 'lastName is required'],
@@ -157,6 +162,11 @@ const UserSchema = new Schema(
     academy_description: { type: String, trim: true },
     referee_license_level: { type: String, trim: true },
     tafoca: { type: String, enum: ['YES', 'NO'] },
+    national_team_call: { type: Number, default: 0 },
+    national_youth_call: { type: Number, default: 0 },
+    umiseta_games: { type: String },
+    umitashumta_games: { type: String },
+    short_bio: { type: String },
     academy: {
       type: Schema.Types.ObjectId,
       ref: 'Academy',
@@ -175,6 +185,7 @@ const UserSchema = new Schema(
 UserSchema.index({
   firstName: 'text',
   lastName: 'text',
+  middleName: 'text',
   accountNumber: 'text',
   academy_name: 'text',
   type: 'text',
