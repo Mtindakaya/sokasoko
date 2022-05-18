@@ -22,6 +22,7 @@ const PATH_SINGLE = '/users/:id';
 const PATH_RESET = '/users/reset/:id';
 const PATH_SUSPEND = '/users/suspend/:id';
 const PATH_UNSUSPEND = '/users/unsuspend/:id';
+const PATH_REMOVE_AGENT = '/users/agent/:id';
 const PATH_LIST = '/users';
 const PATH_SEARCH = '/users/search';
 const PATH_LOGIN = '/users/login';
@@ -163,6 +164,27 @@ router.post(
 );
 
 router.post(
+  PATH_REMOVE_AGENT,
+  postFor({
+    post: (options, done) => {
+      const id = _.get(options, 'params.id');
+
+      User.findById(id, async (error, user) => {
+        if (error) {
+          return done(error, null);
+        }
+
+        // eslint-disable-next-line no-param-reassign
+        user.agent = null;
+        user.save();
+
+        return done(null, user);
+      });
+    },
+  })
+);
+
+router.post(
   PATH_LIST,
   uploadFor(),
   postFor({
@@ -247,6 +269,12 @@ router.patch(
   uploadFor(),
   patchFor({
     patch: (body, done) => {
+      const remove = _.get(body, 'remove');
+      if (remove) {
+        // eslint-disable-next-line no-param-reassign
+        body = _.assign(body, { agent: null });
+        console.log(body);
+      }
       return User.patch(body, done);
     },
   })

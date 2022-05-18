@@ -174,6 +174,12 @@ const UserSchema = new Schema(
       default: null,
       autopopulate: true,
     },
+    agent: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      autopopulate: true,
+    },
     advertVideo: {
       type: String,
       // default: 'https://www.youtube.com/watch?v=ui3bUGnNPqw',
