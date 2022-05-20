@@ -15,7 +15,7 @@ const { uploadFor } = require('../Utils/uploader');
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/adverts/:id';
 const PATH_LIST = '/adverts';
-const CurrentAdvert = '/currentAdvert';
+const CurrentAdvertTimer = '/currentAdvertTimer';
 const PATH_SCHEMA = '/adverts/schema/';
 
 const Advert = require('./advert.model');
@@ -60,12 +60,11 @@ router.post(
 );
 
 router.post(
-  CurrentAdvert,
+  CurrentAdvertTimer,
   postFor({
     post: async (body, done) => {
-      const link = _.get(body, 'link');
-      console.log(link);
-      return User.updateMany({}, { advertVideo: link }, (error, res) => {
+      const duration = _.get(body, 'duration');
+      return User.updateMany({}, { advertDuration: duration }, (error, res) => {
         if (error) {
           return done(error, null);
         }
