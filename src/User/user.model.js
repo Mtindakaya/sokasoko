@@ -185,6 +185,10 @@ const UserSchema = new Schema(
       // default: 'https://www.youtube.com/watch?v=ui3bUGnNPqw',
       default: 'https://www.youtube.com/watch?v=eyGPIpZ7208',
     },
+    advertDuration: {
+      type: Number,
+      default: 5,
+    },
   },
   SCHEMA_OPTIONS
 );
