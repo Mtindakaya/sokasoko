@@ -189,6 +189,10 @@ const UserSchema = new Schema(
       type: Number,
       default: 5,
     },
+    is_mandatory: {
+      type: Boolean,
+      default: false,
+    },
   },
   SCHEMA_OPTIONS
 );
