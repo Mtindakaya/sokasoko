@@ -9,7 +9,6 @@ const {
   schemaFor,
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
-const _ = require('lodash');
 const { uploadFor } = require('../Utils/uploader');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
@@ -18,7 +17,7 @@ const PATH_LIST = '/videos';
 const PATH_SCHEMA = '/videos/schema/';
 
 const Video = require('./video.model');
-const User = require('../User/user.model');
+// const User = require('../User/user.model');
 
 const router = new Router({
   version: API_VERSION,
@@ -53,23 +52,25 @@ router.post(
   uploadFor(),
   postFor({
     post: async (body, done) => {
-      const isMandatory = _.get(body, 'mandatory', false);
+      console.log(body);
+      return Video.post(body, done);
+      // const isMandatory = _.get(body, 'mandatory', false);
 
-      if (isMandatory) {
-        return User.updateMany({}, { is_mandatory: true }, (error) => {
-          if (!error) {
-            return Video.post(body, done);
-          }
-          return done(error, null);
-        });
-      }
+      // if (isMandatory) {
+      //   return User.updateMany({}, { is_mandatory: true }, (error) => {
+      //     if (error) {
+      //       return done(error, null);
+      //     }
+      //     return Video.post(body, done);
+      //   });
+      // }
 
-      return User.updateMany({}, { is_mandatory: false }, (error) => {
-        if (error) {
-          return done(error, null);
-        }
-        return Video.post(body, done);
-      });
+      // return User.updateMany({}, { is_mandatory: false }, (error) => {
+      //   if (error) {
+      //     return done(error, null);
+      //   }
+      //   return Video.post(body, done);
+      // });
     },
   })
 );
