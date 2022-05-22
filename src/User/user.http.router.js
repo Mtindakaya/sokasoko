@@ -66,6 +66,7 @@ router.get(PATH_SEARCH, (request, response) => {
         { company_name: { $regex: query, $options: 'i' } },
         { type: { $regex: query, $options: 'i' } },
       ],
+      suspend: { $ne: true },
     },
     (error, data) => {
       if (error) {
