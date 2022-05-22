@@ -52,25 +52,7 @@ router.post(
   uploadFor(),
   postFor({
     post: async (body, done) => {
-      console.log(body);
       return Video.post(body, done);
-      // const isMandatory = _.get(body, 'mandatory', false);
-
-      // if (isMandatory) {
-      //   return User.updateMany({}, { is_mandatory: true }, (error) => {
-      //     if (error) {
-      //       return done(error, null);
-      //     }
-      //     return Video.post(body, done);
-      //   });
-      // }
-
-      // return User.updateMany({}, { is_mandatory: false }, (error) => {
-      //   if (error) {
-      //     return done(error, null);
-      //   }
-      //   return Video.post(body, done);
-      // });
     },
   })
 );
