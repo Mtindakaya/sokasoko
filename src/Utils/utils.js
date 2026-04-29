@@ -53,7 +53,7 @@ const sendSms = async (text, sender) => {
     .then((response) => {
       info({ message: response.data });
     })
-    .catch((err) => error({ message: err.data.message }));
+    .catch((err) => console.error('SMS failed:', err?.data?.message || err?.message || err));
 };
 
 module.exports = { generateHash, leftFillNum, sendSms };

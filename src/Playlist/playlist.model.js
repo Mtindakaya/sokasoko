@@ -6,6 +6,7 @@ const { Schema, model } = mongoose;
 const PlaylistSchema = new Schema(
   {
     title: { type: String, required: true },
+    description: { type: String, default: '' },
     videos: [
       {
         type: Schema.Types.ObjectId,
@@ -15,6 +16,15 @@ const PlaylistSchema = new Schema(
       },
     ],
     isActive: { type: Boolean, default: false },
+    globalOverride: { type: Boolean, default: false },
+    votingEnabled: { type: Boolean, default: false },
+    scheduledSessions: [
+      {
+        startTime: { type: String, required: true }, // "HH:MM" 24-hour
+        durationMinutes: { type: Number, required: true },
+        days: [{ type: String, enum: ['mon','tue','wed','thu','fri','sat','sun'] }], // empty = every day
+      }
+    ],
   },
   {
     id: false,

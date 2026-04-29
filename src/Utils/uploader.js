@@ -1,32 +1,27 @@
 const multer = require('multer');
+const path = require('path');
 const lodash = require('lodash');
-const multers3 = require('multer-s3');
-const AWS = require('aws-sdk');
-const { getString } = require('@lykmapipo/env');
 
-const s3 = new AWS.S3({
-  accessKeyId: getString('AWS_ACCESS_KEY_ID'),
-  secretAccessKey: getString('AWS_SECRET_ACCESS_KEY'),
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'public/uploads/');
+  },
+  key: (req, file, cb) => {
+    cb(null, `${Date.now().toString()}-${file.originalname}`);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now().toString()}-${file.originalname}`);
+  },
 });
 
-const uploadS3 = multer({
-  storage: multers3({
-    s3,
-    acl: 'public-read',
-    bucket: getString('AWS_STORAGE_BUCKET_NAME'),
-    metadata: (req, file, cb) => {
-      cb(null, { fieldName: file.fieldname });
-    },
-    contentType: multers3.AUTO_CONTENT_TYPE,
-    key: (req, file, cb) => {
-      cb(null, `${Date.now().toString()}-${file.originalname}`);
-    },
-  }),
+const uploadLocal = multer({
+  storage,
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB max
 });
 
 const uploadFor = () => {
   return (request, response, next) => {
-    const upload = uploadS3.any();
+    const upload = uploadLocal.any();
 
     upload(request, response, (error) => {
       if (error) {
@@ -38,8 +33,8 @@ const uploadFor = () => {
       }
 
       request.body = !lodash.isEmpty(request.body) ? request.body : {};
-      lodash.forEach(request.files, ({ fieldname, location }) => {
-        request.body[fieldname] = location;
+      lodash.forEach(request.files, ({ fieldname, filename }) => {
+        request.body[fieldname] = `http://192.168.1.134:5001/uploads/${filename}`;
       });
 
       return next();

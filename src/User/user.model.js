@@ -38,7 +38,13 @@ const types = [
   'SPONSOR',
   'AGENT',
   'REFEREE',
+  'SCOUT',
+  'FIELD_OWNER',
 ];
+
+const FREE_TRIAL_DAYS = 60;
+const GRACE_PERIOD_DAYS = 5;
+const NOTIFY_BEFORE_DAYS = 7;
 
 const UserSchema = new Schema(
   {
@@ -94,7 +100,8 @@ const UserSchema = new Schema(
     },
     dob: {
       type: Date,
-      required: true,
+      required: false,
+      default: null,
     },
     age: { type: Number },
     nationality: {
@@ -138,6 +145,7 @@ const UserSchema = new Schema(
       default: null,
     },
     suspend: { type: Boolean, default: false },
+    playlistOverride: { type: Boolean, default: false },
     street: String,
     email: { type: String, trim: true },
     contact_number: { type: String, trim: true },
@@ -146,6 +154,8 @@ const UserSchema = new Schema(
     instagram: { type: String, trim: true },
     twitter: { type: String, trim: true },
     linkedin: { type: String, trim: true },
+    website: { type: String, trim: true },
+    contact_email: { type: String, trim: true },
     subAccount: { type: Boolean, default: false },
     password: { type: String, required: true },
     fifaId: { type: String, trim: true },
@@ -160,9 +170,28 @@ const UserSchema = new Schema(
     company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
     coach_registration: { type: String, trim: true },
+    coach_license: { type: String, trim: true },
+    linkedAcademy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    ownerName: { type: String, trim: true },
+    secretary: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    secretaryName: { type: String, trim: true },
     academy_description: { type: String, trim: true },
     referee_license_level: { type: String, trim: true },
     tafoca: { type: String, enum: ['YES', 'NO'] },
+    talent_id_training: { type: String, enum: ['YES', 'NO'], trim: true },
     national_team_call: { type: Number, default: 0 },
     national_youth_call: { type: Number, default: 0 },
     umiseta_games: { type: String },
@@ -182,7 +211,6 @@ const UserSchema = new Schema(
     },
     advertVideo: {
       type: String,
-      // default: 'https://www.youtube.com/watch?v=ui3bUGnNPqw',
       default: 'https://www.youtube.com/watch?v=eyGPIpZ7208',
     },
     advertDuration: {
@@ -192,6 +220,26 @@ const UserSchema = new Schema(
     is_mandatory: {
       type: Boolean,
       default: false,
+    },
+
+    // --- Free Trial ---
+    freeTrialEndDate: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    gracePeriodEndDate: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    trialExpiredNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    gracePeriodNotifiedAt: {
+      type: Date,
+      default: null,
     },
   },
   SCHEMA_OPTIONS
@@ -207,12 +255,76 @@ UserSchema.index({
   company_name: 'text',
 });
 
+// Auto-set free trial dates on first save for PLAYER and SCOUT
 UserSchema.pre('save', function preValidate(done) {
+  if (this.isNew && (this.type === 'PLAYER' || this.type === 'SCOUT')) {
+    const now = new Date();
+
+    const trialEnd = new Date(now);
+    trialEnd.setDate(trialEnd.getDate() + FREE_TRIAL_DAYS);
+    this.freeTrialEndDate = trialEnd;
+
+    const graceEnd = new Date(trialEnd);
+    graceEnd.setDate(graceEnd.getDate() + GRACE_PERIOD_DAYS);
+    this.gracePeriodEndDate = graceEnd;
+  }
   return this.preValidate(done);
 });
 
 UserSchema.methods.preValidate = async function preValidate(done) {
   return done();
+};
+
+// Get the current access status of this user
+UserSchema.methods.getAccessStatus = function getAccessStatus() {
+  const now = new Date();
+  const type = this.type;
+
+  // Only PLAYER and SCOUT have trial/subscription restrictions
+  if (type !== 'PLAYER' && type !== 'SCOUT') {
+    return { status: 'UNRESTRICTED', daysRemaining: null };
+  }
+
+  const trialEnd = this.freeTrialEndDate;
+  const graceEnd = this.gracePeriodEndDate;
+
+  if (!trialEnd) {
+    return { status: 'UNRESTRICTED', daysRemaining: null };
+  }
+
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  // Still in free trial
+  if (now <= trialEnd) {
+    const daysRemaining = Math.ceil((trialEnd - now) / msPerDay);
+    const notifySoon = daysRemaining <= NOTIFY_BEFORE_DAYS;
+    return {
+      status: 'FREE_TRIAL',
+      daysRemaining,
+      notifySoon,
+      freeTrialEndDate: trialEnd,
+      gracePeriodEndDate: graceEnd,
+    };
+  }
+
+  // In grace period
+  if (now <= graceEnd) {
+    const daysRemaining = Math.ceil((graceEnd - now) / msPerDay);
+    return {
+      status: 'GRACE_PERIOD',
+      daysRemaining,
+      freeTrialEndDate: trialEnd,
+      gracePeriodEndDate: graceEnd,
+    };
+  }
+
+  // Fully expired
+  return {
+    status: 'EXPIRED',
+    daysRemaining: 0,
+    freeTrialEndDate: trialEnd,
+    gracePeriodEndDate: graceEnd,
+  };
 };
 
 UserSchema.methods.comparePassword = function comparePassword(password, done) {
@@ -231,7 +343,6 @@ UserSchema.methods.changePassword = async function changePassword(
   try {
     this.password = await generateHash(password);
     this.save();
-
     return done;
   } catch (e) {
     return new Error('Error changing Password');
@@ -250,3 +361,6 @@ UserSchema.methods.setAccountNumber = function setAccountNumber(
 mongoose.plugin(actions);
 
 module.exports = model('User', UserSchema);
+module.exports.FREE_TRIAL_DAYS = FREE_TRIAL_DAYS;
+module.exports.GRACE_PERIOD_DAYS = GRACE_PERIOD_DAYS;
+module.exports.NOTIFY_BEFORE_DAYS = NOTIFY_BEFORE_DAYS;

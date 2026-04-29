@@ -22,29 +22,36 @@
     "@lykmapipo/mongoose-common": "^0.40.0",
     "@lykmapipo/mongoose-faker": "^0.12.0",
     "async": "^3.2.1",
-    "aws-sdk": "^2.1013.0",
-    "axios": "^0.23.0",
+    "aws-sdk": "^1.18.0",
+    "axios": "^1.14.0",
     "bcryptjs": "^2.4.3",
     "btoa": "^1.2.1",
     "crypto": "^1.0.1",
+    "csv-parse": "^6.2.1",
+    "dotenv-expand": "^8.0.3",
     "express": "^4.17.1",
     "express-mquery": "^1.3.1",
     "express-respond": "^1.6.1",
+    "faker": "^5.5.3",
+    "flat": "^5.0.2",
     "lodash": "^4.17.21",
+    "mime": "^2.6.0",
     "moment": "^2.29.1",
     "mongoose": "^6.0.12",
     "mongoose-rest-actions": "^0.30.6",
-    "multer": "^1.4.3",
-    "multer-s3": "^2.10.0"
+    "multer": "^2.1.1",
+    "multer-s3": "^2.10.0",
+    "node-cron": "^4.2.1",
+    "uuid": "^8.3.2"
   },
   "engines": {
     "node": "14.1.0",
     "npm": "6.14.4"
   },
   "devDependencies": {
-    "@commitlint/cli": "^13.2.1",
+    "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^13.2.0",
-    "@commitlint/travis-cli": "^13.2.1",
+    "@commitlint/travis-cli": "^20.5.0",
     "eslint": "^8.1.0",
     "eslint-config-airbnb-base": "^14.2.1",
     "eslint-config-prettier": "^8.3.0",
@@ -55,9 +62,6 @@
     "lint-staged": "^11.2.4",
     "nodemon": "^2.0.14",
     "prettier": "^2.4.1"
-  },
-  "peerDependencies": {
-    "mongoose": "^6.0.12"
   },
   "config": {
     "commitizen": {

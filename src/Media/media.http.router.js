@@ -59,12 +59,69 @@ router.get(
   })
 );
 
-router.get(
-  PATH_LIST,
-  getFor({
-    get: (options, done) => Media.get(options, done),
-  })
-);
+router.get(PATH_LIST, async (req, res) => {
+  try {
+    const filter = { isPlaylist: { $ne: true } };
+    const query = _.get(req, 'query.query');
+    if (query) {
+      try {
+        const parsed = typeof query === 'string' ? JSON.parse(query) : query;
+        Object.assign(filter, parsed);
+      } catch (_) {
+        Object.assign(filter, query);
+      }
+    }
+    const data = await Media.find(filter).sort({ order: 1, createdAt: 1 });
+    return res.status(200).json({ data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /v1/medias/playlist/:id — edit a playlist media item (title, url, description, player)
+router.patch('/medias/playlist/:id', async (req, res) => {
+  try {
+    const { title, url, description, playerId } = req.body;
+    const update = {};
+    if (title !== undefined) update.title = title;
+    if (url !== undefined) update.url = url;
+    if (description !== undefined) update.description = description;
+    update.player = playerId || null;
+    const media = await Media.findByIdAndUpdate(req.params.id, update, { new: true })
+      .populate('player', 'firstName lastName accountNumber');
+    if (!media) return res.status(404).json({ error: 'Media not found' });
+    return res.status(200).json(media);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/medias/playlist — create standalone playlist video (no user required)
+router.post('/medias/playlist', async (req, res) => {
+  try {
+    const { title, url, description, playerId } = req.body;
+    if (!title || !url) return res.status(400).json({ error: 'title and url are required' });
+    const media = await Media.create({
+      title, url, description, type: 'Link', isPlaylist: true,
+      ...(playerId ? { player: playerId } : {}),
+    });
+    return res.status(201).json(media);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/medias/reorder — Router auto-prefixes with /v1/, so path here is /medias/reorder
+router.post('/medias/reorder', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
+    await Promise.all(ids.map((id, index) => Media.findByIdAndUpdate(id, { order: index })));
+    return res.status(200).json({ message: 'Reordered successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 router.post(
   PATH_LIST,
