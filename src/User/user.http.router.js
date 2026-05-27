@@ -118,13 +118,15 @@ router.get(PATH_STATUS, async (request, response) => {
 router.get(PATH_LIST, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const limit = Math.min(parseInt(req.query.limit) || 20, 500);
     const filter = { suspend: { $ne: true } };
     if (req.query.type) filter.type = req.query.type;
+    if (req.query.school) filter.school = req.query.school;
+    if (req.query.gender) filter.gender = req.query.gender;
 
     const [data, total] = await Promise.all([
       User.find(filter)
-        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca')
+        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -191,14 +193,17 @@ router.get(PATH_SINGLE, getByIdFor({
 }));
 
 router.post(PATH_RESET, postFor({
-  post: (options, done) => {
-    const id = _.get(options, 'params.id');
-    const newPassword = _.get(options, 'password', 'sokasoko');
-    User.findById(id, (error, user) => {
-      if (error) return done(error, null);
-      user.changePassword(newPassword);
+  post: async (options, done) => {
+    try {
+      const id = _.get(options, 'params.id');
+      const newPassword = _.get(options, 'password', 'sokasoko');
+      const user = await User.findById(id);
+      if (!user) return done(new Error('User not found'), null);
+      await user.changePassword(newPassword);
       return done(null, user);
-    });
+    } catch (e) {
+      return done(e, null);
+    }
   },
 }));
 
@@ -258,12 +263,24 @@ router.post(PATH_LIST, uploadFor(), postFor({
     const passwordValue = _.get(body, 'password', 'sokasoko');
     const password = await generateHash(passwordValue);
 
-    if ((!_.isUndefined(phone) && isPhoneExists === 0 && isOwner === 'false') || (_.isUndefined(phone) && !_.isUndefined(_.get(body, 'email')) && isOwner === 'false')) {
+    if (userType === 'SCHOOL' && isOwner === 'false') {
+      const regNum = _.get(body, 'academy_registration');
+      if (!regNum) return done(new Error('School registration number is required'), null);
+      const exists = await User.where({ academy_registration: regNum, type: 'SCHOOL' }).count();
+      if (exists > 0) return done(new Error('School registration number already in use'), null);
+      User.post({ ...body, firstName: body.academy_name || 'School', lastName: 'School', password }, async (err, data) => {
+        if (err) return done(err, null);
+        const counter = await Counter.getNextSequenceValue('memberId');
+        const accountNumber = `TFH-SC-A${leftFillNum(counter, 6)}`;
+        await data.setAccountNumber(accountNumber);
+        return done(null, data);
+      });
+    } else if ((!_.isUndefined(phone) && isPhoneExists === 0 && isOwner === 'false') || (_.isUndefined(phone) && !_.isUndefined(_.get(body, 'email')) && isOwner === 'false')) {
       User.post({ ...body, password }, async (err, data) => {
         if (err) return done(err, null);
         const counter = await Counter.getNextSequenceValue('memberId');
         const accountNumber = `TFH-${userType.charAt(0)}-A${leftFillNum(counter, 6)}`;
-        data.setAccountNumber(accountNumber);
+        await data.setAccountNumber(accountNumber);
         if (data.phone) {
           const payload = data.phone.replace(data.phone.charAt(0), '255');
           const text = data.type === 'SPONSOR' && data.sponsor_type === 'Entity'
@@ -277,7 +294,7 @@ router.post(PATH_LIST, uploadFor(), postFor({
         if (err) return done(err, null);
         const counter = await Counter.getNextSequenceValue('memberId');
         const accountNumber = `TFH-${userType.charAt(0)}-A${leftFillNum(counter, 6)}`;
-        data.setAccountNumber(accountNumber);
+        await data.setAccountNumber(accountNumber);
         return done(null, data);
       });
     } else if (!_.isUndefined(phone) && isOwner === 'true') {
@@ -285,7 +302,7 @@ router.post(PATH_LIST, uploadFor(), postFor({
         if (err) return done(err, null);
         const counter = await Counter.getNextSequenceValue('memberId');
         const accountNumber = `TFH-${userType.charAt(0)}-A${leftFillNum(counter, 6)}`;
-        data.setAccountNumber(accountNumber);
+        await data.setAccountNumber(accountNumber);
         const payload = data.phone.replace(data.phone.charAt(0), '255');
         sendSms(`Karibu Sokasoko ${data.firstName} ${data.lastName}, Tafadhali tunza tarakimu zako hizi za usajili. ${data.accountNumber}`, payload);
         return done(null, data);
@@ -314,15 +331,22 @@ router.delete(PATH_SINGLE, deleteFor({
 }));
 
 router.post(PATH_LOGIN, (request, response) => {
-  const identifier = _.get(request.body, 'identifier');
+  const rawIdentifier = _.get(request.body, 'identifier', '');
+  const identifier = rawIdentifier.trim();
   const password = _.get(request.body, 'password');
 
   User.findOne({
-    $or: [{ phone: identifier }, { accountNumber: identifier }, { email: identifier }],
+    $or: [
+      { phone: identifier },
+      { accountNumber: new RegExp(`^${identifier}$`, 'i') },
+      { email: new RegExp(`^${identifier}$`, 'i') },
+      { academy_registration: new RegExp(`^${identifier}$`, 'i') },
+    ],
   }).exec((err, user) => {
     if (err) return response.error(err);
     if (_.isNull(user)) return response.notFound();
     return user.comparePassword(password, (error, isMatch) => {
+      if (error) return response.error(error);
       if (isMatch) return response.ok(user);
       return response.error('Failed to Login');
     });
@@ -384,14 +408,5 @@ router.post('/v1/users/:id/link-secretary', async (req, res) => {
   }
 });
 
-// GET /v1/users/:id/coaches — get coaches linked to an academy
-router.get('/v1/users/:id/coaches', async (req, res) => {
-  try {
-    const coaches = await User.find({ linkedAcademy: req.params.id, type: 'COACH' });
-    return res.status(200).json({ data: coaches });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
 
 module.exports = router;

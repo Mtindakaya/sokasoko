@@ -14,6 +14,8 @@ const SCHEMA_OPTIONS = {
 const TOURNAMENT_TYPES = ['LEAGUE', 'CUP', 'KNOCKOUT', 'ROUND_ROBIN', 'FRIENDLY'];
 const TOURNAMENT_STATUS = ['DRAFT', 'OPEN', 'ONGOING', 'COMPLETED', 'CANCELLED'];
 const AGE_GROUPS = ['U10', 'U12', 'U14', 'U16', 'U18', 'U21', 'SENIOR', 'OPEN'];
+const GENDERS = ['MALE', 'FEMALE', 'MIXED'];
+const TOURNAMENT_TIERS = ['PREMIUM', 'SOKASOKO'];
 
 const TournamentSchema = new Schema(
   {
@@ -35,11 +37,19 @@ const TournamentSchema = new Schema(
       default: 'DRAFT',
       index: true,
     },
+    // Legacy single field kept for backward compat — prefer categories[]
     ageGroup: {
       type: String,
-      enum: AGE_GROUPS,
-      default: 'OPEN',
+      enum: [...AGE_GROUPS, null],
+      default: null,
     },
+    categories: [
+      {
+        gender: { type: String, enum: GENDERS, default: 'MIXED' },
+        ageGroup: { type: String, enum: AGE_GROUPS, default: 'OPEN' },
+        _id: false,
+      },
+    ],
     organizer: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -89,6 +99,12 @@ const TournamentSchema = new Schema(
       type: String,
       default: null,
     },
+    tier: {
+      type: String,
+      enum: TOURNAMENT_TIERS,
+      default: 'PREMIUM',
+      index: true,
+    },
   },
   SCHEMA_OPTIONS
 );
@@ -109,3 +125,5 @@ module.exports = model('Tournament', TournamentSchema);
 module.exports.TOURNAMENT_TYPES = TOURNAMENT_TYPES;
 module.exports.TOURNAMENT_STATUS = TOURNAMENT_STATUS;
 module.exports.AGE_GROUPS = AGE_GROUPS;
+module.exports.GENDERS = GENDERS;
+module.exports.TOURNAMENT_TIERS = TOURNAMENT_TIERS;

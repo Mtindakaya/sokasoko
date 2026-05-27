@@ -1,6 +1,8 @@
-const { start, app, mount } = require('@lykmapipo/express-common');
+const { app, mount, notFound, errorHandler } = require('@lykmapipo/express-common');
 const { connect } = require('@lykmapipo/mongoose-common');
 const { getNumber, getString } = require('@lykmapipo/env');
+const http = require('http');
+const { Server: SocketServer } = require('socket.io');
 
 const StatsRouter = require('./Match/match.stats.router');
 const AcademyLinksRouter = require('./User/academy_links.router');
@@ -20,6 +22,11 @@ const AgentRouter = require('./Agent/agent.http.router');
 const PlaylistRouter = require('./Playlist/playlist.http.router');
 const VideoRouter = require('./YoutubeVideo/video.http.router');
 const ScoutCvRouter = require('./ScoutCv/scout_cv.http.router');
+const createChatRouter = require('./Chat/chat.http.router');
+const attachChat = require('./Chat/chat.socket');
+const FeedRouter = require('./Feed/feed.http.router');
+const TournamentRegistrationRouter = require('./TournamentRegistration/tournament_registration.http.router');
+const OpenTournamentRouter = require('./OpenTournament/open_tournament.http.router');
 require('./scheduler');
 
 const PORT = getNumber('PORT', 5000);
@@ -33,8 +40,18 @@ app.use('/uploads', require('express').static('public/uploads'));
 
 connect(MONGODB_URI, (error) => {
   if (error) throw new Error(error);
+
+  // 1. Create HTTP server and Socket.io first so the chat router can use io.
+  const httpServer = http.createServer(app);
+  const io = new SocketServer(httpServer, {
+    cors: { origin: '*', methods: ['GET', 'POST'] },
+    transports: ['websocket', 'polling'],
+  });
+  attachChat(io);
+
+  // 2. Mount all routes — notFound/errorHandler MUST come after all routes.
   app.use(StatsRouter);
-  app.use(AcademyLinksRouter); 
+  app.use(AcademyLinksRouter);
   app.use(ProfileViewRouter);
   app.use(VenueImportRouter);
   app.use(ReservationRouter);
@@ -43,6 +60,10 @@ connect(MONGODB_URI, (error) => {
   app.use(SubscriptionRouter);
   app.use(MatchRouter);
   app.use(ScoutCvRouter);
+  app.use(FeedRouter);
+  app.use(TournamentRegistrationRouter);
+  app.use(OpenTournamentRouter);
+  app.use(createChatRouter(io));
 
   mount([
     AcademyRouter,
@@ -55,11 +76,20 @@ connect(MONGODB_URI, (error) => {
     VideoRouter,
   ]);
 
-  start(PORT, (err) => {
-    if (err) {
-      throw new Error(err);
-    }
+  // 3. Error handlers go last — anything above this line is a real route.
+  app.use(notFound);
+  app.use(errorHandler);
 
+  // 4. Start listening.
+  httpServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Run:  lsof -ti :${PORT} | xargs kill -9`);
+      process.exit(1);
+    } else {
+      throw err;
+    }
+  });
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`visit http://0.0.0.0:${PORT}/v1/`);
   });
 });

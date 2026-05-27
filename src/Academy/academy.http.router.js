@@ -50,23 +50,40 @@ router.get(
 router.post(
   PATH_LIST,
   postFor({
-    post: (body, done) => {
-      return Academy.post(body, (error, data) => {
-        if (error) return done(error, null);
+    post: async (body, done) => {
+      try {
+        const playerId = body.player;
+        const addedBy = body.addedBy;
+        const level = body.level;
+        console.log('[ACADEMY POST] player=%s addedBy=%s level=%s', playerId, addedBy, level);
 
-        const playerId = _.get(data, 'player._id');
-        const academyId = _.get(data, '_id');
+        if (!playerId) return done(new Error('player id is required'), null);
+        if (!level) return done(new Error('level is required'), null);
 
-        return User.findById(playerId, (err, player) => {
-          if (err) return done(err, null);
+        const player = await User.findById(playerId).lean();
+        if (!player) return done(new Error('Player not found'), null);
 
-          // eslint-disable-next-line no-param-reassign
-          player.academy = academyId;
-          player.save();
+        // Check for a live enrollment (not a dangling ObjectId from a crashed request)
+        if (player.academy) {
+          const existing = await Academy.findById(player.academy).lean();
+          if (existing) {
+            return done(new Error('Player is already enrolled in an academy'), null);
+          }
+          // Dangling reference — clear it so we can re-enroll
+          await User.findByIdAndUpdate(playerId, { $set: { academy: null } });
+        }
 
-          return done(null, player);
-        });
-      });
+        // Remove any orphaned enrollment row (unique key guard)
+        await Academy.findOneAndDelete({ player: playerId });
+
+        const data = await Academy.create({ player: playerId, addedBy, level });
+        await User.findByIdAndUpdate(playerId, { $set: { academy: data._id } });
+        console.log('[ACADEMY POST] success enrollment=%s', data._id);
+        return done(null, data);
+      } catch (err) {
+        console.error('[ACADEMY POST] error:', err.message);
+        return done(err, null);
+      }
     },
   })
 );
@@ -89,20 +106,19 @@ router.delete(
   PATH_SINGLE,
   deleteFor({
     del: (options, done) => {
-      return Academy.del(options, (error, data) => {
+      return Academy.del(options, async (error, data) => {
         if (error) return done(error, null);
 
-        const playerId = _.get(data, 'player._id');
+        const playerId = _.get(data, 'player._id') || _.get(data, 'player');
 
-        return User.findById(playerId, (err, player) => {
-          if (err) return done(err, null);
-
-          // eslint-disable-next-line no-param-reassign
-          player.academy = null;
-          player.save();
-
+        try {
+          if (playerId) {
+            await User.findByIdAndUpdate(playerId, { $set: { academy: null } });
+          }
           return done(null, data);
-        });
+        } catch (err) {
+          return done(err, null);
+        }
       });
     },
   })

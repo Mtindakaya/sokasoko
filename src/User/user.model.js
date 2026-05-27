@@ -33,6 +33,7 @@ const types = [
   'COACH',
   'GUARDIAN',
   'ACADEMY',
+  'SCHOOL',
   'VENDOR',
   'CLUB',
   'SPONSOR',
@@ -146,6 +147,7 @@ const UserSchema = new Schema(
     },
     suspend: { type: Boolean, default: false },
     playlistOverride: { type: Boolean, default: false },
+    themeColor: { type: String, trim: true },
     street: String,
     email: { type: String, trim: true },
     contact_number: { type: String, trim: true },
@@ -189,6 +191,18 @@ const UserSchema = new Schema(
     },
     secretaryName: { type: String, trim: true },
     academy_description: { type: String, trim: true },
+    school_type: { type: String, trim: true, enum: ['PRIMARY', 'SECONDARY', 'CHUO'] },
+    school_gender: { type: String, trim: true, enum: ['ALL_GIRLS', 'ALL_BOYS', 'MIXED'] },
+    academic_teacher: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
+    sports_teacher_1: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
+    sports_teacher_2: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
+    school: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
+    school_class: { type: String, trim: true },
+    school_jersey_number: { type: String, trim: true },
+    has_football_field: { type: Boolean, default: false },
+    football_field_name: { type: String, trim: true },
+    field_accessible_to_community: { type: Boolean, default: false },
+    school_id: { type: String, trim: true, index: true },
     referee_license_level: { type: String, trim: true },
     tafoca: { type: String, enum: ['YES', 'NO'] },
     talent_id_training: { type: String, enum: ['YES', 'NO'], trim: true },
@@ -336,26 +350,15 @@ UserSchema.methods.comparePassword = function comparePassword(password, done) {
   });
 };
 
-UserSchema.methods.changePassword = async function changePassword(
-  password,
-  done
-) {
-  try {
-    this.password = await generateHash(password);
-    this.save();
-    return done;
-  } catch (e) {
-    return new Error('Error changing Password');
-  }
+UserSchema.methods.changePassword = async function changePassword(password) {
+  const hash = await generateHash(password);
+  await mongoose.model('User').findByIdAndUpdate(this._id, { $set: { password: hash } });
+  this.password = hash;
 };
 
-UserSchema.methods.setAccountNumber = function setAccountNumber(
-  criteria,
-  done
-) {
+UserSchema.methods.setAccountNumber = async function setAccountNumber(criteria) {
+  await mongoose.model('User').findByIdAndUpdate(this._id, { $set: { accountNumber: criteria } });
   this.accountNumber = criteria;
-  this.save();
-  return done;
 };
 
 mongoose.plugin(actions);

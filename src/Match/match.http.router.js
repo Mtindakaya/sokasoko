@@ -2,6 +2,7 @@ const express = require('express');
 const { getString } = require('@lykmapipo/env');
 const _ = require('lodash');
 const Match = require('./match.model');
+const TournamentRegistration = require('../TournamentRegistration/tournament_registration.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -90,6 +91,24 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     match.awayScore = awayScore;
 
     if (playerStats && playerStats.length > 0) {
+      // For tournament matches, verify each player is approved before adding stats
+      if (match.tournament) {
+        const playerIds = playerStats.map(s => s.player);
+        const approvedRegs = await TournamentRegistration.find({
+          tournament: match.tournament,
+          player: { $in: playerIds },
+          status: 'APPROVED',
+        }).select('player').lean();
+        const approvedSet = new Set(approvedRegs.map(r => r.player.toString()));
+        const blocked = playerStats.filter(s => !approvedSet.has(s.player));
+        if (blocked.length > 0) {
+          const ids = blocked.map(s => s.player).join(', ');
+          return res.status(403).json({
+            error: `Player(s) not approved for this tournament: ${ids}`,
+            blockedPlayers: blocked.map(s => s.player),
+          });
+        }
+      }
       // Merge player stats — avoid duplicates
       playerStats.forEach(stat => {
         const existing = match.playerStats.find(s => s.player.toString() === stat.player);
@@ -234,6 +253,65 @@ router.delete(`${BASE}/:id`, async (req, res) => {
   try {
     const match = await Match.findByIdAndUpdate(req.params.id, { status: 'CANCELLED' }, { new: true });
     if (!match) return res.status(404).json({ error: 'Match not found' });
+    return res.status(200).json({ data: match });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/matches/:id/organizer-result
+// Tournament organizer enters the result directly — bypasses team confirmation flow.
+// organizerId must match the linked tournament's organizer field.
+router.post(`${BASE}/:id/organizer-result`, async (req, res) => {
+  const { organizerId, homeScore, awayScore, playerStats } = req.body;
+  if (!organizerId) return res.status(400).json({ error: 'organizerId required' });
+  try {
+    const match = await Match.findById(req.params.id).populate('tournament', 'organizer');
+    if (!match) return res.status(404).json({ error: 'Match not found' });
+    if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Match already completed' });
+
+    // Verify caller is the tournament organizer
+    if (match.tournament) {
+      const orgId = match.tournament.organizer?.toString() ?? match.tournament.toString();
+      if (orgId !== organizerId) {
+        return res.status(403).json({ error: 'Only the tournament organizer can set this result' });
+      }
+    }
+
+    match.homeScore = homeScore ?? match.homeScore;
+    match.awayScore = awayScore ?? match.awayScore;
+
+    if (playerStats && playerStats.length > 0) {
+      // For tournament matches check registration approval
+      if (match.tournament) {
+        const TournamentRegistration = require('../TournamentRegistration/tournament_registration.model');
+        const playerIds = playerStats.map(s => s.player);
+        const approvedRegs = await TournamentRegistration.find({
+          tournament: match.tournament._id ?? match.tournament,
+          player: { $in: playerIds },
+          status: 'APPROVED',
+        }).select('player').lean();
+        const approvedSet = new Set(approvedRegs.map(r => r.player.toString()));
+        const blocked = playerStats.filter(s => !approvedSet.has(s.player));
+        if (blocked.length > 0) {
+          return res.status(403).json({
+            error: `Player(s) not approved for this tournament`,
+            blockedPlayers: blocked.map(s => s.player),
+          });
+        }
+      }
+      playerStats.forEach(stat => {
+        const existing = match.playerStats.find(s => s.player.toString() === stat.player);
+        if (existing) Object.assign(existing, stat);
+        else match.playerStats.push(stat);
+      });
+    }
+
+    // Organizer authority — both sides confirmed, mark completed
+    match.homeConfirmed = true;
+    match.awayConfirmed = true;
+    match.status = 'COMPLETED';
+    await match.save();
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
