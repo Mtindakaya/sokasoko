@@ -32,6 +32,13 @@ require('./scheduler');
 const PORT = getNumber('PORT', 5000);
 const MONGODB_URI = getString('MONGODB_URI');
 
+// Coerce string status codes to integers for Express 4.x strict mode compatibility
+app.use((req, res, next) => {
+  const _status = res.status.bind(res);
+  res.status = (code) => _status(parseInt(code, 10));
+  next();
+});
+
 app.get('/', (request, response) => {
   return response.ok({ status: 'working' });
 });
