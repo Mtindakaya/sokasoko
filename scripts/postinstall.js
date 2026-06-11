@@ -7,21 +7,26 @@ const filePath = path.join(
 );
 
 if (!fs.existsSync(filePath)) {
-  console.log('Patch target not found, skipping.');
+  console.log('Patch target not found at:', filePath);
   process.exit(0);
 }
 
 let content = fs.readFileSync(filePath, 'utf8');
 
-if (content.includes('// patched: coerce string status codes')) {
+if (content.includes('// sokasoko-patched')) {
   console.log('Already patched, skipping.');
   process.exit(0);
 }
 
-content = content.replace(
-  'res.status = function status(code) {',
-  "res.status = function status(code) {\n  // patched: coerce string status codes\n  if (typeof code === 'string') code = parseInt(code, 10);"
-);
+// Replace the strict integer check — coerce string codes to int instead of throwing
+const original = `if (typeof code === 'string' || Math.floor(code) !== code) {`;
+const patched = `// sokasoko-patched\n  if (typeof code === 'string') code = parseInt(code, 10);\n  if (Math.floor(code) !== code) {`;
 
-fs.writeFileSync(filePath, content);
-console.log('Patched express-request-extra response.js successfully.');
+if (content.includes(original)) {
+  content = content.replace(original, patched);
+  fs.writeFileSync(filePath, content);
+  console.log('Successfully patched express response.js');
+} else {
+  console.log('Pattern not found — dumping first 3000 chars for inspection:');
+  console.log(content.substring(0, 3000));
+}
