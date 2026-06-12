@@ -1,3 +1,12 @@
+// Patch Express 5 response prototype inside express-request-extra to accept string status codes
+try {
+  const extraExpress = require('@lykmapipo/express-request-extra/node_modules/express');
+  const orig = extraExpress.response.status;
+  extraExpress.response.status = function(code) {
+    return orig.call(this, typeof code === 'string' ? parseInt(code, 10) : code);
+  };
+} catch(e) {}
+
 const { app, mount, notFound, errorHandler } = require('@lykmapipo/express-common');
 const { connect } = require('@lykmapipo/mongoose-common');
 const { getNumber, getString } = require('@lykmapipo/env');
