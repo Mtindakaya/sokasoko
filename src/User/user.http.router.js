@@ -123,6 +123,8 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.type) filter.type = req.query.type;
     if (req.query.school) filter.school = req.query.school;
     if (req.query.gender) filter.gender = req.query.gender;
+    if (req.query.createdBy) filter.createdBy = req.query.createdBy;
+    if (req.query.academy) filter.academy = req.query.academy;
 
     const [data, total] = await Promise.all([
       User.find(filter)
