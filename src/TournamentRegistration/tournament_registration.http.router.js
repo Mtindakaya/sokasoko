@@ -15,7 +15,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB per doc photo
 
-const BASE_URL = process.env.BASE_URL || 'http://192.168.1.134:5001';
+const BASE_URL = process.env.BASE_URL || 'https://sokasoko.onrender.com';
 
 // ── POST /v1/tournaments/:id/registrations
 // Coach submits a player registration with doc photos

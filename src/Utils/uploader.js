@@ -34,7 +34,8 @@ const uploadFor = () => {
 
       request.body = !lodash.isEmpty(request.body) ? request.body : {};
       lodash.forEach(request.files, ({ fieldname, filename }) => {
-        request.body[fieldname] = `http://192.168.1.134:5001/uploads/${filename}`;
+        const baseUrl = process.env.BASE_URL || 'https://sokasoko.onrender.com';
+        request.body[fieldname] = `${baseUrl}/uploads/${filename}`;
       });
 
       return next();
