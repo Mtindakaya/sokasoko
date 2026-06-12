@@ -196,7 +196,8 @@ router.post(PATH_RESET, postFor({
   post: async (options, done) => {
     try {
       const id = _.get(options, 'params.id');
-      const newPassword = _.get(options, 'password', 'sokasoko');
+      const newPassword = _.get(options, 'password');
+      if (!newPassword) return done(new Error('New password is required'), null);
       const user = await User.findById(id);
       if (!user) return done(new Error('User not found'), null);
       await user.changePassword(newPassword);
@@ -260,8 +261,12 @@ router.post(PATH_LIST, uploadFor(), postFor({
     const isOwnerRaw = _.get(body, 'subAccount', 'false');
     const isOwner = isOwnerRaw === true || isOwnerRaw === 'true' ? 'true' : 'false';
     const isPhoneExists = await User.where('phone', phone).count();
-    const passwordValue = _.get(body, 'password', 'sokasoko');
-    const password = await generateHash(passwordValue);
+    const passwordValue = _.get(body, 'password');
+    if (!passwordValue && isOwner === 'false') {
+      return done(new Error('Password is required'), null);
+    }
+    const resolvedPassword = passwordValue || Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase();
+    const password = await generateHash(resolvedPassword);
 
     if (userType === 'SCHOOL' && isOwner === 'false') {
       const regNum = _.get(body, 'academy_registration');
