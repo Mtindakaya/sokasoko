@@ -12,7 +12,7 @@ module.exports = function createChatRouter(io) {
       return res.status(400).json({ message: 'senderId, receiverId and content required' });
     }
     try {
-      const msg = await ChatMessage.create({ sender: senderId, receiver: receiverId, content });
+      const msg = await ChatMessage.create({ sender: senderId, receiver: receiverId, content, read: false });
       const populated = await ChatMessage.findById(msg._id)
         .populate('sender', 'firstName lastName photo type')
         .populate('receiver', 'firstName lastName photo type')
