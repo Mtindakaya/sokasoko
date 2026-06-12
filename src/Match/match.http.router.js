@@ -165,15 +165,17 @@ router.post(`${BASE}/:id/confirm-schedule`, async (req, res) => {
     const User = require('../User/user.model');
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
+    if (confirmedBy) {
+      const confirmingUser = await User.findById(confirmedBy).select('type').lean();
+      const isAwayTeam = match.awayTeam && match.awayTeam.toString() === confirmedBy;
+      const isCoach = confirmingUser && confirmingUser.type === 'COACH';
+      if (!isAwayTeam && !isCoach) {
+        return res.status(403).json({ error: 'Only the away team or their coach can confirm the schedule' });
+      }
+      if (isCoach) match.awayCoach = confirmedBy;
+    }
     match.scheduleConfirmed = true;
     match.scheduleConfirmedBy = confirmedBy;
-    // Set awayCoach if confirmedBy is a COACH
-    if (confirmedBy) {
-      const confirmingUser = await User.findById(confirmedBy);
-      if (confirmingUser && confirmingUser.type === 'COACH') {
-        match.awayCoach = confirmedBy;
-      }
-    }
     await match.save();
     return res.status(200).json({ data: match });
   } catch (err) {
@@ -188,6 +190,15 @@ router.post(`${BASE}/:id/decline-schedule`, async (req, res) => {
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.scheduleConfirmed) return res.status(400).json({ error: 'Cannot decline already confirmed schedule' });
+    if (declinedBy) {
+      const User = require('../User/user.model');
+      const decliningUser = await User.findById(declinedBy).select('type').lean();
+      const isAwayTeam = match.awayTeam && match.awayTeam.toString() === declinedBy;
+      const isCoach = decliningUser && decliningUser.type === 'COACH';
+      if (!isAwayTeam && !isCoach) {
+        return res.status(403).json({ error: 'Only the away team or their coach can decline the schedule' });
+      }
+    }
     match.scheduleDeclined = true;
     match.scheduleDeclinedBy = declinedBy;
     match.scheduleDeclineReason = reason;
@@ -199,13 +210,17 @@ router.post(`${BASE}/:id/decline-schedule`, async (req, res) => {
   }
 });
 
-// POST /v1/matches/:id/cancel — cancel a match (home team anytime, away team only before confirming)
+// POST /v1/matches/:id/cancel — cancel a match (only the match creator can cancel)
 router.post(`${BASE}/:id/cancel`, async (req, res) => {
   try {
     const { cancelledBy } = req.body;
+    if (!cancelledBy) return res.status(400).json({ error: 'cancelledBy is required' });
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Cannot cancel a completed match' });
+    if (match.scheduledBy && match.scheduledBy.toString() !== cancelledBy) {
+      return res.status(403).json({ error: 'Only the match creator can cancel this match' });
+    }
     match.status = 'CANCELLED';
     await match.save();
     return res.status(200).json({ data: match });
@@ -223,6 +238,9 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Cannot reschedule a completed match' });
     if (match.status === 'CANCELLED') return res.status(400).json({ error: 'Cannot reschedule a cancelled match' });
+    if (rescheduledBy && match.scheduledBy && match.scheduledBy.toString() !== rescheduledBy) {
+      return res.status(403).json({ error: 'Only the match creator can reschedule this match' });
+    }
     match.scheduledDate = new Date(scheduledDate);
     match.scheduleConfirmed = false;
     match.scheduleDeclined = false;
