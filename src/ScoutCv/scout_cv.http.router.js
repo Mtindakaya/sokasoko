@@ -28,10 +28,16 @@ router.get(`${prefix}/scout-cv/pending/:playerId`, async (req, res) => {
 // GET /v1/scout-cv/:scoutId — all entries for a scout
 router.get(`${prefix}/scout-cv/:scoutId`, async (req, res) => {
   try {
-    const entries = await ScoutCv.find({ scout: req.params.scoutId })
-      .populate(populate)
-      .sort({ yearIdentified: -1, createdAt: -1 });
-    return res.status(200).json({ data: entries });
+    const { page = 1, limit = 20 } = req.query;
+    const [entries, total] = await Promise.all([
+      ScoutCv.find({ scout: req.params.scoutId })
+        .populate(populate)
+        .sort({ yearIdentified: -1, createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(parseInt(limit)),
+      ScoutCv.countDocuments({ scout: req.params.scoutId }),
+    ]);
+    return res.status(200).json({ data: entries, total, page: parseInt(page), pages: Math.ceil(total / limit) });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
