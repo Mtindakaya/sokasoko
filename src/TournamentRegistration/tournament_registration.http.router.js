@@ -13,7 +13,15 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) =>
     cb(null, `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`),
 });
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB per doc photo
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const fileFilter = (req, file, cb) => {
+  if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Invalid file type: ${file.mimetype}. Only images (JPEG, PNG, WebP) and PDF are allowed.`), false);
+  }
+};
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 }, fileFilter }); // 20MB per doc
 
 const BASE_URL = process.env.BASE_URL || 'https://sokasoko.onrender.com';
 
