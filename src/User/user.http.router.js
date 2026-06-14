@@ -10,6 +10,7 @@ const {
 } = require('@lykmapipo/express-rest-actions');
 const { getString } = require('@lykmapipo/env');
 const _ = require('lodash');
+const { requireAdminKey } = require('../middleware/adminAuth');
 const { uploadFor } = require('../Utils/uploader');
 const Counter = require('../Counter/counter.model');
 const { leftFillNum, sendSms, generateHash } = require('../Utils/utils');
@@ -194,7 +195,7 @@ router.get(PATH_SINGLE, getByIdFor({
   },
 }));
 
-router.post(PATH_RESET, postFor({
+router.post(PATH_RESET, requireAdminKey, postFor({
   post: async (options, done) => {
     try {
       const id = _.get(options, 'params.id');
@@ -210,7 +211,7 @@ router.post(PATH_RESET, postFor({
   },
 }));
 
-router.post(PATH_SUSPEND, postFor({
+router.post(PATH_SUSPEND, requireAdminKey, postFor({
   post: (options, done) => {
     const id = _.get(options, 'params.id');
     const message = _.get(options, 'message', 'Account Suspended');
@@ -218,16 +219,18 @@ router.post(PATH_SUSPEND, postFor({
       if (error) return done(error, null);
       user.suspend = true;
       user.save();
-      await sendSms(
-        `Sokasoko Account Suspended due to ${message}`,
-        user.phone.replace(user.phone.charAt(0), '255')
-      );
+      if (user.phone) {
+        await sendSms(
+          `Sokasoko Account Suspended due to ${message}`,
+          user.phone.replace(user.phone.charAt(0), '255')
+        );
+      }
       return done(null, user);
     });
   },
 }));
 
-router.post(PATH_UNSUSPEND, postFor({
+router.post(PATH_UNSUSPEND, requireAdminKey, postFor({
   post: (options, done) => {
     const id = _.get(options, 'params.id');
     const message = 'Your Account has been reactivated';
@@ -235,7 +238,9 @@ router.post(PATH_UNSUSPEND, postFor({
       if (error) return done(error, null);
       user.suspend = false;
       user.save();
-      await sendSms(message, user.phone.replace(user.phone.charAt(0), '255'));
+      if (user.phone) {
+        await sendSms(message, user.phone.replace(user.phone.charAt(0), '255'));
+      }
       return done(null, user);
     });
   },
