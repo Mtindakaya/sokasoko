@@ -56,6 +56,60 @@ app.get('/', (request, response) => {
 
 app.use('/uploads', require('express').static('public/uploads'));
 
+// Public profile page for PDF hyperlinks
+app.get('/profile/:userId', async (req, res) => {
+  try {
+    const User = require('./User/user.model');
+    const user = await User.findById(req.params.userId)
+      .select('firstName lastName accountNumber type region district position nationality phone profileImage foot height weight dob gender')
+      .lean();
+    if (!user) return res.status(404).send('<h2>Profile not found</h2>');
+
+    const img = user.profileImage
+      ? `<img src="${user.profileImage}" alt="Profile" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid #1B5E20;">`
+      : `<div style="width:80px;height:80px;border-radius:50%;background:#1B5E20;display:flex;align-items:center;justify-content:center;color:#fff;font-size:32px;">${(user.firstName||'?')[0]}</div>`;
+
+    const row = (label, val) => val ? `<tr><td style="color:#666;padding:4px 12px 4px 0;font-size:13px;">${label}</td><td style="font-size:13px;font-weight:600;">${val}</td></tr>` : '';
+
+    let dob = '';
+    if (user.dob) {
+      const b = new Date(user.dob);
+      const age = Math.floor((Date.now() - b.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+      dob = `${b.toLocaleDateString('en-GB')} (age ${age})`;
+    }
+
+    res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${user.firstName} ${user.lastName} – SokaSoko</title>
+<style>body{margin:0;font-family:sans-serif;background:#f5f5f5;}
+.card{max-width:480px;margin:32px auto;background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,.1);overflow:hidden;}
+.header{background:#1B5E20;color:#fff;padding:24px;display:flex;align-items:center;gap:16px;}
+.name{font-size:20px;font-weight:700;} .sub{font-size:13px;opacity:.85;}
+.body{padding:24px;} table{border-collapse:collapse;width:100%;}
+.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:#E8F5E9;color:#1B5E20;}
+</style></head><body>
+<div class="card">
+  <div class="header">${img}<div><div class="name">${user.firstName} ${user.lastName}</div>
+  <div class="sub">${user.accountNumber || ''}</div></div></div>
+  <div class="body">
+    <table>
+      ${row('Type', user.type ? `<span class="badge">${user.type}</span>` : '')}
+      ${row('Position', user.position)}
+      ${row('Gender', user.gender)}
+      ${row('Date of Birth', dob)}
+      ${row('Nationality', user.nationality)}
+      ${row('Region', user.region)}
+      ${row('District', user.district)}
+      ${row('Height', user.height ? user.height + ' cm' : '')}
+      ${row('Weight', user.weight ? user.weight + ' kg' : '')}
+      ${row('Preferred Foot', user.foot)}
+    </table>
+  </div>
+</div></body></html>`);
+  } catch (err) {
+    res.status(500).send('<h2>Error loading profile</h2>');
+  }
+});
+
 connect(MONGODB_URI, (error) => {
   if (error) throw new Error(error);
 

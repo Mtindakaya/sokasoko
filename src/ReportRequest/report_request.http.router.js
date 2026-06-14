@@ -192,6 +192,7 @@ router.post(`${BASE}/:id/generate`, async (req, res) => {
 
     const fileName = `report_${reportRequest._id}_${Date.now()}.pdf`;
     const filePath = path.join(uploadsDir, fileName);
+    const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
 
     await new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
@@ -228,19 +229,37 @@ router.post(`${BASE}/:id/generate`, async (req, res) => {
         doc.moveDown(1);
 
         profiles.forEach((profile, index) => {
+          const profileUrl = `${BASE_URL}/profile/${profile._id}`;
+          const nameText = `${index + 1}. ${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+
+          // Name as a clickable hyperlink
+          const nameY = doc.y;
           doc
             .fontSize(12)
             .font('Helvetica-Bold')
-            .text(`${index + 1}. ${profile.firstName || ''} ${profile.lastName || ''}`.trim());
+            .fillColor('#1B5E20')
+            .text(nameText, { underline: true, continued: false });
+          // Overlay invisible link on the name text area
+          doc.link(50, nameY, doc.page.width - 100, doc.currentLineHeight(true) + 2, profileUrl);
+          doc.fillColor('black');
 
           doc.fontSize(10).font('Helvetica');
 
           if (profile.accountNumber) doc.text(`Account #: ${profile.accountNumber}`);
-          if (profile.type) doc.text(`Type: ${profile.type}`);
           if (profile.region) doc.text(`Region: ${profile.region}`);
           if (profile.district) doc.text(`District: ${profile.district}`);
           if (profile.position && reportType === 'PLAYER') doc.text(`Position: ${profile.position}`);
+          if (profile.nationality) doc.text(`Nationality: ${profile.nationality}`);
           if (profile.phone) doc.text(`Phone: ${profile.phone}`);
+
+          // Explicit "View Profile" link line
+          const linkY = doc.y;
+          doc
+            .fontSize(9)
+            .fillColor('#1565C0')
+            .text('View full profile →', { underline: true });
+          doc.link(50, linkY, 120, doc.currentLineHeight(true) + 2, profileUrl);
+          doc.fillColor('black');
 
           doc.moveDown(0.5);
           doc
@@ -257,7 +276,6 @@ router.post(`${BASE}/:id/generate`, async (req, res) => {
       writeStream.on('error', reject);
     });
 
-    const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
     reportRequest.reportUrl = `${BASE_URL}/uploads/${fileName}`;
     reportRequest.status = 'FULFILLED';
     reportRequest.generatedAt = new Date();
