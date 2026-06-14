@@ -115,8 +115,23 @@ connect(MONGODB_URI, (error) => {
 
   // 1. Create HTTP server and Socket.io first so the chat router can use io.
   const httpServer = http.createServer(app);
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
   const io = new SocketServer(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+      origin: (origin, callback) => {
+        // Allow mobile app clients (no Origin header) and explicitly listed origins
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error(`CORS: origin '${origin}' not allowed`));
+        }
+      },
+      methods: ['GET', 'POST'],
+    },
     transports: ['websocket', 'polling'],
   });
   attachChat(io);
