@@ -37,6 +37,7 @@ const FeedRouter = require('./Feed/feed.http.router');
 const TournamentRegistrationRouter = require('./TournamentRegistration/tournament_registration.http.router');
 const OpenTournamentRouter = require('./OpenTournament/open_tournament.http.router');
 const ReportRequestRouter = require('./ReportRequest/report_request.http.router');
+const NotificationRouter = require('./Notification/notification.http.router');
 require('./scheduler');
 
 const PORT = getNumber('PORT', 5000);
@@ -81,6 +82,7 @@ connect(MONGODB_URI, (error) => {
   app.use(TournamentRegistrationRouter);
   app.use(OpenTournamentRouter);
   app.use(ReportRequestRouter);
+  app.use(NotificationRouter);
   app.use(createChatRouter(io));
 
   mount([

@@ -48,9 +48,10 @@ router.post(BASE, async (req, res) => {
     }
 
     if (!isSelfReport) {
-      const activeSub = await Subscription.getActiveSubscription(requestedBy);
-      if (activeSub && (activeSub.userType === 'SCOUT' || activeSub.userType === 'AGENT')) {
-        price = 0;
+      // Scouts and agents with any active subscription get Level 1 reports free
+      if (user.type === 'SCOUT' || user.type === 'AGENT') {
+        const activeSub = await Subscription.getActiveSubscription(requestedBy);
+        if (activeSub) price = 0;
       }
     }
 
