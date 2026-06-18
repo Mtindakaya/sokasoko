@@ -38,6 +38,7 @@ const TournamentRegistrationRouter = require('./TournamentRegistration/tournamen
 const OpenTournamentRouter = require('./OpenTournament/open_tournament.http.router');
 const ReportRequestRouter = require('./ReportRequest/report_request.http.router');
 const NotificationRouter = require('./Notification/notification.http.router');
+const AiAdvisorRouter = require('./AiAdvisor/ai_advisor.http.router');
 require('./scheduler');
 
 const PORT = getNumber('PORT', 5000);
@@ -152,6 +153,7 @@ connect(MONGODB_URI, (error) => {
   app.use(OpenTournamentRouter);
   app.use(ReportRequestRouter);
   app.use(NotificationRouter);
+  app.use(AiAdvisorRouter);
   app.use(createChatRouter(io));
 
   mount([

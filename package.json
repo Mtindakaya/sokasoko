@@ -15,6 +15,7 @@
   "author": "rijkerd",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.2",
     "@lykmapipo/env": "^0.17.39",
     "@lykmapipo/express-common": "^0.18.19",
     "@lykmapipo/express-rest-actions": "^0.8.31",
