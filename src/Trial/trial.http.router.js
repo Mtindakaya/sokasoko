@@ -8,7 +8,7 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
 const BASE = `/v${API_VERSION.split('.')[0]}/trials`;
 
-const AGE_GROUP_MAX = { U12: 12, U14: 14, U16: 16, U17: 17, U18: 18, U20: 20, U23: 23 };
+const AGE_GROUP_MAX = { U12: 12, U13: 13, U14: 14, U15: 15, U16: 16, U17: 17, U18: 18, U20: 20, U23: 23 };
 
 // GET /v1/trials
 router.get(BASE, async (req, res) => {
