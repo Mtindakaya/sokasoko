@@ -38,6 +38,7 @@ router.get(BASE, async (req, res) => {
 router.get(`${BASE}/my/:userId`, async (req, res) => {
   try {
     const trials = await Trial.find({ organizer: req.params.userId })
+      .populate('organizer', 'firstName lastName type academyName profileImage')
       .sort({ createdAt: -1 })
       .limit(50);
     return res.status(200).json({ data: trials });
