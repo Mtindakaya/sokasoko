@@ -152,6 +152,10 @@ router.post(`${BASE}/:id/register`, async (req, res) => {
     // Player registration
     if (!playerId) return res.status(400).json({ error: 'playerId is required' });
 
+    if (trial.trialFor === 'Academies') {
+      return res.status(400).json({ error: 'This trial is open to academies only. Individual players cannot register.' });
+    }
+
     const existing = await TrialRegistration.findOne({ trialId: req.params.id, playerId });
     if (existing) return res.status(400).json({ error: 'Player is already registered for this trial' });
 
