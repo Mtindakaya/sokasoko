@@ -32,6 +32,7 @@ const TrialSchema = new Schema({
   registrationFee: { type: Number, default: 0 },
   requirements: { type: String, trim: true },
   status: { type: String, enum: ['Open', 'Closed', 'Cancelled'], default: 'Open', index: true },
+  scouts: [{ type: Schema.Types.ObjectId, ref: 'User' }],
 }, { timestamps: true });
 
 TrialSchema.index({ startDate: 1 });

@@ -26,6 +26,7 @@ router.get(BASE, async (req, res) => {
         .populate('referee', 'firstName lastName accountNumber type')
         .populate('assistantReferee1', 'firstName lastName accountNumber type')
         .populate('assistantReferee2', 'firstName lastName accountNumber type')
+        .populate('scout', 'firstName lastName accountNumber type profileImage')
         .select('-playerStats -notes -scheduleDeclinedBy -scheduleConfirmedBy -homeConfirmedBy -awayConfirmedBy -scheduledBy -homeCoach -awayCoach')
         .sort({ scheduledDate: -1 })
         .skip((page - 1) * limit)
@@ -53,6 +54,8 @@ router.get(`${BASE}/:id`, async (req, res) => {
       .populate('assistantReferee2', 'firstName lastName accountNumber type profileImage')
       .populate('homeCoach', 'firstName lastName accountNumber type profileImage')
       .populate('awayCoach', 'firstName lastName accountNumber type profileImage')
+      .populate('scout', 'firstName lastName accountNumber type profileImage')
+      .populate('tempScouts', 'firstName lastName accountNumber type profileImage')
       .lean();
     if (!match) return res.status(404).json({ error: 'Match not found' });
     return res.status(200).json({ data: match });
@@ -71,8 +74,8 @@ router.post(BASE, async (req, res) => {
     if (homeTeam === awayTeam) {
       return res.status(400).json({ error: 'Home and away team cannot be the same' });
     }
-    const { assistantReferee1, assistantReferee2 } = req.body;
-    const match = await Match.create({ homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee, assistantReferee1, assistantReferee2 });
+    const { assistantReferee1, assistantReferee2, scout } = req.body;
+    const match = await Match.create({ homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee, assistantReferee1, assistantReferee2, scout });
     return res.status(201).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -249,6 +252,23 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
     match.status = 'SCHEDULED';
     if (rescheduledBy) match.scheduledBy = rescheduledBy;
     await match.save();
+    return res.status(200).json({ data: match });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/matches/:id/temp-scout — any user can flag themselves as an unofficial scout for this match
+router.post(`${BASE}/:id/temp-scout`, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const match = await Match.findByIdAndUpdate(
+      req.params.id,
+      { $addToSet: { tempScouts: userId } },
+      { new: true }
+    );
+    if (!match) return res.status(404).json({ error: 'Match not found' });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });

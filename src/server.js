@@ -40,6 +40,7 @@ const ReportRequestRouter = require('./ReportRequest/report_request.http.router'
 const NotificationRouter = require('./Notification/notification.http.router');
 const AiAdvisorRouter = require('./AiAdvisor/ai_advisor.http.router');
 const TrialRouter = require('./Trial/trial.http.router');
+const ScoutReportRouter = require('./ScoutReport/scout_report.http.router');
 require('./scheduler');
 
 const PORT = getNumber('PORT', 5000);
@@ -156,6 +157,7 @@ connect(MONGODB_URI, (error) => {
   app.use(NotificationRouter);
   app.use(AiAdvisorRouter);
   app.use(TrialRouter);
+  app.use(ScoutReportRouter);
   app.use(createChatRouter(io));
 
   mount([

@@ -153,6 +153,12 @@ const MatchSchema = new Schema(
       ref: 'User',
       default: null,
     },
+    scout: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    tempScouts: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   },
   SCHEMA_OPTIONS
 );

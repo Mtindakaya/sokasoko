@@ -23,6 +23,7 @@ router.get(BASE, async (req, res) => {
 
     const trials = await Trial.find(filter)
       .populate('organizer', 'firstName lastName type academyName profileImage')
+      .populate('scouts', 'firstName lastName type academyName accountNumber')
       .sort({ startDate: 1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
@@ -39,6 +40,7 @@ router.get(`${BASE}/my/:userId`, async (req, res) => {
   try {
     const trials = await Trial.find({ organizer: req.params.userId })
       .populate('organizer', 'firstName lastName type academyName profileImage')
+      .populate('scouts', 'firstName lastName type academyName accountNumber')
       .sort({ createdAt: -1 })
       .limit(50);
     return res.status(200).json({ data: trials });
@@ -62,7 +64,8 @@ router.get(`${BASE}/registered/:userId`, async (req, res) => {
 router.get(`${BASE}/:id`, async (req, res) => {
   try {
     const trial = await Trial.findById(req.params.id)
-      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber');
+      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
+      .populate('scouts', 'firstName lastName type academyName accountNumber profileImage');
     if (!trial) return res.status(404).json({ error: 'Trial not found' });
 
     const registrationCount = await TrialRegistration.countDocuments({ trialId: req.params.id });
@@ -93,7 +96,8 @@ router.post(BASE, async (req, res) => {
     }
     const trial = await Trial.create(req.body);
     const populated = await Trial.findById(trial._id)
-      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber');
+      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
+      .populate('scouts', 'firstName lastName type academyName accountNumber profileImage');
     return res.status(201).json({ data: populated });
   } catch (err) {
     return res.status(500).json({ error: err.message });
