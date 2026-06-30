@@ -258,6 +258,25 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
   }
 });
 
+// POST /v1/matches/:id/scout/respond — official scout accepts or declines assignment
+router.post(`${BASE}/:id/scout/respond`, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['ACCEPTED', 'DECLINED'].includes(status)) {
+      return res.status(400).json({ error: 'status must be ACCEPTED or DECLINED' });
+    }
+    const match = await Match.findByIdAndUpdate(
+      req.params.id,
+      { scoutStatus: status },
+      { new: true }
+    ).populate('scout', 'firstName lastName accountNumber type profileImage');
+    if (!match) return res.status(404).json({ error: 'Match not found' });
+    return res.status(200).json({ data: match });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/matches/:id/temp-scout — any user can flag themselves as an unofficial scout for this match
 router.post(`${BASE}/:id/temp-scout`, async (req, res) => {
   try {

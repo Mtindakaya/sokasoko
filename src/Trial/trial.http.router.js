@@ -10,6 +10,16 @@ const BASE = `/v${API_VERSION.split('.')[0]}/trials`;
 
 const AGE_GROUP_MAX = { U12: 12, U13: 13, U14: 14, U15: 15, U16: 16, U17: 17, U18: 18, U20: 20, U23: 23 };
 
+// Convert scouts array from plain IDs to {scout, status} objects
+function normalizeScouts(scouts) {
+  if (!Array.isArray(scouts)) return undefined;
+  return scouts.map(s => {
+    if (typeof s === 'string' || (s && s._bsontype)) return { scout: s, status: 'PENDING' };
+    if (s && s.scout) return s; // already in correct format
+    return { scout: s, status: 'PENDING' };
+  });
+}
+
 // GET /v1/trials
 router.get(BASE, async (req, res) => {
   try {
@@ -23,7 +33,7 @@ router.get(BASE, async (req, res) => {
 
     const trials = await Trial.find(filter)
       .populate('organizer', 'firstName lastName type academyName profileImage')
-      .populate('scouts', 'firstName lastName type academyName accountNumber')
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage')
       .sort({ startDate: 1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
@@ -40,7 +50,7 @@ router.get(`${BASE}/my/:userId`, async (req, res) => {
   try {
     const trials = await Trial.find({ organizer: req.params.userId })
       .populate('organizer', 'firstName lastName type academyName profileImage')
-      .populate('scouts', 'firstName lastName type academyName accountNumber')
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage')
       .sort({ createdAt: -1 })
       .limit(50);
     return res.status(200).json({ data: trials });
@@ -65,7 +75,7 @@ router.get(`${BASE}/:id`, async (req, res) => {
   try {
     const trial = await Trial.findById(req.params.id)
       .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
-      .populate('scouts', 'firstName lastName type academyName accountNumber profileImage');
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage');
     if (!trial) return res.status(404).json({ error: 'Trial not found' });
 
     const registrationCount = await TrialRegistration.countDocuments({ trialId: req.params.id });
@@ -94,11 +104,34 @@ router.post(BASE, async (req, res) => {
     if (!title || !organizer || !startDate || !location || !gender) {
       return res.status(400).json({ error: 'title, organizer, startDate, location and gender are required' });
     }
-    const trial = await Trial.create(req.body);
+    const body = { ...req.body };
+    if (body.scouts) body.scouts = normalizeScouts(body.scouts);
+    const trial = await Trial.create(body);
     const populated = await Trial.findById(trial._id)
       .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
-      .populate('scouts', 'firstName lastName type academyName accountNumber profileImage');
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage');
     return res.status(201).json({ data: populated });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/trials/:id/scouts/:scoutId/respond — scout accepts or declines assignment
+router.post(`${BASE}/:id/scouts/:scoutId/respond`, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['ACCEPTED', 'DECLINED'].includes(status)) {
+      return res.status(400).json({ error: 'status must be ACCEPTED or DECLINED' });
+    }
+    const trial = await Trial.findOneAndUpdate(
+      { _id: req.params.id, 'scouts.scout': req.params.scoutId },
+      { $set: { 'scouts.$.status': status } },
+      { new: true }
+    )
+      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage');
+    if (!trial) return res.status(404).json({ error: 'Assignment not found' });
+    return res.status(200).json({ data: trial });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -107,7 +140,9 @@ router.post(BASE, async (req, res) => {
 // PATCH /v1/trials/:id
 router.patch(`${BASE}/:id`, async (req, res) => {
   try {
-    const trial = await Trial.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const body = { ...req.body };
+    if (body.scouts) body.scouts = normalizeScouts(body.scouts);
+    const trial = await Trial.findByIdAndUpdate(req.params.id, body, { new: true })
       .populate('organizer', 'firstName lastName type academyName profileImage accountNumber');
     if (!trial) return res.status(404).json({ error: 'Trial not found' });
     return res.status(200).json({ data: trial });
