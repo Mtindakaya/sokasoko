@@ -59,6 +59,20 @@ router.get(`${BASE}/my/:userId`, async (req, res) => {
   }
 });
 
+// GET /v1/trials/assigned/:scoutId — trials where this user is an assigned scout
+router.get(`${BASE}/assigned/:scoutId`, async (req, res) => {
+  try {
+    const trials = await Trial.find({ 'scouts.scout': req.params.scoutId })
+      .populate('organizer', 'firstName lastName type academyName profileImage')
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage')
+      .sort({ startDate: 1 })
+      .limit(50);
+    return res.status(200).json({ data: trials });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/trials/registered/:userId — NOTE: before /:id
 router.get(`${BASE}/registered/:userId`, async (req, res) => {
   try {
