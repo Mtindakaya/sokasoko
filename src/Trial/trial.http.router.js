@@ -151,13 +151,31 @@ router.post(`${BASE}/:id/scouts/:scoutId/respond`, async (req, res) => {
   }
 });
 
+// POST /v1/trials/:id/repair-scouts — remove broken subdocs where scout ref is null
+router.post(`${BASE}/:id/repair-scouts`, async (req, res) => {
+  try {
+    const result = await Trial.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { scouts: { scout: null } } },
+      { new: true }
+    )
+      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage');
+    if (!result) return res.status(404).json({ error: 'Trial not found' });
+    return res.status(200).json({ data: result });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /v1/trials/:id
 router.patch(`${BASE}/:id`, async (req, res) => {
   try {
     const body = { ...req.body };
     if (body.scouts) body.scouts = normalizeScouts(body.scouts);
     const trial = await Trial.findByIdAndUpdate(req.params.id, body, { new: true })
-      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber');
+      .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
+      .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage');
     if (!trial) return res.status(404).json({ error: 'Trial not found' });
     return res.status(200).json({ data: trial });
   } catch (err) {
