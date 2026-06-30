@@ -8,6 +8,30 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
 const BASE = `/v${API_VERSION.split('.')[0]}/matches`;
 
+// GET /v1/matches/scouting/:userId — matches where user is official or temp scout (NOTE: before /:id)
+router.get(`${BASE}/scouting/:userId`, async (req, res) => {
+  try {
+    const matches = await Match.find({
+      $or: [
+        { scout: req.params.userId },
+        { tempScouts: req.params.userId },
+      ],
+    })
+      .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('venue', 'name region district')
+      .populate('tournament', 'name type')
+      .populate('referee', 'firstName lastName accountNumber type')
+      .populate('scout', 'firstName lastName accountNumber type profileImage')
+      .select('-playerStats -notes -scheduleDeclinedBy -scheduleConfirmedBy -homeConfirmedBy -awayConfirmedBy -scheduledBy -homeCoach -awayCoach')
+      .sort({ scheduledDate: -1 })
+      .lean();
+    return res.status(200).json({ data: matches });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/matches
 router.get(BASE, async (req, res) => {
   try {
