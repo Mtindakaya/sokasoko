@@ -63,4 +63,7 @@ const ScoutReportSchema = new Schema({
   defensive_pressing_leader:  { type: Number, min: 1, max: 10 },
 }, { timestamps: true });
 
+// One evaluation per scout per player per event
+ScoutReportSchema.index({ scout: 1, player: 1, eventId: 1 }, { unique: true });
+
 module.exports = model('ScoutReport', ScoutReportSchema);

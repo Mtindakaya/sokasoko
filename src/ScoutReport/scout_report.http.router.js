@@ -7,15 +7,43 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
 const BASE = `/v${API_VERSION.split('.')[0]}/scout-reports`;
 
+// GET /v1/scout-reports/check?scoutId=&playerId=&eventId=
+router.get(`${BASE}/check`, async (req, res) => {
+  try {
+    const { scoutId, playerId, eventId } = req.query;
+    if (!scoutId || !playerId || !eventId) {
+      return res.status(400).json({ error: 'scoutId, playerId and eventId are required' });
+    }
+    const existing = await ScoutReport.findOne({ scout: scoutId, player: playerId, eventId })
+      .select('_id createdAt overall_rating scout_verdict').lean();
+    return res.status(200).json({ exists: !!existing, report: existing || null });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/scout-reports — submit an evaluation
 router.post(BASE, async (req, res) => {
   try {
+    // Duplicate guard
+    const existing = await ScoutReport.findOne({
+      scout: req.body.scout,
+      player: req.body.player,
+      eventId: req.body.eventId,
+    });
+    if (existing) {
+      return res.status(409).json({ error: 'You have already submitted an evaluation for this player at this event.' });
+    }
+
     const report = await ScoutReport.create(req.body);
     const populated = await ScoutReport.findById(report._id)
       .populate('scout', 'firstName lastName type accountNumber')
       .populate('player', 'firstName lastName type position accountNumber profileImage');
     return res.status(201).json({ data: populated });
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ error: 'You have already submitted an evaluation for this player at this event.' });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
