@@ -163,6 +163,10 @@ const MatchSchema = new Schema(
       enum: ['PENDING', 'ACCEPTED', 'DECLINED'],
       default: 'PENDING',
     },
+    scouts: [{
+      scout: { type: Schema.Types.ObjectId, ref: 'User' },
+      status: { type: String, enum: ['PENDING', 'ACCEPTED', 'DECLINED'], default: 'PENDING' },
+    }],
     tempScouts: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   },
   SCHEMA_OPTIONS

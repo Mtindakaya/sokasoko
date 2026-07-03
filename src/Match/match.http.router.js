@@ -15,6 +15,7 @@ router.get(`${BASE}/scouting/:userId`, async (req, res) => {
       $or: [
         { scout: req.params.userId },
         { tempScouts: req.params.userId },
+        { 'scouts.scout': req.params.userId },
       ],
     })
       .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
@@ -23,6 +24,7 @@ router.get(`${BASE}/scouting/:userId`, async (req, res) => {
       .populate('tournament', 'name type')
       .populate('referee', 'firstName lastName accountNumber type')
       .populate('scout', 'firstName lastName accountNumber type profileImage')
+      .populate('scouts.scout', 'firstName lastName accountNumber type profileImage')
       .select('-playerStats -notes -scheduleDeclinedBy -scheduleConfirmedBy -homeConfirmedBy -awayConfirmedBy -scheduledBy -homeCoach -awayCoach')
       .sort({ scheduledDate: -1 })
       .lean();
@@ -98,8 +100,16 @@ router.post(BASE, async (req, res) => {
     if (homeTeam === awayTeam) {
       return res.status(400).json({ error: 'Home and away team cannot be the same' });
     }
-    const { assistantReferee1, assistantReferee2, scout } = req.body;
-    const match = await Match.create({ homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee, assistantReferee1, assistantReferee2, scout });
+    const { assistantReferee1, assistantReferee2, scout, scouts: scoutIds } = req.body;
+    const normalizedScouts = Array.isArray(scoutIds)
+      ? scoutIds.map(id => ({ scout: id, status: 'PENDING' }))
+      : scout ? [{ scout, status: 'PENDING' }] : [];
+    const match = await Match.create({
+      homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee,
+      assistantReferee1, assistantReferee2,
+      scout: normalizedScouts.length ? normalizedScouts[0].scout : null,
+      scouts: normalizedScouts,
+    });
     return res.status(201).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -282,18 +292,23 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
   }
 });
 
-// POST /v1/matches/:id/scout/respond — official scout accepts or declines assignment
+// POST /v1/matches/:id/scout/respond — scout accepts or declines assignment
 router.post(`${BASE}/:id/scout/respond`, async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, scoutId } = req.body;
     if (!['ACCEPTED', 'DECLINED'].includes(status)) {
       return res.status(400).json({ error: 'status must be ACCEPTED or DECLINED' });
     }
-    const match = await Match.findByIdAndUpdate(
-      req.params.id,
-      { scoutStatus: status },
-      { new: true }
-    ).populate('scout', 'firstName lastName accountNumber type profileImage');
+    // Update status in scouts array if scoutId provided, else fall back to scoutStatus
+    const update = scoutId
+      ? { $set: { 'scouts.$[el].status': status, scoutStatus: status } }
+      : { scoutStatus: status };
+    const options = scoutId
+      ? { new: true, arrayFilters: [{ 'el.scout': scoutId }] }
+      : { new: true };
+    const match = await Match.findByIdAndUpdate(req.params.id, update, options)
+      .populate('scout', 'firstName lastName accountNumber type profileImage')
+      .populate('scouts.scout', 'firstName lastName accountNumber type profileImage');
     if (!match) return res.status(404).json({ error: 'Match not found' });
     return res.status(200).json({ data: match });
   } catch (err) {
