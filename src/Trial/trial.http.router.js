@@ -8,7 +8,11 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
 const BASE = `/v${API_VERSION.split('.')[0]}/trials`;
 
-const AGE_GROUP_MAX = { U12: 12, U13: 13, U14: 14, U15: 15, U16: 16, U17: 17, U18: 18, U20: 20, U23: 23 };
+function groupMaxAge(group) {
+  if (!group || group.toUpperCase() === 'OPEN') return Infinity;
+  const m = group.match(/\d+/);
+  return m ? parseInt(m[0]) : Infinity;
+}
 
 // Convert scouts array from plain IDs to {scout, status} objects
 function normalizeScouts(scouts) {
@@ -249,8 +253,8 @@ router.post(`${BASE}/:id/register`, async (req, res) => {
       if (player && player.dob) {
         const ageMs = Date.now() - new Date(player.dob).getTime();
         const age = Math.floor(ageMs / (365.25 * 24 * 60 * 60 * 1000));
-        const maxAge = AGE_GROUP_MAX[selectedAgeGroup];
-        if (maxAge !== undefined && age > maxAge) {
+        const maxAge = groupMaxAge(selectedAgeGroup);
+        if (age > maxAge) {
           return res.status(400).json({
             error: `You are ${age} years old and cannot register for ${selectedAgeGroup} (max age: ${maxAge}).`,
           });
