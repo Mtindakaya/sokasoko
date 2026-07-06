@@ -1,6 +1,15 @@
 const express = require('express');
 const Match = require('./match.model');
 const mongoose = require('mongoose');
+const RefereeRating = require('../RefereeRating/referee_rating.model');
+
+function _computeTier(avg) {
+  if (avg >= 4.2) return 'Excellent';
+  if (avg >= 3.4) return 'Very Good';
+  if (avg >= 2.6) return 'Good';
+  if (avg >= 1.8) return 'Fair';
+  return 'Poor';
+}
 
 const router = express.Router();
 
@@ -114,14 +123,23 @@ router.get('/v1/stats/coach/:id', async (req, res) => {
 // GET /v1/stats/referee/:id
 router.get('/v1/stats/referee/:id', async (req, res) => {
   try {
-    const matches = await Match.find({ referee: req.params.id, status: 'COMPLETED' })
-      .populate('homeTeam', 'firstName lastName academyName type accountNumber')
-      .populate('awayTeam', 'firstName lastName academyName type accountNumber')
-      .populate('tournament', 'name')
-      .sort({ scheduledDate: -1 });
+    const [matches, ratings] = await Promise.all([
+      Match.find({ referee: req.params.id, status: 'COMPLETED' })
+        .populate('homeTeam', 'firstName lastName academyName type accountNumber')
+        .populate('awayTeam', 'firstName lastName academyName type accountNumber')
+        .populate('tournament', 'name')
+        .sort({ scheduledDate: -1 }),
+      RefereeRating.find({ referee: req.params.id }).lean(),
+    ]);
+
+    const gamesRated = ratings.length;
+    const averageRating = gamesRated > 0
+      ? Math.round((ratings.reduce((s, r) => s + r.stars, 0) / gamesRated) * 10) / 10
+      : null;
+    const tier = averageRating !== null ? _computeTier(averageRating) : null;
 
     return res.json({
-      totals: { matchesRefereed: matches.length },
+      totals: { matchesRefereed: matches.length, averageRating, tier, gamesRated },
       matches: matches.map(m => ({
         matchId: m._id,
         date: m.scheduledDate,
