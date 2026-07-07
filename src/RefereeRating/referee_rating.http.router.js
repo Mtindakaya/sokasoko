@@ -15,6 +15,23 @@ function computeTier(avg) {
   return 'Poor';
 }
 
+// POST /v1/referee-ratings/seed — insert a test rating directly (demo/dev only)
+router.post(`${BASE}/seed`, async (req, res) => {
+  try {
+    const { refereeId, stars, comment } = req.body;
+    if (!refereeId || !stars) return res.status(400).json({ error: 'refereeId and stars required' });
+    const mongoose = require('mongoose');
+    const fakeMatchId = new mongoose.Types.ObjectId();
+    const fakeRatedBy = new mongoose.Types.ObjectId();
+    const rating = await RefereeRating.create({
+      match: fakeMatchId, referee: refereeId, ratedBy: fakeRatedBy, stars, comment,
+    });
+    return res.status(201).json({ data: rating });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/referee-ratings/check?matchId=&ratedBy=
 router.get(`${BASE}/check`, async (req, res) => {
   try {
