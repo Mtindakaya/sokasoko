@@ -16,6 +16,27 @@ const Counter = require('../Counter/counter.model');
 const { leftFillNum, sendSms, generateHash } = require('../Utils/utils');
 const { Subscription } = require('../Subscription/subscription.model');
 const ProfileView = require('./profile_view.model');
+const Media = require('../Media/media.model');
+
+const attachPrimaryVideoUrls = async (users) => {
+  const ids = users.map((u) => u._id).filter(Boolean);
+  if (ids.length === 0) return users;
+  const medias = await Media
+    .find({ player: { $in: ids }, type: 'Link' })
+    .select('player url order')
+    .sort({ order: 1, createdAt: 1 })
+    .lean();
+  const byPlayer = new Map();
+  for (const m of medias) {
+    const key = m.player.toString();
+    if (!byPlayer.has(key)) byPlayer.set(key, m.url);
+  }
+  for (const u of users) {
+    const key = u._id && u._id.toString();
+    if (key && byPlayer.has(key)) u.primaryVideoUrl = byPlayer.get(key);
+  }
+  return users;
+};
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 
@@ -137,6 +158,8 @@ router.get(PATH_LIST, async (req, res) => {
       User.countDocuments(filter),
     ]);
 
+    await attachPrimaryVideoUrls(data);
+
     return res.status(200).json({ data, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -166,6 +189,8 @@ router.get(PATH_SEARCH, async (request, response) => {
       .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca')
       .limit(limit)
       .lean();
+
+    await attachPrimaryVideoUrls(data);
 
     return response.ok({ data });
   } catch (error) {
