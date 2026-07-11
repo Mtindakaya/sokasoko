@@ -22,18 +22,21 @@ const attachPrimaryVideoUrls = async (users) => {
   const ids = users.map((u) => u._id).filter(Boolean);
   if (ids.length === 0) return users;
   const medias = await Media
-    .find({ player: { $in: ids }, type: 'Link' })
-    .select('player url order')
+    .find({
+      type: 'Link',
+      $or: [{ player: { $in: ids } }, { createdBy: { $in: ids } }],
+    })
+    .select('player createdBy url order')
     .sort({ order: 1, createdAt: 1 })
     .lean();
-  const byPlayer = new Map();
+  const byUser = new Map();
   for (const m of medias) {
-    const key = m.player.toString();
-    if (!byPlayer.has(key)) byPlayer.set(key, m.url);
+    const key = (m.player || m.createdBy || '').toString();
+    if (key && !byUser.has(key)) byUser.set(key, m.url);
   }
   for (const u of users) {
     const key = u._id && u._id.toString();
-    if (key && byPlayer.has(key)) u.primaryVideoUrl = byPlayer.get(key);
+    if (key && byUser.has(key)) u.primaryVideoUrl = byUser.get(key);
   }
   return users;
 };
