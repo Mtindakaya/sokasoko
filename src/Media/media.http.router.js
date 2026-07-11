@@ -19,9 +19,62 @@ const PATH_SCHEMA = '/medias/schema/';
 const PATH_SEARCH = '/medias/search';
 
 const Media = require('./media.model');
+const Comment = require('./comment.model');
 
 const router = new Router({
   version: API_VERSION,
+});
+
+// GET /v1/medias/:id/comments — list comments oldest → newest
+router.get('/medias/:id/comments', async (req, res) => {
+  try {
+    const data = await Comment
+      .find({ media: req.params.id })
+      .populate('user', 'firstName lastName profileImage type')
+      .sort({ createdAt: 1 })
+      .lean();
+    return res.status(200).json({ data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/medias/:id/comments — add a comment
+router.post('/medias/:id/comments', async (req, res) => {
+  try {
+    const { userId, text } = req.body;
+    if (!userId || !text || !String(text).trim()) {
+      return res.status(400).json({ error: 'userId and text are required' });
+    }
+    const comment = await Comment.create({
+      media: req.params.id,
+      user: userId,
+      text: String(text).trim(),
+    });
+    const populated = await Comment
+      .findById(comment._id)
+      .populate('user', 'firstName lastName profileImage type')
+      .lean();
+    return res.status(201).json(populated);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /v1/medias/:id/comments/:cid — author-only delete
+router.delete('/medias/:id/comments/:cid', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const comment = await Comment.findById(req.params.cid);
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+    if (String(comment.user) !== String(userId)) {
+      return res.status(403).json({ error: 'Not comment author' });
+    }
+    await Comment.deleteOne({ _id: req.params.cid });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 router.get(
