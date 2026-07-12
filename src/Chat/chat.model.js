@@ -13,6 +13,8 @@ const MessageSchema = new Schema(
     replyTo: { type: Schema.Types.ObjectId, ref: 'ChatMessage', default: null },
     // Optional forward — original author of the message we're forwarding
     forwardedFrom: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    // Optional shared post — the media being forwarded from someone's profile
+    sharedMedia: { type: Schema.Types.ObjectId, ref: 'Media', default: null },
     // 1-to-1 read flag (kept for backwards compatibility)
     read: { type: Boolean, default: false },
     readAt: { type: Date },

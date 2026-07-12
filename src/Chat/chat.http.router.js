@@ -10,7 +10,14 @@ module.exports = function createChatRouter(io) {
 
   // POST /v1/chat/messages
   router.post('/v1/chat/messages', async (req, res) => {
-    const { senderId, receiverId, content, replyToId, forwardedFromId } = req.body;
+    const {
+      senderId,
+      receiverId,
+      content,
+      replyToId,
+      forwardedFromId,
+      sharedMediaId,
+    } = req.body;
     if (!senderId || !receiverId || !content) {
       return res.status(400).json({ message: 'senderId, receiverId and content required' });
     }
@@ -22,6 +29,7 @@ module.exports = function createChatRouter(io) {
         read: false,
         replyTo: replyToId || null,
         forwardedFrom: forwardedFromId || null,
+        sharedMedia: sharedMediaId || null,
       });
       const populated = await ChatMessage.findById(msg._id)
         .populate('sender', 'firstName lastName photo type')
@@ -32,6 +40,11 @@ module.exports = function createChatRouter(io) {
           populate: { path: 'sender', select: 'firstName lastName' },
         })
         .populate('forwardedFrom', 'firstName lastName')
+        .populate({
+          path: 'sharedMedia',
+          select: 'title description url type createdBy',
+          populate: { path: 'createdBy', select: 'firstName lastName profileImage' },
+        })
         .lean();
 
       if (io) {
@@ -69,6 +82,11 @@ module.exports = function createChatRouter(io) {
           populate: { path: 'sender', select: 'firstName lastName' },
         })
         .populate('forwardedFrom', 'firstName lastName')
+        .populate({
+          path: 'sharedMedia',
+          select: 'title description url type createdBy',
+          populate: { path: 'createdBy', select: 'firstName lastName profileImage' },
+        })
         .lean();
       return res.json({ data: messages.reverse() });
     } catch (err) {
