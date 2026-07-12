@@ -51,6 +51,7 @@ router.post('/medias/:id/comments', async (req, res) => {
       user: userId,
       text: String(text).trim(),
     });
+    await Media.findByIdAndUpdate(req.params.id, { $inc: { commentsCount: 1 } });
     const populated = await Comment
       .findById(comment._id)
       .populate('user', 'firstName lastName profileImage type')
@@ -71,6 +72,7 @@ router.delete('/medias/:id/comments/:cid', async (req, res) => {
       return res.status(403).json({ error: 'Not comment author' });
     }
     await Comment.deleteOne({ _id: req.params.cid });
+    await Media.findByIdAndUpdate(req.params.id, { $inc: { commentsCount: -1 } });
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });

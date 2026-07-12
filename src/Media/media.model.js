@@ -13,6 +13,7 @@ const MediaSchema = new Schema(
     type: { type: String, required: true, enum: MediaTypes },
     order: { type: Number, default: 0 },
     likes: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    commentsCount: { type: Number, default: 0 },
     votes: [{
       userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
       score: { type: Number, min: 0, max: 10, required: true },
