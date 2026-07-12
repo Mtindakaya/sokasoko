@@ -9,6 +9,10 @@ const MessageSchema = new Schema(
     // For group messages — null for 1-to-1 messages
     group: { type: Schema.Types.ObjectId, ref: 'ChatGroup', default: null },
     content: { type: String, required: true, trim: true },
+    // Optional reply — quotes another message that lives in the same conversation
+    replyTo: { type: Schema.Types.ObjectId, ref: 'ChatMessage', default: null },
+    // Optional forward — original author of the message we're forwarding
+    forwardedFrom: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     // 1-to-1 read flag (kept for backwards compatibility)
     read: { type: Boolean, default: false },
     readAt: { type: Date },

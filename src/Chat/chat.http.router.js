@@ -10,15 +10,28 @@ module.exports = function createChatRouter(io) {
 
   // POST /v1/chat/messages
   router.post('/v1/chat/messages', async (req, res) => {
-    const { senderId, receiverId, content } = req.body;
+    const { senderId, receiverId, content, replyToId, forwardedFromId } = req.body;
     if (!senderId || !receiverId || !content) {
       return res.status(400).json({ message: 'senderId, receiverId and content required' });
     }
     try {
-      const msg = await ChatMessage.create({ sender: senderId, receiver: receiverId, content, read: false });
+      const msg = await ChatMessage.create({
+        sender: senderId,
+        receiver: receiverId,
+        content,
+        read: false,
+        replyTo: replyToId || null,
+        forwardedFrom: forwardedFromId || null,
+      });
       const populated = await ChatMessage.findById(msg._id)
         .populate('sender', 'firstName lastName photo type')
         .populate('receiver', 'firstName lastName photo type')
+        .populate({
+          path: 'replyTo',
+          select: 'sender content createdAt',
+          populate: { path: 'sender', select: 'firstName lastName' },
+        })
+        .populate('forwardedFrom', 'firstName lastName')
         .lean();
 
       if (io) {
@@ -50,6 +63,12 @@ module.exports = function createChatRouter(io) {
         .limit(parseInt(limit, 10))
         .populate('sender', 'firstName lastName photo')
         .populate('receiver', 'firstName lastName photo')
+        .populate({
+          path: 'replyTo',
+          select: 'sender content createdAt',
+          populate: { path: 'sender', select: 'firstName lastName' },
+        })
+        .populate('forwardedFrom', 'firstName lastName')
         .lean();
       return res.json({ data: messages.reverse() });
     } catch (err) {
