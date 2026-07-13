@@ -124,8 +124,10 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Match already completed' });
 
-    match.homeScore = homeScore;
-    match.awayScore = awayScore;
+    // Only overwrite scores when the caller explicitly sends them —
+    // stats-only saves from the away team shouldn't blank out the score.
+    if (homeScore !== undefined && homeScore !== null) match.homeScore = homeScore;
+    if (awayScore !== undefined && awayScore !== null) match.awayScore = awayScore;
 
     if (playerStats && playerStats.length > 0) {
       // For tournament matches, verify each REGISTERED player is approved
