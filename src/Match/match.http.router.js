@@ -128,16 +128,18 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     match.awayScore = awayScore;
 
     if (playerStats && playerStats.length > 0) {
-      // For tournament matches, verify each player is approved before adding stats
+      // For tournament matches, verify each REGISTERED player is approved
+      // before adding stats. Guest players (no player id) skip this check.
       if (match.tournament) {
-        const playerIds = playerStats.map(s => s.player);
+        const registered = playerStats.filter(s => s.player && !s.isGuest);
+        const playerIds = registered.map(s => s.player);
         const approvedRegs = await TournamentRegistration.find({
           tournament: match.tournament,
           player: { $in: playerIds },
           status: 'APPROVED',
         }).select('player').lean();
         const approvedSet = new Set(approvedRegs.map(r => r.player.toString()));
-        const blocked = playerStats.filter(s => !approvedSet.has(s.player));
+        const blocked = registered.filter(s => !approvedSet.has(s.player));
         if (blocked.length > 0) {
           const ids = blocked.map(s => s.player).join(', ');
           return res.status(403).json({
@@ -146,9 +148,14 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
           });
         }
       }
-      // Merge player stats — avoid duplicates
+      // Merge player stats — dedupe registered players by player id; guest
+      // rows always append.
       playerStats.forEach(stat => {
-        const existing = match.playerStats.find(s => s.player.toString() === stat.player);
+        if (!stat.player || stat.isGuest) {
+          match.playerStats.push(stat);
+          return;
+        }
+        const existing = match.playerStats.find(s => s.player && s.player.toString() === stat.player);
         if (existing) {
           Object.assign(existing, stat);
         } else {
@@ -378,17 +385,18 @@ router.post(`${BASE}/:id/organizer-result`, async (req, res) => {
     match.awayScore = awayScore ?? match.awayScore;
 
     if (playerStats && playerStats.length > 0) {
-      // For tournament matches check registration approval
+      // For tournament matches check registration approval — guests skip it.
       if (match.tournament) {
         const TournamentRegistration = require('../TournamentRegistration/tournament_registration.model');
-        const playerIds = playerStats.map(s => s.player);
+        const registered = playerStats.filter(s => s.player && !s.isGuest);
+        const playerIds = registered.map(s => s.player);
         const approvedRegs = await TournamentRegistration.find({
           tournament: match.tournament._id ?? match.tournament,
           player: { $in: playerIds },
           status: 'APPROVED',
         }).select('player').lean();
         const approvedSet = new Set(approvedRegs.map(r => r.player.toString()));
-        const blocked = playerStats.filter(s => !approvedSet.has(s.player));
+        const blocked = registered.filter(s => !approvedSet.has(s.player));
         if (blocked.length > 0) {
           return res.status(403).json({
             error: `Player(s) not approved for this tournament`,
@@ -397,7 +405,11 @@ router.post(`${BASE}/:id/organizer-result`, async (req, res) => {
         }
       }
       playerStats.forEach(stat => {
-        const existing = match.playerStats.find(s => s.player.toString() === stat.player);
+        if (!stat.player || stat.isGuest) {
+          match.playerStats.push(stat);
+          return;
+        }
+        const existing = match.playerStats.find(s => s.player && s.player.toString() === stat.player);
         if (existing) Object.assign(existing, stat);
         else match.playerStats.push(stat);
       });

@@ -15,7 +15,9 @@ const SCHEMA_OPTIONS = {
 const MATCH_STATUS = ['SCHEDULED', 'ONGOING', 'COMPLETED', 'CANCELLED', 'POSTPONED', 'DECLINED'];
 
 const PlayerStatSchema = new Schema({
-  player: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  // Registered players have a User ref; guest players use playerName instead.
+  player: { type: Schema.Types.ObjectId, ref: 'User', required: false },
+  playerName: { type: String, trim: true },
   team: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   isGuest: { type: Boolean, default: false },
   jerseyNumber: { type: Number },
