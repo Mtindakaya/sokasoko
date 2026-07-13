@@ -164,15 +164,9 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
       });
     }
 
-    // Mark confirmation for the submitting team
-    if (team === match.homeTeam.toString()) {
-      match.homeConfirmed = true;
-      match.homeConfirmedBy = confirmedBy;
-    } else if (team === match.awayTeam.toString()) {
-      match.awayConfirmed = true;
-      match.awayConfirmedBy = confirmedBy;
-    }
-
+    // Result entry is now a "save draft" op — it never auto-confirms. The
+    // team explicitly locks their side by hitting POST /confirm, so coaches
+    // can save partial stats over several sittings.
     await match.save();
     return res.status(200).json({ data: match });
   } catch (err) {
