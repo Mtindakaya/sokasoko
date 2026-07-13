@@ -148,14 +148,15 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
           });
         }
       }
-      // Merge player stats — dedupe registered players by player id; guest
-      // rows always append.
+      // Merge player stats — dedupe by player id whenever we have one.
+      // Guests are now real platform users so they always carry an id; only
+      // stat rows with no id at all fall back to append.
       playerStats.forEach(stat => {
-        if (!stat.player || stat.isGuest) {
+        if (!stat.player) {
           match.playerStats.push(stat);
           return;
         }
-        const existing = match.playerStats.find(s => s.player && s.player.toString() === stat.player);
+        const existing = match.playerStats.find(s => s.player && s.player.toString() === String(stat.player));
         if (existing) {
           Object.assign(existing, stat);
         } else {
@@ -399,11 +400,11 @@ router.post(`${BASE}/:id/organizer-result`, async (req, res) => {
         }
       }
       playerStats.forEach(stat => {
-        if (!stat.player || stat.isGuest) {
+        if (!stat.player) {
           match.playerStats.push(stat);
           return;
         }
-        const existing = match.playerStats.find(s => s.player && s.player.toString() === stat.player);
+        const existing = match.playerStats.find(s => s.player && s.player.toString() === String(stat.player));
         if (existing) Object.assign(existing, stat);
         else match.playerStats.push(stat);
       });
