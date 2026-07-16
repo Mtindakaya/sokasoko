@@ -105,6 +105,30 @@ module.exports = function createChatRouter(io) {
     }
   });
 
+  // DELETE /v1/chat/messages/:id — sender may delete their own message
+  router.delete('/v1/chat/messages/:id', async (req, res) => {
+    const { id } = req.params;
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ message: 'userId required' });
+    }
+    try {
+      const msg = await ChatMessage.findById(id);
+      if (!msg) return res.status(404).json({ message: 'not found' });
+      if (String(msg.sender) !== String(userId)) {
+        return res.status(403).json({ message: 'not owner' });
+      }
+      await ChatMessage.deleteOne({ _id: id });
+      if (io) {
+        io.to(String(msg.receiver)).emit('message_deleted', { _id: id });
+        io.to(String(msg.sender)).emit('message_deleted', { _id: id });
+      }
+      return res.json({ success: true });
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /v1/chat/mark-read
   router.post('/v1/chat/mark-read', async (req, res) => {
     const { userId, otherUserId } = req.body;
