@@ -55,6 +55,7 @@ router.get(BASE, async (req, res) => {
         .populate('assistantReferee1', 'firstName lastName accountNumber type')
         .populate('assistantReferee2', 'firstName lastName accountNumber type')
         .populate('scout', 'firstName lastName accountNumber type profileImage')
+        .populate('scouts.scout', 'firstName lastName accountNumber type profileImage')
         .select('-playerStats -notes -scheduleDeclinedBy -scheduleConfirmedBy -homeConfirmedBy -awayConfirmedBy -scheduledBy -homeCoach -awayCoach')
         .sort({ scheduledDate: -1 })
         .skip((page - 1) * limit)
@@ -83,6 +84,7 @@ router.get(`${BASE}/:id`, async (req, res) => {
       .populate('homeCoach', 'firstName lastName accountNumber type profileImage')
       .populate('awayCoach', 'firstName lastName accountNumber type profileImage')
       .populate('scout', 'firstName lastName accountNumber type profileImage')
+      .populate('scouts.scout', 'firstName lastName accountNumber type profileImage')
       .populate('tempScouts', 'firstName lastName accountNumber type profileImage')
       .lean();
     if (!match) return res.status(404).json({ error: 'Match not found' });
