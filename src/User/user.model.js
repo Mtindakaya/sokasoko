@@ -236,6 +236,20 @@ const UserSchema = new Schema(
       default: false,
     },
 
+    // --- Scout rates (SCOUT type only) ---
+    // Cost the scout charges per academy engagement (full-team scouting for a match).
+    costPerGame: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    // Cost the scout charges per individual player evaluation request.
+    costPerPlayer: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     // --- Free Trial ---
     freeTrialEndDate: {
       type: Date,

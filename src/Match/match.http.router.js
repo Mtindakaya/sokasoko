@@ -3,6 +3,8 @@ const { getString } = require('@lykmapipo/env');
 const _ = require('lodash');
 const Match = require('./match.model');
 const TournamentRegistration = require('../TournamentRegistration/tournament_registration.model');
+const User = require('../User/user.model');
+const ChatMessage = require('../Chat/chat.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -314,6 +316,77 @@ router.post(`${BASE}/:id/scout/respond`, async (req, res) => {
       .populate('scout', 'firstName lastName accountNumber type profileImage')
       .populate('scouts.scout', 'firstName lastName accountNumber type profileImage');
     if (!match) return res.status(404).json({ error: 'Match not found' });
+    return res.status(200).json({ data: match });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/matches/:id/request-scout — a player (or academy) asks a registered
+// scout to scout an already-scheduled match. Duplicates are ignored via the
+// existing scouts array — same scout on same match yields a single entry.
+router.post(`${BASE}/:id/request-scout`, async (req, res) => {
+  try {
+    const { scoutId, requestedBy } = req.body;
+    if (!scoutId || !requestedBy) {
+      return res.status(400).json({ error: 'scoutId and requestedBy are required' });
+    }
+    const [match, scout, requester] = await Promise.all([
+      Match.findById(req.params.id),
+      User.findById(scoutId).select('type firstName lastName costPerGame costPerPlayer'),
+      User.findById(requestedBy).select('type firstName lastName school academy'),
+    ]);
+    if (!match) return res.status(404).json({ error: 'Match not found' });
+    if (!scout || scout.type !== 'SCOUT') {
+      return res.status(400).json({ error: 'scoutId must reference a registered SCOUT' });
+    }
+    if (!requester) return res.status(400).json({ error: 'requester not found' });
+    if (['COMPLETED', 'CANCELLED'].includes(match.status)) {
+      return res.status(400).json({ error: 'Match is not scheduled' });
+    }
+
+    // Eligibility: the requester must be tied to homeTeam or awayTeam.
+    // Academies (or team owners) show up as homeTeam/awayTeam themselves —
+    // players link to a team via User.school.
+    const teamIds = [match.homeTeam?.toString(), match.awayTeam?.toString()].filter(Boolean);
+    const requesterId = requester._id.toString();
+    const requesterSchool = requester.school ? requester.school.toString() : null;
+    const isTeamOwner = teamIds.includes(requesterId);
+    const isPlayerOnTeam = requester.type === 'PLAYER' && requesterSchool && teamIds.includes(requesterSchool);
+    if (!isTeamOwner && !isPlayerOnTeam) {
+      return res.status(403).json({ error: 'requester is not part of a team in this match' });
+    }
+
+    // Dedupe: if the scout is already attached (via any path), don't add again.
+    const alreadyAttached = (match.scouts || []).some(s => s.scout && s.scout.toString() === scoutId)
+      || (match.scout && match.scout.toString() === scoutId);
+    if (!alreadyAttached) {
+      match.scouts.push({
+        scout: scoutId,
+        status: 'PENDING',
+        requestedBy: requester._id,
+        requestType: isPlayerOnTeam ? 'PLAYER' : 'ACADEMY',
+      });
+      if (!match.scout) match.scout = scoutId;
+      await match.save();
+    }
+
+    // Chat notification from requester → scout so it shows up in the scout's
+    // Messages inbox alongside the standard match-scout heads-up.
+    try {
+      const requesterName = `${requester.firstName || ''} ${requester.lastName || ''}`.trim() || 'A user';
+      const roleLabel = isPlayerOnTeam ? 'player' : 'team';
+      await ChatMessage.create({
+        sender: requester._id,
+        receiver: scout._id,
+        content: `${requesterName} (${roleLabel}) has requested you as scout for their upcoming match. Open Scout Hub to accept or decline.`,
+        read: false,
+      });
+    } catch (chatErr) {
+      // Notification is best-effort; don't fail the whole request.
+      console.log('request-scout chat notify error:', chatErr.message);
+    }
+
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });

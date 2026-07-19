@@ -168,6 +168,13 @@ const MatchSchema = new Schema(
     scouts: [{
       scout: { type: Schema.Types.ObjectId, ref: 'User' },
       status: { type: String, enum: ['PENDING', 'ACCEPTED', 'DECLINED'], default: 'PENDING' },
+      // Who initiated this scout request — the academy that owns a team,
+      // or a player who plays on one of the teams.
+      requestedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      // 'ACADEMY' when the team owner attached the scout during match creation,
+      // 'PLAYER' when a rostered player asked for the scout on an already
+      // scheduled match. Drives how post-game report notifications get routed.
+      requestType: { type: String, enum: ['ACADEMY', 'PLAYER'], default: 'ACADEMY' },
     }],
     tempScouts: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   },
