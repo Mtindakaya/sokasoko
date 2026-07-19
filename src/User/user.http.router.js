@@ -206,8 +206,10 @@ router.get(PATH_SEARCH, async (request, response) => {
 // as sports_teacher_1 or sports_teacher_2 on a SCHOOL user record. Sports
 // teachers are considered de-facto scouts by policy. MUST be registered
 // before PATH_SINGLE ('/users/:id') so Express does not try to cast the
-// literal 'eligible-scouts' to an ObjectId.
-router.get('/v1/users/eligible-scouts', async (req, res) => {
+// literal 'eligible-scouts' to an ObjectId. Path is written without a
+// '/v1' prefix — the versioned Router adds it during mount(); writing
+// '/v1/users/...' would double-prefix to '/v1/v1/users/...'.
+router.get('/users/eligible-scouts', async (req, res) => {
   try {
     const [scouts, schools] = await Promise.all([
       User.find({ type: 'SCOUT' })
