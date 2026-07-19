@@ -201,6 +201,42 @@ router.get(PATH_SEARCH, async (request, response) => {
   }
 });
 
+// GET /v1/users/eligible-scouts — everyone the platform treats as a scout
+// for pickers/dropdowns: registered SCOUT users, plus any user referenced
+// as sports_teacher_1 or sports_teacher_2 on a SCHOOL user record. Sports
+// teachers are considered de-facto scouts by policy. MUST be registered
+// before PATH_SINGLE ('/users/:id') so Express does not try to cast the
+// literal 'eligible-scouts' to an ObjectId.
+router.get('/v1/users/eligible-scouts', async (req, res) => {
+  try {
+    const [scouts, schools] = await Promise.all([
+      User.find({ type: 'SCOUT' })
+        .select('firstName lastName accountNumber type profileImage costPerGame costPerPlayer')
+        .lean(),
+      User.find({ type: 'SCHOOL' })
+        .select('sports_teacher_1 sports_teacher_2')
+        .lean(),
+    ]);
+    const teacherIds = new Set();
+    for (const s of schools) {
+      if (s.sports_teacher_1) teacherIds.add(String(s.sports_teacher_1));
+      if (s.sports_teacher_2) teacherIds.add(String(s.sports_teacher_2));
+    }
+    const teachers = teacherIds.size === 0
+      ? []
+      : await User.find({ _id: { $in: Array.from(teacherIds) } })
+          .select('firstName lastName accountNumber type profileImage costPerGame costPerPlayer')
+          .lean();
+    const byId = new Map();
+    for (const u of [...scouts, ...teachers]) {
+      byId.set(String(u._id), u);
+    }
+    return res.status(200).json({ data: Array.from(byId.values()) });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get(PATH_SINGLE, getByIdFor({
   getById: async (options, done) => {
     const id = _.get(options, 'id');
@@ -447,40 +483,5 @@ router.post('/v1/users/:id/link-secretary', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-
-// GET /v1/users/eligible-scouts — everyone the platform treats as a scout
-// for pickers/dropdowns: registered SCOUT users, plus any user referenced
-// as sports_teacher_1 or sports_teacher_2 on a SCHOOL user record. Sports
-// teachers are considered de-facto scouts by policy.
-router.get('/v1/users/eligible-scouts', async (req, res) => {
-  try {
-    const [scouts, schools] = await Promise.all([
-      User.find({ type: 'SCOUT' })
-        .select('firstName lastName accountNumber type profileImage costPerGame costPerPlayer')
-        .lean(),
-      User.find({ type: 'SCHOOL' })
-        .select('sports_teacher_1 sports_teacher_2')
-        .lean(),
-    ]);
-    const teacherIds = new Set();
-    for (const s of schools) {
-      if (s.sports_teacher_1) teacherIds.add(String(s.sports_teacher_1));
-      if (s.sports_teacher_2) teacherIds.add(String(s.sports_teacher_2));
-    }
-    const teachers = teacherIds.size === 0
-      ? []
-      : await User.find({ _id: { $in: Array.from(teacherIds) } })
-          .select('firstName lastName accountNumber type profileImage costPerGame costPerPlayer')
-          .lean();
-    const byId = new Map();
-    for (const u of [...scouts, ...teachers]) {
-      byId.set(String(u._id), u);
-    }
-    return res.status(200).json({ data: Array.from(byId.values()) });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
 
 module.exports = router;
