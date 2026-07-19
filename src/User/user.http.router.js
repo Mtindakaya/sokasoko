@@ -224,9 +224,16 @@ router.get('/users/eligible-scouts', async (req, res) => {
       if (s.sports_teacher_1) teacherIds.add(String(s.sports_teacher_1));
       if (s.sports_teacher_2) teacherIds.add(String(s.sports_teacher_2));
     }
+    // Defensively restrict sports-teacher pull-in to COACH-typed users only.
+    // Schools have occasionally been seen linking a GUARDIAN / PLAYER by
+    // data-entry mistake as sports_teacher_1/2, and those shouldn't leak
+    // into the scout-picker list.
     const teachers = teacherIds.size === 0
       ? []
-      : await User.find({ _id: { $in: Array.from(teacherIds) } })
+      : await User.find({
+          _id: { $in: Array.from(teacherIds) },
+          type: 'COACH',
+        })
           .select('firstName lastName accountNumber type profileImage costPerGame costPerPlayer')
           .lean();
     const byId = new Map();
