@@ -61,6 +61,13 @@ const ScoutReportSchema = new Schema({
   finishing_efficiency:       { type: Number, min: 1, max: 10 },
   hold_up_link_play:          { type: Number, min: 1, max: 10 },
   defensive_pressing_leader:  { type: Number, min: 1, max: 10 },
+
+  // Template 2 — Goalkeepers
+  shot_stopping:          { type: Number, min: 1, max: 10 },
+  gk_command_of_area:     { type: Number, min: 1, max: 10 },
+  gk_distribution:        { type: Number, min: 1, max: 10 },
+  one_v_one_gk:           { type: Number, min: 1, max: 10 },
+  gk_positioning_reading: { type: Number, min: 1, max: 10 },
 }, { timestamps: true });
 
 // One evaluation per scout per player per event
