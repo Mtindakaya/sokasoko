@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
+const Counter = require('../Counter/counter.model');
 
 const ScoutReportSchema = new Schema({
   scout:   { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
@@ -8,6 +9,12 @@ const ScoutReportSchema = new Schema({
   eventType: { type: String, enum: ['TRIAL', 'MATCH'], required: true },
   isOfficial: { type: Boolean, default: false },
   playerPosition: { type: String },
+
+  // Human-friendly evaluation ID surfaced on printed reports.
+  // Format: S{scoutDigits}_P{playerDigits}_{DDMMYY}_{5-digit global counter}
+  // Example: S000072_P000031_230726_00001
+  // Computed in a pre-save hook so existing rows keep null until re-saved.
+  evaluationId: { type: String, index: true, unique: true, sparse: true },
 
   // Template 1 — Physical
   acceleration_5m:     { type: Number, min: 1, max: 10 },
@@ -72,5 +79,45 @@ const ScoutReportSchema = new Schema({
 
 // One evaluation per scout per player per event
 ScoutReportSchema.index({ scout: 1, player: 1, eventId: 1 }, { unique: true });
+
+// Extract the 6-digit suffix from a TFH accountNumber like 'TFH-S-A000072'
+// or 'TFH-P-A000031'. Returns just the numeric portion (e.g. '000072').
+function extractAccountDigits(accountNumber) {
+  if (!accountNumber || typeof accountNumber !== 'string') return null;
+  const m = accountNumber.match(/(\d{4,})\s*$/);
+  return m ? m[1].padStart(6, '0').slice(-6) : null;
+}
+
+function formatDdmmyy(date) {
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const yy = String(date.getUTCFullYear() % 100).padStart(2, '0');
+  return `${dd}${mm}${yy}`;
+}
+
+ScoutReportSchema.pre('save', async function preEvaluationId(next) {
+  if (!this.isNew || this.evaluationId) return next();
+  try {
+    const User = mongoose.model('User');
+    const [scoutUser, playerUser] = await Promise.all([
+      User.findById(this.scout).select('accountNumber').lean(),
+      User.findById(this.player).select('accountNumber').lean(),
+    ]);
+    const scoutDigits =
+      extractAccountDigits(scoutUser && scoutUser.accountNumber) || '000000';
+    const playerDigits =
+      extractAccountDigits(playerUser && playerUser.accountNumber) || '000000';
+    const dateStr = formatDdmmyy(new Date());
+    const seq = await Counter.getNextSequenceValue('scoutEvaluation');
+    const seqStr = String(seq).padStart(5, '0');
+    this.evaluationId = `S${scoutDigits}_P${playerDigits}_${dateStr}_${seqStr}`;
+    return next();
+  } catch (err) {
+    // Non-fatal: report still saves without a human ID; will get one next
+    // time it's re-saved.
+    console.log('evaluationId generation error:', err.message);
+    return next();
+  }
+});
 
 module.exports = model('ScoutReport', ScoutReportSchema);
