@@ -1,7 +1,102 @@
 const express = require('express');
+const { getString } = require('@lykmapipo/env');
 const ChatMessage = require('./chat.model');
 const ChatGroup = require('./chat_group.model');
 const mongoose = require('mongoose');
+const IsmailiConversation = require('../Ismaili/ismaili_conversation.model');
+const User = require('../User/user.model');
+
+const ISMAILI_USER_ID = getString('ISMAILI_USER_ID', '');
+const ISMAILI_MODEL = getString('ISMAILI_MODEL', 'claude-haiku-4-5-20251001');
+
+const ISMAILI_SYSTEM_PROMPT = [
+  'You are Ismaili, the SokaSoko football knowledge assistant.',
+  'Answer only football topics: playing skills, tactics, training, physiology, refereeing, scouting criteria, football history, and the rules of the game. If the user asks about the SokaSoko app itself, account issues, or anything unrelated to football, politely say you only handle football questions and suggest they tap the help/support link.',
+  'Keep answers under 200 words unless asked for more. Use short paragraphs and bullet points. Be practical and encouraging.',
+].join('\n');
+
+// Fire-and-forget: when a user DMs Ismaili, generate a reply and post it
+// back over the same chat channel so it appears in the user's Messages
+// inbox like any other message.
+async function generateAndPostIsmailiReply(io, { userMessageDoc, populatedUser }) {
+  try {
+    if (!ISMAILI_USER_ID) {
+      console.log('ISMAILI_USER_ID not set — skipping AI reply');
+      return;
+    }
+    // Load recent turns for context.
+    const prior = await IsmailiConversation.find({ user: userMessageDoc.sender })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+    const history = prior.reverse().map(t => ({ role: t.role, content: t.content }));
+
+    // Save the incoming user message to Ismaili's memory before the LLM call
+    // so future turns see it even if the API fails.
+    await IsmailiConversation.create({
+      user: userMessageDoc.sender,
+      role: 'user',
+      content: userMessageDoc.content,
+    });
+
+    const apiKey = getString('ANTHROPIC_API_KEY');
+    if (!apiKey) {
+      console.log('ANTHROPIC_API_KEY not set — skipping AI reply');
+      return;
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: ISMAILI_MODEL,
+        max_tokens: 700,
+        system: ISMAILI_SYSTEM_PROMPT,
+        messages: [...history, { role: 'user', content: userMessageDoc.content }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.log('Ismaili chat LLM error:', response.status, errBody.slice(0, 200));
+      return;
+    }
+    const data = await response.json();
+    const reply = (data.content || [])
+      .map(c => c.text)
+      .filter(Boolean)
+      .join('\n')
+      .trim() || 'I am not sure how to answer that just now.';
+
+    await IsmailiConversation.create({
+      user: userMessageDoc.sender,
+      role: 'assistant',
+      content: reply,
+    });
+
+    const replyMsg = await ChatMessage.create({
+      sender: ISMAILI_USER_ID,
+      receiver: userMessageDoc.sender,
+      content: reply,
+      read: false,
+    });
+    const populatedReply = await ChatMessage.findById(replyMsg._id)
+      .populate('sender', 'firstName lastName photo type')
+      .populate('receiver', 'firstName lastName photo type')
+      .lean();
+
+    if (io) {
+      io.to(String(userMessageDoc.sender)).emit('new_message', populatedReply);
+      io.to(String(ISMAILI_USER_ID)).emit('new_message', populatedReply);
+    }
+  } catch (err) {
+    console.log('generateAndPostIsmailiReply error:', err.message);
+  }
+}
 
 module.exports = function createChatRouter(io) {
   const router = express.Router();
@@ -51,6 +146,17 @@ module.exports = function createChatRouter(io) {
         io.to(String(receiverId)).emit('new_message', populated);
         io.to(String(senderId)).emit('new_message', populated);
       }
+
+      // If the DM was to Ismaili, generate a reply in the background so
+      // the HTTP response returns immediately. The reply lands over the
+      // same socket channel and shows up in the user's inbox.
+      if (ISMAILI_USER_ID && String(receiverId) === String(ISMAILI_USER_ID)) {
+        generateAndPostIsmailiReply(io, {
+          userMessageDoc: msg,
+          populatedUser: populated,
+        }).catch(err => console.log('Ismaili reply failed:', err.message));
+      }
+
       return res.status(201).json(populated);
     } catch (err) {
       return res.status(500).json({ message: err.message });

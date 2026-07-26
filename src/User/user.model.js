@@ -250,6 +250,16 @@ const UserSchema = new Schema(
       min: 0,
     },
 
+    // --- System agents (AI assistant "Ismaili", etc.) ---
+    // Marks a User row as an automated system persona. Filtered out of the
+    // opponent typeahead, scout picker, user search, and forward pickers so
+    // the persona never appears where a human is expected.
+    isSystemAgent: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
     // --- Free Trial ---
     freeTrialEndDate: {
       type: Date,

@@ -144,7 +144,7 @@ router.get(PATH_LIST, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(parseInt(req.query.limit) || 20, 500);
-    const filter = { suspend: { $ne: true } };
+    const filter = { suspend: { $ne: true }, isSystemAgent: { $ne: true } };
     if (req.query.type) filter.type = req.query.type;
     if (req.query.school) filter.school = req.query.school;
     if (req.query.gender) filter.gender = req.query.gender;
@@ -187,6 +187,7 @@ router.get(PATH_SEARCH, async (request, response) => {
         { entity_name: { $regex: query, $options: 'i' } },
       ],
       suspend: { $ne: true },
+      isSystemAgent: { $ne: true },
       ...typeFilter,
     })
       .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca')
@@ -212,7 +213,7 @@ router.get(PATH_SEARCH, async (request, response) => {
 router.get('/users/eligible-scouts', async (req, res) => {
   try {
     const [scouts, schools] = await Promise.all([
-      User.find({ type: 'SCOUT' })
+      User.find({ type: 'SCOUT', isSystemAgent: { $ne: true } })
         .select('firstName lastName accountNumber type profileImage costPerGame costPerPlayer')
         .lean(),
       User.find({ type: 'SCHOOL' })
