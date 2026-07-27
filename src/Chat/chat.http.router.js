@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const { getString } = require('@lykmapipo/env');
 const ChatMessage = require('./chat.model');
 const ChatGroup = require('./chat_group.model');
@@ -45,27 +46,35 @@ async function generateAndPostIsmailiReply(io, { userMessageDoc, populatedUser }
       return;
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: ISMAILI_MODEL,
-        max_tokens: 700,
-        system: ISMAILI_SYSTEM_PROMPT,
-        messages: [...history, { role: 'user', content: userMessageDoc.content }],
-      }),
-    });
-
-    if (!response.ok) {
-      const errBody = await response.text();
-      console.log('Ismaili chat LLM error:', response.status, errBody.slice(0, 200));
+    let data;
+    try {
+      const response = await axios.post(
+        'https://api.anthropic.com/v1/messages',
+        {
+          model: ISMAILI_MODEL,
+          max_tokens: 700,
+          system: ISMAILI_SYSTEM_PROMPT,
+          messages: [...history, { role: 'user', content: userMessageDoc.content }],
+        },
+        {
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+          },
+          timeout: 30000,
+        }
+      );
+      data = response.data;
+    } catch (err) {
+      if (err.response) {
+        console.log('Ismaili chat LLM error:', err.response.status,
+          JSON.stringify(err.response.data).slice(0, 200));
+      } else {
+        console.log('Ismaili chat LLM error:', err.message);
+      }
       return;
     }
-    const data = await response.json();
     const reply = (data.content || [])
       .map(c => c.text)
       .filter(Boolean)

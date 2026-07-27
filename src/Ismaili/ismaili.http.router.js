@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const { getString, getNumber } = require('@lykmapipo/env');
 const IsmailiConversation = require('./ismaili_conversation.model');
 const IsmailiUsage = require('./ismaili_usage.model');
@@ -59,27 +60,38 @@ async function checkAndConsumeQuota(userId) {
 async function callAnthropic({ system, messages }) {
   const apiKey = getString('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 700,
-      system,
-      messages,
-    }),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Anthropic ${response.status}: ${text.slice(0, 300)}`);
+  try {
+    const response = await axios.post(
+      'https://api.anthropic.com/v1/messages',
+      {
+        model: MODEL,
+        max_tokens: 700,
+        system,
+        messages,
+      },
+      {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    const content = (response.data.content || [])
+      .map(c => c.text)
+      .filter(Boolean)
+      .join('\n');
+    return content.trim() || 'Sorry — I could not think of a good answer right now.';
+  } catch (err) {
+    if (err.response) {
+      const body = typeof err.response.data === 'string'
+        ? err.response.data
+        : JSON.stringify(err.response.data);
+      throw new Error(`Anthropic ${err.response.status}: ${body.slice(0, 300)}`);
+    }
+    throw err;
   }
-  const data = await response.json();
-  const content = (data.content || []).map(c => c.text).filter(Boolean).join('\n');
-  return content.trim() || 'Sorry — I could not think of a good answer right now.';
 }
 
 // POST /v1/ai/ismaili — send a user turn, get Ismaili's reply.
