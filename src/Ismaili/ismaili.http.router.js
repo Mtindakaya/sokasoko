@@ -163,6 +163,21 @@ router.post(BASE, async (req, res) => {
   }
 });
 
+// GET /v1/ai/ismaili/user — returns the Ismaili system user row so the
+// mobile app can open a DM with him. Kept behind this endpoint because
+// Ismaili is filtered out of /v1/users and /v1/users/search on purpose.
+router.get(BASE + '/user', async (req, res) => {
+  try {
+    const ismaili = await User.findOne({ isSystemAgent: true, firstName: 'Ismaili' })
+      .select('_id firstName lastName accountNumber type profileImage short_bio')
+      .lean();
+    if (!ismaili) return res.status(404).json({ error: 'Ismaili not seeded' });
+    return res.status(200).json({ data: ismaili });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/ai/ismaili/history?userId=&limit= — retrieve recent turns.
 router.get(BASE + '/history', async (req, res) => {
   try {
