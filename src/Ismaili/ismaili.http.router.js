@@ -166,11 +166,27 @@ router.post(BASE, async (req, res) => {
 // GET /v1/ai/ismaili/user — returns the Ismaili system user row so the
 // mobile app can open a DM with him. Kept behind this endpoint because
 // Ismaili is filtered out of /v1/users and /v1/users/search on purpose.
+// If ISMAILI_USER_ID env is set, we resolve by that _id first — that is
+// the same id the chat interceptor uses to trigger AI replies, so client
+// and interceptor stay aligned even if duplicate rows exist.
 router.get(BASE + '/user', async (req, res) => {
   try {
-    const ismaili = await User.findOne({ isSystemAgent: true, firstName: 'Ismaili' })
-      .select('_id firstName lastName accountNumber type profileImage short_bio')
-      .lean();
+    const envId = getString('ISMAILI_USER_ID', '');
+    const projection =
+      '_id firstName lastName accountNumber type profileImage short_bio';
+    let ismaili = null;
+    if (envId) {
+      try {
+        ismaili = await User.findById(envId).select(projection).lean();
+      } catch (_) {
+        // fall through to name lookup
+      }
+    }
+    if (!ismaili) {
+      ismaili = await User.findOne({ isSystemAgent: true, firstName: 'Ismaili' })
+        .select(projection)
+        .lean();
+    }
     if (!ismaili) return res.status(404).json({ error: 'Ismaili not seeded' });
     return res.status(200).json({ data: ismaili });
   } catch (err) {
