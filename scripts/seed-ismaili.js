@@ -11,6 +11,7 @@
  */
 
 /* eslint-disable no-console */
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { getString } = require('@lykmapipo/env');
 require('dotenv').config();
@@ -47,6 +48,10 @@ async function main() {
       'Ismaili is the SokaSoko AI football knowledge assistant. Ask about tactics, training, refereeing, and scouting.',
     profileImage:
       'https://sokasoko.s3.us-west-2.amazonaws.com/avatar.png',
+    // Schema requires a password even though this account never logs in.
+    // Generate a long random value nobody knows so the row can never be
+    // used to sign in as Ismaili.
+    password: crypto.randomBytes(32).toString('hex'),
   });
 
   console.log('Ismaili created:');
