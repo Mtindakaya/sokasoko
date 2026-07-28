@@ -260,6 +260,17 @@ const UserSchema = new Schema(
       index: true,
     },
 
+    // --- Closed-beta testing gate ---
+    // When the env flag BETA_TESTING_ONLY=true is set on the backend, only
+    // users with betaTester=true are allowed to log in. Belt-and-suspenders
+    // control alongside Google Play Internal Testing so a leaked APK still
+    // can't sign in against production.
+    betaTester: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
     // --- Free Trial ---
     freeTrialEndDate: {
       type: Date,

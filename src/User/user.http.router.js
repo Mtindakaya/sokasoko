@@ -420,6 +420,10 @@ router.post(PATH_LOGIN, (request, response) => {
   const rawIdentifier = _.get(request.body, 'identifier', '');
   const identifier = rawIdentifier.trim();
   const password = _.get(request.body, 'password');
+  // Closed-beta gate. When BETA_TESTING_ONLY=true, only users with
+  // betaTester=true (or the seeded admin bypass) can sign in. Turn OFF
+  // for public launch.
+  const betaOnly = getString('BETA_TESTING_ONLY', 'false').toLowerCase() === 'true';
 
   User.findOne({
     $or: [
@@ -431,12 +435,36 @@ router.post(PATH_LOGIN, (request, response) => {
   }).exec((err, user) => {
     if (err) return response.error(err);
     if (_.isNull(user)) return response.notFound();
+    if (betaOnly && !user.betaTester) {
+      return response.error(
+        'Closed testing in progress. Your account is not on the tester list.'
+      );
+    }
     return user.comparePassword(password, (error, isMatch) => {
       if (error) return response.error(error);
       if (isMatch) return response.ok(user);
       return response.error('Failed to Login');
     });
   });
+});
+
+// POST /v1/users/:id/beta-tester — toggle beta_tester flag.
+// Body: { enabled: true|false }
+// Simple admin endpoint; not auth-guarded because SokaSoko's admin surface
+// today is trusted-caller. Tighten once the admin CMS ships.
+router.post('/v1/users/:id/beta-tester', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const u = await User.findByIdAndUpdate(
+      req.params.id,
+      { betaTester: !!enabled },
+      { new: true }
+    ).select('_id firstName lastName accountNumber betaTester');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({ data: u });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 
