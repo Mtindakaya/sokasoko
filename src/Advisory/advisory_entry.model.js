@@ -47,13 +47,41 @@ const AdvisoryEntrySchema = new Schema(
     contributor: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      // Now optional — external contributions arriving via WhatsApp,
+      // web form, or email may not map to a User row until (and unless)
+      // the contributor later creates an account.
+      required: false,
       index: true,
     },
 
+    // Which pipeline delivered this entry. Drives the triage workflow —
+    // WHATSAPP items get transcribed weekly, WEB and EMAIL items get
+    // moderator-reviewed as-is, APP items go straight to the review queue.
+    sourceChannel: {
+      type: String,
+      enum: ['APP', 'WHATSAPP', 'WEB', 'EMAIL', 'AUDIO', 'CHAT_RECYCLE'],
+      default: 'APP',
+      index: true,
+    },
+    // Moderator priority for triage. 1 = urgent (transcribe + review now),
+    // 5 = low. Nullable until a moderator has assessed the entry.
+    priority: { type: Number, min: 1, max: 5, default: null },
+    // Link to the raw asset (audio, PDF, image, etc.) in storage.
+    // Present when a triaged entry originated from a media file we want
+    // to preserve for the record.
+    rawAssetUrl: { type: String, default: '' },
+    // Freeform name + contact when the contributor has no User row yet.
+    // Used to build a placeholder User later if the same person shows up
+    // multiple times.
+    contributorName: { type: String, default: '' },
+    contributorContact: { type: String, default: '' },
+
     status: {
       type: String,
-      enum: ['PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED'],
+      // RAW = ingested via an intake channel, not yet moderator-triaged.
+      // PENDING = ready for approve/reject review.
+      // APPROVED = live in the knowledge base (used by Ismaili in Phase 2b).
+      enum: ['RAW', 'PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED'],
       default: 'PENDING',
       index: true,
     },

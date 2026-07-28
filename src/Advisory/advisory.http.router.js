@@ -14,11 +14,23 @@ const LANGUAGES = new Set(['sw', 'en', 'mixed']);
 const STATUSES = new Set(['PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED']);
 
 // POST /v1/advisories — contributor submits a new advisory.
+// contributor is required for in-app submissions (sourceChannel='APP') but
+// optional for external channels; external channels provide
+// contributorName / contributorContact freeform instead.
 router.post(BASE, async (req, res) => {
   try {
-    const { title, body, topic, position, ageGroup, language, tags, contributor } = req.body;
-    if (!title || !body || !contributor) {
-      return res.status(400).json({ error: 'title, body, and contributor are required' });
+    const {
+      title, body, topic, position, ageGroup, language, tags,
+      contributor, sourceChannel, priority, rawAssetUrl,
+      contributorName, contributorContact, status,
+    } = req.body;
+    if (!title || !body) {
+      return res.status(400).json({ error: 'title and body are required' });
+    }
+    const channel = ['APP', 'WHATSAPP', 'WEB', 'EMAIL', 'AUDIO', 'CHAT_RECYCLE']
+      .includes(sourceChannel) ? sourceChannel : 'APP';
+    if (channel === 'APP' && !contributor) {
+      return res.status(400).json({ error: 'contributor is required for APP submissions' });
     }
     const doc = await AdvisoryEntry.create({
       title,
@@ -28,9 +40,17 @@ router.post(BASE, async (req, res) => {
       ageGroup: ageGroup || '',
       language: LANGUAGES.has(language) ? language : 'sw',
       tags: Array.isArray(tags) ? tags : [],
-      contributor,
-      source: 'CONTRIBUTOR',
-      status: 'PENDING',
+      contributor: contributor || null,
+      sourceChannel: channel,
+      priority: typeof priority === 'number' ? priority : null,
+      rawAssetUrl: rawAssetUrl || '',
+      contributorName: contributorName || '',
+      contributorContact: contributorContact || '',
+      source: channel === 'CHAT_RECYCLE' ? 'CHAT_RECYCLE' : 'CONTRIBUTOR',
+      // External channels default to RAW so triage happens before review.
+      status: ['RAW', 'PENDING'].includes(status)
+        ? status
+        : (channel === 'APP' ? 'PENDING' : 'RAW'),
     });
     return res.status(201).json({ data: doc });
   } catch (err) {
@@ -127,12 +147,14 @@ router.patch(`${BASE}/:id`, async (req, res) => {
   }
 });
 
-// POST /v1/advisories/:id/review — moderator approves / rejects.
+// POST /v1/advisories/:id/review — moderator triages / approves / rejects.
+// Triaging a RAW entry to PENDING is a valid transition (typically done
+// after transcribing a WhatsApp voice note into title + body).
 router.post(`${BASE}/:id/review`, async (req, res) => {
   try {
     const { status, reviewedBy, reviewerNote } = req.body;
-    if (!['APPROVED', 'REJECTED', 'ARCHIVED'].includes(status)) {
-      return res.status(400).json({ error: 'status must be APPROVED, REJECTED, or ARCHIVED' });
+    if (!['PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED'].includes(status)) {
+      return res.status(400).json({ error: 'status must be PENDING, APPROVED, REJECTED, or ARCHIVED' });
     }
     if (!reviewedBy) {
       return res.status(400).json({ error: 'reviewedBy is required' });
