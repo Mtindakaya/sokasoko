@@ -1,5 +1,25 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
+
+// Minimal collection to receive account-deletion requests from the public
+// web form (Google Play compliance). We manually review + delete matching
+// accounts. Kept intentionally light — no cross-refs, no PII beyond what
+// the requester enters.
+const DeletionRequestSchema = new mongoose.Schema(
+  {
+    identifier: { type: String, required: true },   // phone or account number
+    contactBack: { type: String, default: '' },     // optional email/phone to notify when done
+    reason: { type: String, default: '' },
+    ipHash: { type: String, default: '' },          // rough duplicate-detection
+    status: { type: String, enum: ['OPEN', 'PROCESSED'], default: 'OPEN', index: true },
+    processedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+const DeletionRequest =
+  mongoose.models.DeletionRequest ||
+  mongoose.model('DeletionRequest', DeletionRequestSchema);
 
 // Publicly-accessible legal documents. Served as plain HTML from the same
 // origin as the API so Play Console + iOS App Store have a stable URL.
@@ -219,9 +239,179 @@ const TERMS_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+const DELETION_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SokaSoko — Account Deletion Request</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.55;
+      color: #222; }
+    h1 { color: #6D4C41; }
+    h2 { color: #5D4037; margin-top: 28px; font-size: 16px; }
+    p { margin: 10px 0; }
+    label { display: block; margin-top: 16px; font-weight: 600; }
+    .hint { font-size: 12px; color: #888; font-weight: 400; margin-top: 2px; }
+    input, textarea, select {
+      width: 100%; box-sizing: border-box; padding: 10px 12px;
+      font-size: 15px; margin-top: 4px;
+      border: 1px solid #ccc; border-radius: 6px; font-family: inherit;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    button {
+      margin-top: 20px; padding: 12px 20px; font-size: 15px;
+      background: #6D4C41; color: #fff; border: 0; border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover { background: #5D4037; }
+    .confirm { display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; }
+    .confirm input { width: auto; margin-top: 4px; }
+    .note { background: #FFF8E1; border-left: 3px solid #6D4C41;
+      padding: 12px 14px; margin: 16px 0; font-size: 13px; }
+    .ok { background: #E8F5E9; border-left: 3px solid #2E7D32;
+      padding: 14px; border-radius: 6px; }
+    .err { background: #FFEBEE; border-left: 3px solid #B71C1C;
+      padding: 14px; border-radius: 6px; }
+    a { color: #6D4C41; }
+  </style>
+</head>
+<body>
+  <h1>Ondoa Akaunti Yako · Delete Your Account</h1>
+  <p>Unaweza kuomba tuondoe akaunti yako ya SokaSoko na taarifa zote
+  zilizounganishwa. Jaza fomu hapa chini.</p>
+  <p><i>You can request that we delete your SokaSoko account and associated
+  data. Fill in the form below.</i></p>
+
+  <div class="note">
+    <b>Kitakachotokea · What happens next:</b>
+    <ul style="margin:6px 0 0 18px;padding:0">
+      <li>Tutakuwasilisha barua pepe au ujumbe kuthibitisha ombi lako
+        ndani ya siku 3 za kazi.</li>
+      <li>We will contact you within 3 business days to confirm the request.</li>
+      <li>Akaunti + data yako itafutwa ndani ya siku 30. Baadhi ya rekodi
+        za mechi utakazoshiriki zinaweza kubaki kwa muda mfupi kwa madhumuni
+        ya kihistoria.</li>
+      <li>Your account and data will be deleted within 30 days. Some match
+        records you participated in may be retained briefly for historical
+        purposes as noted in our
+        <a href="/privacy">Privacy Policy</a>.</li>
+    </ul>
+  </div>
+
+  <form method="POST" action="/account-deletion">
+    <label>Nambari ya simu au namba ya akaunti · Phone number or account number
+      <span class="hint">Mfano: 255700000099 au TFH-P-A000130</span>
+      <input name="identifier" required maxlength="60" autocomplete="off">
+    </label>
+
+    <label>Njia ya mawasiliano (hiari) · Contact us back at (optional)
+      <span class="hint">Barua pepe au namba ya simu ambapo tunaweza kukuthibitishia</span>
+      <input name="contactBack" maxlength="120" autocomplete="off">
+    </label>
+
+    <label>Sababu (hiari) · Reason (optional)
+      <textarea name="reason" maxlength="600"></textarea>
+    </label>
+
+    <div class="confirm">
+      <input type="checkbox" name="confirm" value="yes" required id="cf">
+      <label for="cf" style="margin:0;font-weight:400;font-size:14px">
+        Nathibitisha kwamba mimi ndiye mwenye akaunti hii na nataka
+        kuifuta. <br>
+        <i>I confirm I am the account owner and I want to delete this account.</i>
+      </label>
+    </div>
+
+    <button type="submit">Wasilisha ombi la kufuta · Submit deletion request</button>
+  </form>
+
+  <p style="margin-top:32px;font-size:13px;color:#666">
+    Ikiwa una matatizo yoyote au huwezi kutumia fomu hii, wasiliana nasi:
+    <a href="mailto:privacy@sokasoko.com">privacy@sokasoko.com</a><br>
+    <i>If you have any issue or cannot use this form, email
+    <a href="mailto:privacy@sokasoko.com">privacy@sokasoko.com</a>.</i>
+  </p>
+</body>
+</html>`;
+
+const DELETION_OK_HTML = (id) => `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deletion request received</title>
+<style>body{font-family:-apple-system,sans-serif;max-width:640px;margin:60px auto;padding:0 20px;line-height:1.6;color:#222}h1{color:#6D4C41}.ok{background:#E8F5E9;border-left:3px solid #2E7D32;padding:14px;border-radius:6px}a{color:#6D4C41}</style>
+</head><body>
+<h1>Ombi Limepokelewa · Request received</h1>
+<div class="ok">
+  <p><b>Asante.</b> Tumepokea ombi lako la kufuta akaunti. Kumbukumbu ya
+  ombi: <b>${id}</b>.</p>
+  <p><i>Thank you. Your account deletion request has been received.
+  Reference: <b>${id}</b>. We will contact you within 3 business days
+  to confirm.</i></p>
+</div>
+<p><a href="/privacy">Rejea Sera ya Faragha · Return to Privacy Policy</a></p>
+</body></html>`;
+
+const DELETION_ERR_HTML = (msg) => `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Error</title>
+<style>body{font-family:-apple-system,sans-serif;max-width:640px;margin:60px auto;padding:0 20px;line-height:1.6;color:#222}h1{color:#B71C1C}.err{background:#FFEBEE;border-left:3px solid #B71C1C;padding:14px;border-radius:6px}a{color:#6D4C41}</style>
+</head><body>
+<h1>Ombi Halijafanikiwa · Something went wrong</h1>
+<div class="err"><p>${msg}</p></div>
+<p><a href="/account-deletion">Rudi · Go back</a></p>
+</body></html>`;
+
 router.get('/privacy', (_req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(PRIVACY_HTML);
+});
+
+router.get('/account-deletion', (_req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(DELETION_HTML);
+});
+
+// Accept the form submission. Adding a local urlencoded parser because
+// the framework body-parser stack targets JSON APIs; this HTML form
+// posts application/x-www-form-urlencoded.
+router.post('/account-deletion', express.urlencoded({ extended: false }), async (req, res) => {
+  try {
+    const identifier = (req.body.identifier || '').toString().trim();
+    const contactBack = (req.body.contactBack || '').toString().trim();
+    const reason = (req.body.reason || '').toString().trim();
+    const confirm = (req.body.confirm || '').toString().trim();
+    if (!identifier || confirm !== 'yes') {
+      res.status(400).set('Content-Type', 'text/html; charset=utf-8');
+      return res.send(DELETION_ERR_HTML(
+        'Please provide your phone or account number and tick the confirmation box.'
+      ));
+    }
+    const ipHash = (req.ip || '').split('').reduce(
+      (h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0
+    ).toString(16);
+    const doc = await DeletionRequest.create({
+      identifier, contactBack, reason, ipHash,
+    });
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(DELETION_OK_HTML(doc._id.toString().slice(-8).toUpperCase()));
+  } catch (err) {
+    res.status(500).set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(DELETION_ERR_HTML(
+      'Server error. Please email privacy@sokasoko.com so we can process your request manually.'
+    ));
+  }
+});
+
+// JSON list for admins to work the queue.
+router.get('/api/deletion-requests', async (_req, res) => {
+  try {
+    const items = await DeletionRequest.find({ status: 'OPEN' })
+      .sort({ createdAt: -1 }).limit(200).lean();
+    return res.json({ data: items });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 router.get('/terms', (_req, res) => {
