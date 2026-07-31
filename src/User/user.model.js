@@ -145,6 +145,16 @@ const UserSchema = new Schema(
       ref: 'User',
       default: null,
     },
+    // Relationship a guardian declared to the minor at registration time.
+    // Internal only — NOT surfaced on public profile view.
+    // Values: PARENT | GUARDIAN | SIBLING | TEACHER | OTHER
+    guardianRelationship: {
+      type: String,
+      enum: ['PARENT', 'GUARDIAN', 'SIBLING', 'TEACHER', 'OTHER', ''],
+      default: '',
+    },
+    // Freeform description when guardianRelationship === 'OTHER'.
+    guardianRelationshipOther: { type: String, trim: true, default: '' },
     suspend: { type: Boolean, default: false },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },
