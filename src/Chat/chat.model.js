@@ -20,6 +20,12 @@ const MessageSchema = new Schema(
     readAt: { type: Date },
     // Group read tracking: array of userIds who have read the message
     readBy: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+
+    // Moderation flags — set at send time when the content matches a
+    // profanity/hate wordlist. Message still delivers to the receiver;
+    // moderators can filter by flagged=true in the admin CMS.
+    flagged: { type: Boolean, default: false, index: true },
+    flagReasons: [{ type: String }],
   },
   { timestamps: true }
 );

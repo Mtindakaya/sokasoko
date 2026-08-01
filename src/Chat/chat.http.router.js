@@ -6,6 +6,7 @@ const ChatGroup = require('./chat_group.model');
 const mongoose = require('mongoose');
 const IsmailiConversation = require('../Ismaili/ismaili_conversation.model');
 const User = require('../User/user.model');
+const { checkRateLimit, scanContent } = require('./chat.moderation');
 
 const ISMAILI_USER_ID = getString('ISMAILI_USER_ID', '');
 const ISMAILI_MODEL = getString('ISMAILI_MODEL', 'claude-haiku-4-5-20251001');
@@ -127,6 +128,16 @@ module.exports = function createChatRouter(io) {
       return res.status(400).json({ message: 'senderId, receiverId and content required' });
     }
     try {
+      // Rate limit — sustained-abuse guard.
+      const rl = checkRateLimit(senderId);
+      if (!rl.ok) {
+        return res.status(429).json({
+          message:
+            'Sending too fast. Please wait a moment before sending more messages.',
+          retryAfterMs: rl.retryAfterMs,
+        });
+      }
+
       // Block enforcement: either party blocking the other means no send.
       // Cheap two-doc read keyed by _id, using select so we don't drag the
       // full documents across the wire.
@@ -148,6 +159,10 @@ module.exports = function createChatRouter(io) {
         console.log('block check failed:', blockErr.message);
       }
 
+      // Wordlist scan — flagged messages still deliver but land in the
+      // moderator queue for review.
+      const scan = scanContent(content);
+
       const msg = await ChatMessage.create({
         sender: senderId,
         receiver: receiverId,
@@ -156,6 +171,8 @@ module.exports = function createChatRouter(io) {
         replyTo: replyToId || null,
         forwardedFrom: forwardedFromId || null,
         sharedMedia: sharedMediaId || null,
+        flagged: scan.flagged,
+        flagReasons: scan.reasons,
       });
       const populated = await ChatMessage.findById(msg._id)
         .populate('sender', 'firstName lastName photo type')
@@ -242,17 +259,21 @@ module.exports = function createChatRouter(io) {
     }
   });
 
-  // DELETE /v1/chat/messages/:id — sender may delete their own message
+  // DELETE /v1/chat/messages/:id — sender may delete their own message.
+  // Admin override: pass ?adminKey=<value> matching env ADMIN_KEY to
+  // let a moderator remove any message regardless of sender.
   router.delete('/v1/chat/messages/:id', async (req, res) => {
     const { id } = req.params;
-    const { userId } = req.query;
-    if (!userId) {
-      return res.status(400).json({ message: 'userId required' });
+    const { userId, adminKey } = req.query;
+    const envAdminKey = getString('ADMIN_KEY', '');
+    const isAdmin = adminKey && envAdminKey && adminKey === envAdminKey;
+    if (!userId && !isAdmin) {
+      return res.status(400).json({ message: 'userId or admin credentials required' });
     }
     try {
       const msg = await ChatMessage.findById(id);
       if (!msg) return res.status(404).json({ message: 'not found' });
-      if (String(msg.sender) !== String(userId)) {
+      if (!isAdmin && String(msg.sender) !== String(userId)) {
         return res.status(403).json({ message: 'not owner' });
       }
       await ChatMessage.deleteOne({ _id: id });
@@ -260,7 +281,7 @@ module.exports = function createChatRouter(io) {
         io.to(String(msg.receiver)).emit('message_deleted', { _id: id });
         io.to(String(msg.sender)).emit('message_deleted', { _id: id });
       }
-      return res.json({ success: true });
+      return res.json({ success: true, deletedByAdmin: !!isAdmin });
     } catch (err) {
       return res.status(500).json({ message: err.message });
     }
