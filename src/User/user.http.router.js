@@ -519,6 +519,125 @@ router.get('/v1/users/:id/blocked', async (req, res) => {
   }
 });
 
+// ─── Friends / friendsOnly privacy ───────────────────────────────────────
+
+// POST /v1/users/:id/friends-only  body { enabled: bool }
+router.post('/v1/users/:id/friends-only', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const u = await User.findByIdAndUpdate(
+      req.params.id,
+      { friendsOnly: !!enabled },
+      { new: true }
+    ).select('_id friendsOnly');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({ data: u });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/friend/request  body { targetId }
+// :id sends a friend request to targetId
+router.post('/v1/users/:id/friend/request', async (req, res) => {
+  try {
+    const { targetId } = req.body;
+    if (!targetId) return res.status(400).json({ error: 'targetId required' });
+    if (String(targetId) === String(req.params.id)) {
+      return res.status(400).json({ error: 'Cannot friend yourself' });
+    }
+    await Promise.all([
+      User.findByIdAndUpdate(req.params.id, {
+        $addToSet: { friendRequestsSent: targetId },
+      }),
+      User.findByIdAndUpdate(targetId, {
+        $addToSet: { friendRequestsReceived: req.params.id },
+      }),
+    ]);
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/friend/accept  body { requesterId }
+// :id accepts a pending request from requesterId
+router.post('/v1/users/:id/friend/accept', async (req, res) => {
+  try {
+    const { requesterId } = req.body;
+    if (!requesterId) return res.status(400).json({ error: 'requesterId required' });
+    await Promise.all([
+      User.findByIdAndUpdate(req.params.id, {
+        $addToSet: { friends: requesterId },
+        $pull: { friendRequestsReceived: requesterId },
+      }),
+      User.findByIdAndUpdate(requesterId, {
+        $addToSet: { friends: req.params.id },
+        $pull: { friendRequestsSent: req.params.id },
+      }),
+    ]);
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/friend/decline  body { requesterId }
+router.post('/v1/users/:id/friend/decline', async (req, res) => {
+  try {
+    const { requesterId } = req.body;
+    if (!requesterId) return res.status(400).json({ error: 'requesterId required' });
+    await Promise.all([
+      User.findByIdAndUpdate(req.params.id, {
+        $pull: { friendRequestsReceived: requesterId },
+      }),
+      User.findByIdAndUpdate(requesterId, {
+        $pull: { friendRequestsSent: req.params.id },
+      }),
+    ]);
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/friend/remove  body { targetId }
+// Removes a mutual friendship (either side can call).
+router.post('/v1/users/:id/friend/remove', async (req, res) => {
+  try {
+    const { targetId } = req.body;
+    if (!targetId) return res.status(400).json({ error: 'targetId required' });
+    await Promise.all([
+      User.findByIdAndUpdate(req.params.id, { $pull: { friends: targetId } }),
+      User.findByIdAndUpdate(targetId, { $pull: { friends: req.params.id } }),
+    ]);
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:id/friends
+router.get('/v1/users/:id/friends', async (req, res) => {
+  try {
+    const u = await User.findById(req.params.id)
+      .select('friends friendRequestsSent friendRequestsReceived')
+      .populate('friends', 'firstName lastName accountNumber type profileImage')
+      .populate('friendRequestsSent', 'firstName lastName accountNumber type profileImage')
+      .populate('friendRequestsReceived', 'firstName lastName accountNumber type profileImage');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({
+      data: {
+        friends: u.friends || [],
+        sent: u.friendRequestsSent || [],
+        received: u.friendRequestsReceived || [],
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 
 // POST /v1/users/:id/link-coach — academy links a coach
 router.post('/v1/users/:id/link-coach', async (req, res) => {

@@ -281,6 +281,28 @@ const UserSchema = new Schema(
       index: true,
     }],
 
+    // --- Friends-only privacy mode ---
+    // When true, only users in `friends` can DM this account, view
+    // their full profile, or request scouting. All other interactions
+    // remain public. Enforced in chat + profile endpoints.
+    friendsOnly: { type: Boolean, default: false, index: true },
+    // Accepted friendships (mutual). Add via /v1/users/:id/friend/accept.
+    friends: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      index: true,
+    }],
+    // Pending outgoing friend requests (this user has asked these people).
+    friendRequestsSent: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    }],
+    // Pending incoming friend requests (these people have asked this user).
+    friendRequestsReceived: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    }],
+
     // --- Closed-beta testing gate ---
     // When the env flag BETA_TESTING_ONLY=true is set on the backend, only
     // users with betaTester=true are allowed to log in. Belt-and-suspenders

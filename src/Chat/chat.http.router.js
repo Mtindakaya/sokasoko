@@ -138,13 +138,16 @@ module.exports = function createChatRouter(io) {
         });
       }
 
-      // Block enforcement: either party blocking the other means no send.
-      // Cheap two-doc read keyed by _id, using select so we don't drag the
-      // full documents across the wire.
+      // Block + friends-only enforcement combined into one pair of reads.
+      // Either party blocking the other = refuse. If receiver has
+      // friendsOnly enabled and the sender isn't in their friends list,
+      // also refuse.
       try {
         const [sender, receiver] = await Promise.all([
-          require('../User/user.model').findById(senderId).select('blockedUsers').lean(),
-          require('../User/user.model').findById(receiverId).select('blockedUsers').lean(),
+          require('../User/user.model').findById(senderId)
+            .select('blockedUsers friends').lean(),
+          require('../User/user.model').findById(receiverId)
+            .select('blockedUsers friends friendsOnly').lean(),
         ]);
         const senderBlocked = (receiver && receiver.blockedUsers || [])
           .some(id => String(id) === String(senderId));
@@ -153,10 +156,20 @@ module.exports = function createChatRouter(io) {
         if (senderBlocked || receiverBlocked) {
           return res.status(403).json({ message: 'Message not delivered — user blocked.' });
         }
+        if (receiver && receiver.friendsOnly) {
+          const isFriend = (receiver.friends || [])
+            .some(id => String(id) === String(senderId));
+          if (!isFriend) {
+            return res.status(403).json({
+              message:
+                'Message not delivered — recipient only accepts messages from their friends.',
+            });
+          }
+        }
       } catch (blockErr) {
-        // Non-fatal — if the block check itself failed, still send the
+        // Non-fatal — if the check itself failed, still send the
         // message rather than lock the user out. Log and continue.
-        console.log('block check failed:', blockErr.message);
+        console.log('block/friends check failed:', blockErr.message);
       }
 
       // Wordlist scan — flagged messages still deliver but land in the
