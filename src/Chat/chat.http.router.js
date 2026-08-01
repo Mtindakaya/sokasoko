@@ -127,6 +127,27 @@ module.exports = function createChatRouter(io) {
       return res.status(400).json({ message: 'senderId, receiverId and content required' });
     }
     try {
+      // Block enforcement: either party blocking the other means no send.
+      // Cheap two-doc read keyed by _id, using select so we don't drag the
+      // full documents across the wire.
+      try {
+        const [sender, receiver] = await Promise.all([
+          require('../User/user.model').findById(senderId).select('blockedUsers').lean(),
+          require('../User/user.model').findById(receiverId).select('blockedUsers').lean(),
+        ]);
+        const senderBlocked = (receiver && receiver.blockedUsers || [])
+          .some(id => String(id) === String(senderId));
+        const receiverBlocked = (sender && sender.blockedUsers || [])
+          .some(id => String(id) === String(receiverId));
+        if (senderBlocked || receiverBlocked) {
+          return res.status(403).json({ message: 'Message not delivered — user blocked.' });
+        }
+      } catch (blockErr) {
+        // Non-fatal — if the block check itself failed, still send the
+        // message rather than lock the user out. Log and continue.
+        console.log('block check failed:', blockErr.message);
+      }
+
       const msg = await ChatMessage.create({
         sender: senderId,
         receiver: receiverId,

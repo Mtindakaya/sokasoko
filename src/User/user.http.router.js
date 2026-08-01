@@ -467,6 +467,58 @@ router.post('/v1/users/:id/beta-tester', async (req, res) => {
   }
 });
 
+// POST /v1/users/:id/block  — add targetId to :id's blockedUsers list.
+// Body: { targetId }
+router.post('/v1/users/:id/block', async (req, res) => {
+  try {
+    const { targetId } = req.body;
+    if (!targetId) return res.status(400).json({ error: 'targetId required' });
+    if (String(targetId) === String(req.params.id)) {
+      return res.status(400).json({ error: 'Cannot block yourself' });
+    }
+    const u = await User.findByIdAndUpdate(
+      req.params.id,
+      { $addToSet: { blockedUsers: targetId } },
+      { new: true }
+    ).select('_id blockedUsers');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({ data: u });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/unblock — remove targetId from :id's blockedUsers list.
+// Body: { targetId }
+router.post('/v1/users/:id/unblock', async (req, res) => {
+  try {
+    const { targetId } = req.body;
+    if (!targetId) return res.status(400).json({ error: 'targetId required' });
+    const u = await User.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { blockedUsers: targetId } },
+      { new: true }
+    ).select('_id blockedUsers');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({ data: u });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:id/blocked — list users the caller has blocked
+router.get('/v1/users/:id/blocked', async (req, res) => {
+  try {
+    const u = await User.findById(req.params.id)
+      .select('blockedUsers')
+      .populate('blockedUsers', 'firstName lastName accountNumber type profileImage');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({ data: u.blockedUsers || [] });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 
 // POST /v1/users/:id/link-coach — academy links a coach
 router.post('/v1/users/:id/link-coach', async (req, res) => {

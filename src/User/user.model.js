@@ -270,6 +270,17 @@ const UserSchema = new Schema(
       index: true,
     },
 
+    // --- Blocked users (user-level moderation) ---
+    // Users this account has blocked. Blocking is unilateral and one-way
+    // in the schema, but the enforcement in chat / feed / search treats
+    // either direction as an active block — see chat.http.router.js and
+    // the feed / search endpoints.
+    blockedUsers: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      index: true,
+    }],
+
     // --- Closed-beta testing gate ---
     // When the env flag BETA_TESTING_ONLY=true is set on the backend, only
     // users with betaTester=true are allowed to log in. Belt-and-suspenders
