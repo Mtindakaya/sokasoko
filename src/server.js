@@ -44,6 +44,7 @@ const ScoutReportRouter = require('./ScoutReport/scout_report.http.router');
 const IsmailiRouter = require('./Ismaili/ismaili.http.router');
 const AdvisoryRouter = require('./Advisory/advisory.http.router');
 const LegalRouter = require('./Legal/legal.http.router');
+const ReportRouter = require('./Report/report.http.router');
 const RefereeRatingRouter = require('./RefereeRating/referee_rating.http.router');
 require('./scheduler');
 
@@ -166,6 +167,7 @@ connect(MONGODB_URI, (error) => {
   app.use(IsmailiRouter);
   app.use(AdvisoryRouter);
   app.use(LegalRouter);
+  app.use(ReportRouter);
   app.use(createChatRouter(io));
 
   mount([
