@@ -58,6 +58,7 @@ const PATH_STATUS = '/users/status/:id';
 const User = require('./user.model');
 const GuardianRequest = require('./guardian_request.model');
 const ChatMessage = require('../Chat/chat.model');
+const Notification = require('../Notification/notification.model');
 
 const router = new Router({
   version: API_VERSION,
@@ -152,6 +153,12 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.gender) filter.gender = req.query.gender;
     if (req.query.createdBy) filter.createdBy = req.query.createdBy;
     if (req.query.academy) filter.academy = req.query.academy;
+    // Exclude orphaned minors from PLAYER lists by default so a guardian's
+    // roster instantly reflects removals. Callers who want to see orphans
+    // (e.g. admin tools) can pass ?includeOrphaned=1.
+    if (req.query.type === 'PLAYER' && !req.query.includeOrphaned) {
+      filter.guardianOrphaned = { $ne: true };
+    }
     if (req.query.position) filter.position = req.query.position;
     if (req.query.foot) filter.foot = req.query.foot;
     if (req.query.education_level) filter.education_level = req.query.education_level;
@@ -734,9 +741,10 @@ router.post('/users/:id/link-secretary', async (req, res) => {
 //   4. Guardian accepts / declines. Accept links + notifies previous
 //      guardian (if any).
 
-async function sendChatNotice(senderId, receiverId, content) {
+async function sendChatNotice(senderId, receiverId, content, title = 'Sasisho la Ulezi · Guardian Update') {
   if (!senderId || !receiverId) return;
   try {
+    // In-chat message — visible in the guardian/minor conversation thread.
     await ChatMessage.create({
       sender: senderId,
       receiver: receiverId,
@@ -744,7 +752,19 @@ async function sendChatNotice(senderId, receiverId, content) {
       read: false,
     });
   } catch (e) {
-    console.log('sendChatNotice failed:', e.message);
+    console.log('sendChatNotice chat failed:', e.message);
+  }
+  try {
+    // Bell-icon notification — not blocked by the orphaned-chat gate,
+    // so an orphaned minor still sees "guardian removed you" alerts.
+    await Notification.create({
+      userId: receiverId,
+      title,
+      body: content,
+      type: 'SYSTEM',
+    });
+  } catch (e) {
+    console.log('sendChatNotice notification failed:', e.message);
   }
 }
 
@@ -807,15 +827,13 @@ router.post('/users/:minorId/guardian/request', async (req, res) => {
     ]);
     if (!minor) return res.status(404).json({ error: 'Minor not found' });
     if (!guardian) return res.status(404).json({ error: 'Guardian not found' });
-    // Any adult account can serve as guardian: parents/guardians, coaches,
-    // schools (for teacher-hosted players), academies, and referees. Note:
-    // the platform has no TEACHER user type — teachers register under
-    // SCHOOL. Excluded: PLAYER (obviously) and non-person entities like
-    // VENDOR/SPONSOR/CLUB/AGENT/SCOUT/FIELD_OWNER.
-    const ADULT_TYPES = ['GUARDIAN', 'COACH', 'SCHOOL', 'ACADEMY', 'REFEREE'];
-    if (!ADULT_TYPES.includes(guardian.type)) {
+    // Only PLAYERs cannot serve as guardian to another player. Every other
+    // account type is allowed — parents, coaches, schools, academies,
+    // scouts, referees, clubs, sponsors, etc. Individual accountability
+    // is enforced by the accept/decline handshake.
+    if (guardian.type === 'PLAYER') {
       return res.status(400).json({
-        error: 'Target user is not eligible to be a guardian.',
+        error: 'A player cannot be the guardian of another player.',
       });
     }
     if (minor.guardian) {
