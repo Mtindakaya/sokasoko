@@ -484,7 +484,7 @@ router.post(PATH_LOGIN, (request, response) => {
 // Body: { enabled: true|false }
 // Simple admin endpoint; not auth-guarded because SokaSoko's admin surface
 // today is trusted-caller. Tighten once the admin CMS ships.
-router.post('/v1/users/:id/beta-tester', async (req, res) => {
+router.post('/users/:id/beta-tester', async (req, res) => {
   try {
     const { enabled } = req.body;
     const u = await User.findByIdAndUpdate(
@@ -501,7 +501,7 @@ router.post('/v1/users/:id/beta-tester', async (req, res) => {
 
 // POST /v1/users/:id/block  — add targetId to :id's blockedUsers list.
 // Body: { targetId }
-router.post('/v1/users/:id/block', async (req, res) => {
+router.post('/users/:id/block', async (req, res) => {
   try {
     const { targetId } = req.body;
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
@@ -522,7 +522,7 @@ router.post('/v1/users/:id/block', async (req, res) => {
 
 // POST /v1/users/:id/unblock — remove targetId from :id's blockedUsers list.
 // Body: { targetId }
-router.post('/v1/users/:id/unblock', async (req, res) => {
+router.post('/users/:id/unblock', async (req, res) => {
   try {
     const { targetId } = req.body;
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
@@ -539,7 +539,7 @@ router.post('/v1/users/:id/unblock', async (req, res) => {
 });
 
 // GET /v1/users/:id/blocked — list users the caller has blocked
-router.get('/v1/users/:id/blocked', async (req, res) => {
+router.get('/users/:id/blocked', async (req, res) => {
   try {
     const u = await User.findById(req.params.id)
       .select('blockedUsers')
@@ -554,7 +554,7 @@ router.get('/v1/users/:id/blocked', async (req, res) => {
 // ─── Friends / friendsOnly privacy ───────────────────────────────────────
 
 // POST /v1/users/:id/friends-only  body { enabled: bool }
-router.post('/v1/users/:id/friends-only', async (req, res) => {
+router.post('/users/:id/friends-only', async (req, res) => {
   try {
     const { enabled } = req.body;
     const u = await User.findByIdAndUpdate(
@@ -571,7 +571,7 @@ router.post('/v1/users/:id/friends-only', async (req, res) => {
 
 // POST /v1/users/:id/friend/request  body { targetId }
 // :id sends a friend request to targetId
-router.post('/v1/users/:id/friend/request', async (req, res) => {
+router.post('/users/:id/friend/request', async (req, res) => {
   try {
     const { targetId } = req.body;
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
@@ -594,7 +594,7 @@ router.post('/v1/users/:id/friend/request', async (req, res) => {
 
 // POST /v1/users/:id/friend/accept  body { requesterId }
 // :id accepts a pending request from requesterId
-router.post('/v1/users/:id/friend/accept', async (req, res) => {
+router.post('/users/:id/friend/accept', async (req, res) => {
   try {
     const { requesterId } = req.body;
     if (!requesterId) return res.status(400).json({ error: 'requesterId required' });
@@ -615,7 +615,7 @@ router.post('/v1/users/:id/friend/accept', async (req, res) => {
 });
 
 // POST /v1/users/:id/friend/decline  body { requesterId }
-router.post('/v1/users/:id/friend/decline', async (req, res) => {
+router.post('/users/:id/friend/decline', async (req, res) => {
   try {
     const { requesterId } = req.body;
     if (!requesterId) return res.status(400).json({ error: 'requesterId required' });
@@ -635,7 +635,7 @@ router.post('/v1/users/:id/friend/decline', async (req, res) => {
 
 // POST /v1/users/:id/friend/remove  body { targetId }
 // Removes a mutual friendship (either side can call).
-router.post('/v1/users/:id/friend/remove', async (req, res) => {
+router.post('/users/:id/friend/remove', async (req, res) => {
   try {
     const { targetId } = req.body;
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
@@ -650,7 +650,7 @@ router.post('/v1/users/:id/friend/remove', async (req, res) => {
 });
 
 // GET /v1/users/:id/friends
-router.get('/v1/users/:id/friends', async (req, res) => {
+router.get('/users/:id/friends', async (req, res) => {
   try {
     const u = await User.findById(req.params.id)
       .select('friends friendRequestsSent friendRequestsReceived')
@@ -672,7 +672,7 @@ router.get('/v1/users/:id/friends', async (req, res) => {
 
 
 // POST /v1/users/:id/link-coach — academy links a coach
-router.post('/v1/users/:id/link-coach', async (req, res) => {
+router.post('/users/:id/link-coach', async (req, res) => {
   try {
     const { coachId, requestedBy } = req.body;
     const academy = await User.findById(req.params.id);
@@ -702,7 +702,7 @@ router.post('/v1/users/:id/link-coach', async (req, res) => {
 });
 
 // POST /v1/users/:id/link-owner — set academy owner
-router.post('/v1/users/:id/link-owner', async (req, res) => {
+router.post('/users/:id/link-owner', async (req, res) => {
   try {
     const { userId } = req.body;
     const academy = await User.findByIdAndUpdate(req.params.id, { owner: userId }, { new: true });
@@ -714,7 +714,7 @@ router.post('/v1/users/:id/link-owner', async (req, res) => {
 });
 
 // POST /v1/users/:id/link-secretary — set academy secretary
-router.post('/v1/users/:id/link-secretary', async (req, res) => {
+router.post('/users/:id/link-secretary', async (req, res) => {
   try {
     const { userId } = req.body;
     const academy = await User.findByIdAndUpdate(req.params.id, { secretary: userId }, { new: true });
@@ -749,7 +749,7 @@ async function sendChatNotice(senderId, receiverId, content) {
 }
 
 // POST /v1/users/:minorId/guardian/remove — minor drops their guardian
-router.post('/v1/users/:minorId/guardian/remove', async (req, res) => {
+router.post('/users/:minorId/guardian/remove', async (req, res) => {
   try {
     const minor = await User.findById(req.params.minorId);
     if (!minor) return res.status(404).json({ error: 'Minor not found' });
@@ -773,7 +773,7 @@ router.post('/v1/users/:minorId/guardian/remove', async (req, res) => {
 
 // POST /v1/users/:guardianId/ward/remove  body { minorId }
 // Guardian drops a ward → minor becomes orphaned
-router.post('/v1/users/:guardianId/ward/remove', async (req, res) => {
+router.post('/users/:guardianId/ward/remove', async (req, res) => {
   try {
     const { minorId } = req.body;
     if (!minorId) return res.status(400).json({ error: 'minorId required' });
@@ -797,7 +797,7 @@ router.post('/v1/users/:guardianId/ward/remove', async (req, res) => {
 
 // POST /v1/users/:minorId/guardian/request  body { guardianId, note? }
 // Minor requests attachment to a specific guardian.
-router.post('/v1/users/:minorId/guardian/request', async (req, res) => {
+router.post('/users/:minorId/guardian/request', async (req, res) => {
   try {
     const { guardianId, note } = req.body;
     if (!guardianId) return res.status(400).json({ error: 'guardianId required' });
@@ -840,7 +840,7 @@ router.post('/v1/users/:minorId/guardian/request', async (req, res) => {
 });
 
 // POST /v1/guardian-requests/:id/accept  body { guardianId }
-router.post('/v1/guardian-requests/:id/accept', async (req, res) => {
+router.post('/guardian-requests/:id/accept', async (req, res) => {
   try {
     const { guardianId } = req.body;
     const doc = await GuardianRequest.findById(req.params.id);
@@ -887,7 +887,7 @@ router.post('/v1/guardian-requests/:id/accept', async (req, res) => {
 });
 
 // POST /v1/guardian-requests/:id/decline  body { guardianId }
-router.post('/v1/guardian-requests/:id/decline', async (req, res) => {
+router.post('/guardian-requests/:id/decline', async (req, res) => {
   try {
     const { guardianId } = req.body;
     const doc = await GuardianRequest.findById(req.params.id);
@@ -910,7 +910,7 @@ router.post('/v1/guardian-requests/:id/decline', async (req, res) => {
 });
 
 // GET /v1/users/:minorId/guardian-status
-router.get('/v1/users/:minorId/guardian-status', async (req, res) => {
+router.get('/users/:minorId/guardian-status', async (req, res) => {
   try {
     const minor = await User.findById(req.params.minorId)
       .select('guardian guardianOrphaned previousGuardian type')
@@ -938,7 +938,7 @@ router.get('/v1/users/:minorId/guardian-status', async (req, res) => {
 });
 
 // GET /v1/users/:guardianId/ward-requests — incoming pending requests
-router.get('/v1/users/:guardianId/ward-requests', async (req, res) => {
+router.get('/users/:guardianId/ward-requests', async (req, res) => {
   try {
     const items = await GuardianRequest.find({
       guardian: req.params.guardianId,
@@ -954,7 +954,7 @@ router.get('/v1/users/:guardianId/ward-requests', async (req, res) => {
 });
 
 // GET /v1/users/:guardianId/wards — list of active wards
-router.get('/v1/users/:guardianId/wards', async (req, res) => {
+router.get('/users/:guardianId/wards', async (req, res) => {
   try {
     const wards = await User.find({ guardian: req.params.guardianId })
       .select('firstName lastName accountNumber profileImage type position guardianOrphaned')
