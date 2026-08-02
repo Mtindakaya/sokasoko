@@ -777,8 +777,12 @@ router.post('/v1/users/:minorId/guardian/request', async (req, res) => {
     ]);
     if (!minor) return res.status(404).json({ error: 'Minor not found' });
     if (!guardian) return res.status(404).json({ error: 'Guardian not found' });
-    if (guardian.type !== 'GUARDIAN') {
-      return res.status(400).json({ error: 'Target user is not a GUARDIAN' });
+    // Any adult account (parent, coach, teacher) can serve as guardian.
+    const ADULT_TYPES = ['GUARDIAN', 'COACH', 'TEACHER'];
+    if (!ADULT_TYPES.includes(guardian.type)) {
+      return res.status(400).json({
+        error: 'Target user is not eligible to be a guardian (must be a parent, coach, or teacher).',
+      });
     }
     if (minor.guardian) {
       return res.status(400).json({
