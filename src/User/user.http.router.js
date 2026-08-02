@@ -152,6 +152,36 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.gender) filter.gender = req.query.gender;
     if (req.query.createdBy) filter.createdBy = req.query.createdBy;
     if (req.query.academy) filter.academy = req.query.academy;
+    if (req.query.position) filter.position = req.query.position;
+    if (req.query.foot) filter.foot = req.query.foot;
+    if (req.query.education_level) filter.education_level = req.query.education_level;
+    if (req.query.region) filter.region = req.query.region;
+    if (req.query.district) filter.district = req.query.district;
+    if (req.query.ward) filter.ward = req.query.ward;
+    if (req.query.street) filter.street = req.query.street;
+
+    // Age group → DOB range. Categories cover both academy age brackets
+    // (U9..U20) and the legal-minor/adult split.
+    const ageGroup = req.query.ageGroup;
+    if (ageGroup) {
+      const now = new Date();
+      const cutoff = (yearsAgo) => {
+        const d = new Date(now);
+        d.setFullYear(d.getFullYear() - yearsAgo);
+        return d;
+      };
+      const ranges = {
+        U9:    { $gte: cutoff(9)  },
+        U11:   { $gte: cutoff(11) },
+        U13:   { $gte: cutoff(13) },
+        U15:   { $gte: cutoff(15) },
+        U17:   { $gte: cutoff(17) },
+        MINOR: { $gte: cutoff(18) },
+        U20:   { $gte: cutoff(20) },
+        ADULT: { $lt:  cutoff(18) },
+      };
+      if (ranges[ageGroup]) filter.dob = ranges[ageGroup];
+    }
 
     const [data, total] = await Promise.all([
       User.find(filter)
