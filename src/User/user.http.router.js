@@ -56,6 +56,8 @@ const PATH_EXPIRING = '/users/expiring';
 const PATH_STATUS = '/users/status/:id';
 
 const User = require('./user.model');
+const GuardianRequest = require('./guardian_request.model');
+const ChatMessage = require('../Chat/chat.model');
 
 const router = new Router({
   version: API_VERSION,
@@ -688,6 +690,242 @@ router.post('/v1/users/:id/link-secretary', async (req, res) => {
     const academy = await User.findByIdAndUpdate(req.params.id, { secretary: userId }, { new: true });
     if (!academy) return res.status(404).json({ error: 'Academy not found' });
     return res.status(200).json({ data: academy });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Guardian ↔ Minor lifecycle ─────────────────────────────────────────
+//
+// Rules (see project_guardian_minor_relationship memory):
+//   1. Either party can remove the link. Minor becomes orphaned.
+//   2. Orphaned minors are restricted (chat/match/scout/profile) elsewhere.
+//   3. Minor initiates re-attachment by requesting a specific guardian.
+//   4. Guardian accepts / declines. Accept links + notifies previous
+//      guardian (if any).
+
+async function sendChatNotice(senderId, receiverId, content) {
+  if (!senderId || !receiverId) return;
+  try {
+    await ChatMessage.create({
+      sender: senderId,
+      receiver: receiverId,
+      content,
+      read: false,
+    });
+  } catch (e) {
+    console.log('sendChatNotice failed:', e.message);
+  }
+}
+
+// POST /v1/users/:minorId/guardian/remove — minor drops their guardian
+router.post('/v1/users/:minorId/guardian/remove', async (req, res) => {
+  try {
+    const minor = await User.findById(req.params.minorId);
+    if (!minor) return res.status(404).json({ error: 'Minor not found' });
+    if (!minor.guardian) {
+      return res.status(400).json({ error: 'Minor has no active guardian' });
+    }
+    const oldGuardianId = minor.guardian;
+    minor.previousGuardian = oldGuardianId;
+    minor.guardian = null;
+    minor.guardianOrphaned = true;
+    await minor.save();
+    // Non-blocking chat notice to the removed guardian
+    const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'A player';
+    sendChatNotice(minor._id, oldGuardianId,
+      `${minorName} amejiondoa kwenye ulezi wako. · ${minorName} has removed themselves from your guardianship.`);
+    return res.status(200).json({ data: minor });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:guardianId/ward/remove  body { minorId }
+// Guardian drops a ward → minor becomes orphaned
+router.post('/v1/users/:guardianId/ward/remove', async (req, res) => {
+  try {
+    const { minorId } = req.body;
+    if (!minorId) return res.status(400).json({ error: 'minorId required' });
+    const minor = await User.findById(minorId);
+    if (!minor) return res.status(404).json({ error: 'Minor not found' });
+    if (String(minor.guardian) !== String(req.params.guardianId)) {
+      return res.status(403).json({ error: 'Not this minor\'s current guardian' });
+    }
+    minor.previousGuardian = req.params.guardianId;
+    minor.guardian = null;
+    minor.guardianOrphaned = true;
+    await minor.save();
+    const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'The player';
+    sendChatNotice(req.params.guardianId, minor._id,
+      `Mlezi wako amekuondoa. Tafuta mlezi mwingine kupitia SokaSoko. · Your guardian has removed you. Search for a new guardian in SokaSoko.`);
+    return res.status(200).json({ data: minor });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:minorId/guardian/request  body { guardianId, note? }
+// Minor requests attachment to a specific guardian.
+router.post('/v1/users/:minorId/guardian/request', async (req, res) => {
+  try {
+    const { guardianId, note } = req.body;
+    if (!guardianId) return res.status(400).json({ error: 'guardianId required' });
+    const [minor, guardian] = await Promise.all([
+      User.findById(req.params.minorId).select('firstName lastName type guardian'),
+      User.findById(guardianId).select('type'),
+    ]);
+    if (!minor) return res.status(404).json({ error: 'Minor not found' });
+    if (!guardian) return res.status(404).json({ error: 'Guardian not found' });
+    if (guardian.type !== 'GUARDIAN') {
+      return res.status(400).json({ error: 'Target user is not a GUARDIAN' });
+    }
+    if (minor.guardian) {
+      return res.status(400).json({
+        error: 'You already have an active guardian. Remove them first.',
+      });
+    }
+    // Cancel any existing PENDING request from this minor.
+    await GuardianRequest.updateMany(
+      { minor: minor._id, status: 'PENDING' },
+      { status: 'CANCELLED', respondedAt: new Date() },
+    );
+    const doc = await GuardianRequest.create({
+      minor: minor._id,
+      guardian: guardianId,
+      note: note || '',
+      status: 'PENDING',
+    });
+    const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'A player';
+    sendChatNotice(minor._id, guardianId,
+      `${minorName} ameomba uwe mlezi wake. Fungua Marafiki / Wards Requests kwenye SokaSoko kukubali au kukataa. · ${minorName} has requested you as their guardian. Open Guardian Requests to accept or decline.`);
+    return res.status(201).json({ data: doc });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/guardian-requests/:id/accept  body { guardianId }
+router.post('/v1/guardian-requests/:id/accept', async (req, res) => {
+  try {
+    const { guardianId } = req.body;
+    const doc = await GuardianRequest.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Request not found' });
+    if (String(doc.guardian) !== String(guardianId)) {
+      return res.status(403).json({ error: 'Not the addressed guardian' });
+    }
+    if (doc.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Request already handled' });
+    }
+    doc.status = 'ACCEPTED';
+    doc.respondedAt = new Date();
+    await doc.save();
+
+    const minor = await User.findById(doc.minor);
+    if (!minor) return res.status(404).json({ error: 'Minor not found' });
+    const previousGuardian = minor.previousGuardian;
+    minor.guardian = guardianId;
+    minor.guardianOrphaned = false;
+    // Keep previousGuardian populated for audit; only cleared on the
+    // NEXT removal event.
+    await minor.save();
+
+    // Notify previous guardian (if different).
+    if (previousGuardian && String(previousGuardian) !== String(guardianId)) {
+      const [minorFresh, newGuardian] = await Promise.all([
+        User.findById(minor._id).select('firstName lastName'),
+        User.findById(guardianId).select('firstName lastName'),
+      ]);
+      const minorName = `${minorFresh.firstName || ''} ${minorFresh.lastName || ''}`.trim() || 'The minor';
+      const newGuardianName = `${newGuardian.firstName || ''} ${newGuardian.lastName || ''}`.trim() || 'a new guardian';
+      sendChatNotice(guardianId, previousGuardian,
+        `${minorName} sasa amewekwa chini ya mlezi ${newGuardianName}. · ${minorName} is now under the guardianship of ${newGuardianName}.`);
+    }
+
+    // Notify minor
+    sendChatNotice(guardianId, minor._id,
+      `Ombi lako la ulezi limekubaliwa. Karibu tena kwenye SokaSoko. · Your guardian request has been accepted. Welcome back to SokaSoko.`);
+
+    return res.status(200).json({ data: doc });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/guardian-requests/:id/decline  body { guardianId }
+router.post('/v1/guardian-requests/:id/decline', async (req, res) => {
+  try {
+    const { guardianId } = req.body;
+    const doc = await GuardianRequest.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Request not found' });
+    if (String(doc.guardian) !== String(guardianId)) {
+      return res.status(403).json({ error: 'Not the addressed guardian' });
+    }
+    if (doc.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Request already handled' });
+    }
+    doc.status = 'DECLINED';
+    doc.respondedAt = new Date();
+    await doc.save();
+    sendChatNotice(guardianId, doc.minor,
+      `Ombi lako la ulezi halikubaliwa. Unaweza kujaribu mlezi mwingine. · Your guardian request was declined. You can try another guardian.`);
+    return res.status(200).json({ data: doc });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:minorId/guardian-status
+router.get('/v1/users/:minorId/guardian-status', async (req, res) => {
+  try {
+    const minor = await User.findById(req.params.minorId)
+      .select('guardian guardianOrphaned previousGuardian type')
+      .populate('guardian', 'firstName lastName accountNumber profileImage')
+      .populate('previousGuardian', 'firstName lastName accountNumber profileImage')
+      .lean();
+    if (!minor) return res.status(404).json({ error: 'Minor not found' });
+    const pending = await GuardianRequest.find({
+      minor: req.params.minorId,
+      status: 'PENDING',
+    })
+      .populate('guardian', 'firstName lastName accountNumber profileImage')
+      .lean();
+    return res.status(200).json({
+      data: {
+        guardian: minor.guardian,
+        orphaned: !!minor.guardianOrphaned,
+        previousGuardian: minor.previousGuardian,
+        pendingRequest: pending[0] || null,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:guardianId/ward-requests — incoming pending requests
+router.get('/v1/users/:guardianId/ward-requests', async (req, res) => {
+  try {
+    const items = await GuardianRequest.find({
+      guardian: req.params.guardianId,
+      status: 'PENDING',
+    })
+      .populate('minor', 'firstName lastName accountNumber profileImage type position')
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.status(200).json({ data: items });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:guardianId/wards — list of active wards
+router.get('/v1/users/:guardianId/wards', async (req, res) => {
+  try {
+    const wards = await User.find({ guardian: req.params.guardianId })
+      .select('firstName lastName accountNumber profileImage type position guardianOrphaned')
+      .lean();
+    return res.status(200).json({ data: wards });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

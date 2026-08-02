@@ -155,6 +155,22 @@ const UserSchema = new Schema(
     },
     // Freeform description when guardianRelationship === 'OTHER'.
     guardianRelationshipOther: { type: String, trim: true, default: '' },
+
+    // --- Guardian ↔ Minor lifecycle (see project_guardian_minor_relationship memory) ---
+    // The GUARDIAN user currently responsible for this minor. Nullable
+    // for non-players and for orphaned minors between guardians.
+    guardian: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
+    // A minor with no active guardian. Restricts chat/match/scout/profile
+    // for this user until reattached. Only meaningful when type=='PLAYER'.
+    guardianOrphaned: { type: Boolean, default: false, index: true },
+    // Set to the previous guardian's id on removal so the new guardian's
+    // acceptance can notify them: "minor X is now with guardian Y".
+    previousGuardian: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     suspend: { type: Boolean, default: false },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },

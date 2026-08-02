@@ -138,16 +138,14 @@ module.exports = function createChatRouter(io) {
         });
       }
 
-      // Block + friends-only enforcement combined into one pair of reads.
-      // Either party blocking the other = refuse. If receiver has
-      // friendsOnly enabled and the sender isn't in their friends list,
-      // also refuse.
+      // Block + friends-only + orphaned-minor enforcement in one pair of
+      // reads. Any of the three checks failing = refuse.
       try {
         const [sender, receiver] = await Promise.all([
           require('../User/user.model').findById(senderId)
-            .select('blockedUsers friends').lean(),
+            .select('blockedUsers friends type guardianOrphaned').lean(),
           require('../User/user.model').findById(receiverId)
-            .select('blockedUsers friends friendsOnly').lean(),
+            .select('blockedUsers friends friendsOnly type guardianOrphaned').lean(),
         ]);
         const senderBlocked = (receiver && receiver.blockedUsers || [])
           .some(id => String(id) === String(senderId));
@@ -155,6 +153,20 @@ module.exports = function createChatRouter(io) {
           .some(id => String(id) === String(receiverId));
         if (senderBlocked || receiverBlocked) {
           return res.status(403).json({ message: 'Message not delivered — user blocked.' });
+        }
+        // Orphaned minor: cannot send or receive normal DMs. Guardian
+        // requests + system notices still go through this endpoint so we
+        // allow those specifically by receiver.type != PLAYER OR sender is
+        // a system agent. Keeping the check simple here: if either party
+        // is an orphaned minor (guardianOrphaned && type === 'PLAYER'),
+        // block.
+        const senderOrphaned = sender && sender.type === 'PLAYER' && sender.guardianOrphaned === true;
+        const receiverOrphaned = receiver && receiver.type === 'PLAYER' && receiver.guardianOrphaned === true;
+        if (senderOrphaned || receiverOrphaned) {
+          return res.status(403).json({
+            message:
+              'Message not delivered — the player is not currently linked to a guardian.',
+          });
         }
         if (receiver && receiver.friendsOnly) {
           const isFriend = (receiver.friends || [])
@@ -167,9 +179,7 @@ module.exports = function createChatRouter(io) {
           }
         }
       } catch (blockErr) {
-        // Non-fatal — if the check itself failed, still send the
-        // message rather than lock the user out. Log and continue.
-        console.log('block/friends check failed:', blockErr.message);
+        console.log('block/friends/orphan check failed:', blockErr.message);
       }
 
       // Wordlist scan — flagged messages still deliver but land in the
