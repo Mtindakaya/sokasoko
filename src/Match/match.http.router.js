@@ -10,6 +10,25 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
 const BASE = `/v${API_VERSION.split('.')[0]}/matches`;
 
+// Returns a 403-shaped error object if the given userId is a PLAYER with
+// guardianOrphaned=true, otherwise null. Used to gate player-initiated
+// match actions (schedule, request-scout) — third parties can still
+// interact with the orphaned player.
+async function orphanedPlayerBlock(userId) {
+  if (!userId) return null;
+  try {
+    const u = await User.findById(userId)
+      .select('type guardianOrphaned')
+      .lean();
+    if (u && u.type === 'PLAYER' && u.guardianOrphaned) {
+      return {
+        error: 'Huwezi kutuma ombi bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · This action is restricted for players without an active guardian. Open Mlezi Wangu to attach a guardian.',
+      };
+    }
+  } catch (_) {}
+  return null;
+}
+
 // GET /v1/matches/scouting/:userId — matches where user is official or temp scout (NOTE: before /:id)
 router.get(`${BASE}/scouting/:userId`, async (req, res) => {
   try {
@@ -104,6 +123,8 @@ router.post(BASE, async (req, res) => {
     if (homeTeam === awayTeam) {
       return res.status(400).json({ error: 'Home and away team cannot be the same' });
     }
+    const blocked = await orphanedPlayerBlock(scheduledBy);
+    if (blocked) return res.status(403).json(blocked);
     const { assistantReferee1, assistantReferee2, scout, scouts: scoutIds } = req.body;
     const normalizedScouts = Array.isArray(scoutIds)
       ? scoutIds.map(id => ({ scout: id, status: 'PENDING' }))
@@ -333,6 +354,8 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
     if (!scoutId || !requestedBy) {
       return res.status(400).json({ error: 'scoutId and requestedBy are required' });
     }
+    const blocked = await orphanedPlayerBlock(requestedBy);
+    if (blocked) return res.status(403).json(blocked);
     const [match, scout, requester] = await Promise.all([
       Match.findById(req.params.id),
       User.findById(scoutId).select('type firstName lastName costPerGame costPerPlayer'),
