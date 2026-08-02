@@ -807,11 +807,15 @@ router.post('/users/:minorId/guardian/request', async (req, res) => {
     ]);
     if (!minor) return res.status(404).json({ error: 'Minor not found' });
     if (!guardian) return res.status(404).json({ error: 'Guardian not found' });
-    // Any adult account (parent, coach, teacher) can serve as guardian.
-    const ADULT_TYPES = ['GUARDIAN', 'COACH', 'TEACHER'];
+    // Any adult account can serve as guardian: parents/guardians, coaches,
+    // schools (for teacher-hosted players), academies, and referees. Note:
+    // the platform has no TEACHER user type — teachers register under
+    // SCHOOL. Excluded: PLAYER (obviously) and non-person entities like
+    // VENDOR/SPONSOR/CLUB/AGENT/SCOUT/FIELD_OWNER.
+    const ADULT_TYPES = ['GUARDIAN', 'COACH', 'SCHOOL', 'ACADEMY', 'REFEREE'];
     if (!ADULT_TYPES.includes(guardian.type)) {
       return res.status(400).json({
-        error: 'Target user is not eligible to be a guardian (must be a parent, coach, or teacher).',
+        error: 'Target user is not eligible to be a guardian.',
       });
     }
     if (minor.guardian) {
@@ -912,17 +916,36 @@ router.post('/guardian-requests/:id/decline', async (req, res) => {
 // GET /v1/users/:minorId/guardian-status
 router.get('/users/:minorId/guardian-status', async (req, res) => {
   try {
-    const minor = await User.findById(req.params.minorId)
-      .select('guardian guardianOrphaned previousGuardian type')
-      .populate('guardian', 'firstName lastName accountNumber profileImage')
-      .populate('previousGuardian', 'firstName lastName accountNumber profileImage')
+    let minor = await User.findById(req.params.minorId)
+      .select('guardian guardianOrphaned previousGuardian type createdBy')
+      .populate('guardian', 'firstName lastName accountNumber profileImage type')
+      .populate('previousGuardian', 'firstName lastName accountNumber profileImage type')
       .lean();
     if (!minor) return res.status(404).json({ error: 'Minor not found' });
+
+    // Legacy self-heal: pre-Guardian-lifecycle minors have their guardian
+    // stored in `createdBy` (the account that registered them), not in the
+    // new `guardian` field. If the minor has no guardian but was created
+    // by an adult (non-PLAYER) account, promote createdBy → guardian so
+    // the new lifecycle takes over from now on.
+    if (!minor.guardian && !minor.guardianOrphaned && minor.createdBy) {
+      const creator = await User.findById(minor.createdBy)
+        .select('firstName lastName accountNumber profileImage type')
+        .lean();
+      if (creator && creator.type !== 'PLAYER') {
+        await User.updateOne(
+          { _id: minor._id },
+          { $set: { guardian: creator._id } },
+        );
+        minor.guardian = creator;
+      }
+    }
+
     const pending = await GuardianRequest.find({
       minor: req.params.minorId,
       status: 'PENDING',
     })
-      .populate('guardian', 'firstName lastName accountNumber profileImage')
+      .populate('guardian', 'firstName lastName accountNumber profileImage type')
       .lean();
     return res.status(200).json({
       data: {
