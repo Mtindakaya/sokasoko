@@ -185,7 +185,7 @@ router.get(PATH_LIST, async (req, res) => {
 
     const [data, total] = await Promise.all([
       User.find(filter)
-        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number')
+        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number dob')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -222,7 +222,7 @@ router.get(PATH_SEARCH, async (request, response) => {
       isSystemAgent: { $ne: true },
       ...typeFilter,
     })
-      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca')
+      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob')
       .limit(limit)
       .lean();
 
