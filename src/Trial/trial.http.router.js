@@ -236,6 +236,20 @@ router.post(`${BASE}/:id/register`, async (req, res) => {
       return res.status(400).json({ error: 'This trial is open to academies only. Individual players cannot register.' });
     }
 
+    // Orphaned minors cannot join trials on their own — same rule as
+    // chat/matches/scout requests. Guardians must reattach first.
+    {
+      const User = require('../User/user.model');
+      const player = await User.findById(playerId)
+        .select('type guardianOrphaned')
+        .lean();
+      if (player && player.type === 'PLAYER' && player.guardianOrphaned) {
+        return res.status(403).json({
+          error: 'Huwezi kujiunga na trial bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · You cannot join a trial without an active guardian. Open Mlezi Wangu to attach a guardian.',
+        });
+      }
+    }
+
     const existing = await TrialRegistration.findOne({ trialId: req.params.id, playerId });
     if (existing) return res.status(400).json({ error: 'Player is already registered for this trial' });
 
