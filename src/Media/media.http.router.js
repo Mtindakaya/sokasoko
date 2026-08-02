@@ -20,6 +20,28 @@ const PATH_SEARCH = '/medias/search';
 
 const Media = require('./media.model');
 const Comment = require('./comment.model');
+const User = require('../User/user.model');
+
+// Reject uploads for orphaned minors — same restriction as chat/matches.
+// The check runs against `player` (the media's subject) and, as a
+// fallback, `createdBy` when player is absent.
+async function refuseOrphanedPlayerUpload(req, res, next) {
+  try {
+    const playerId = req.body.player || req.body.createdBy;
+    if (!playerId) return next();
+    const u = await User.findById(playerId)
+      .select('type guardianOrphaned')
+      .lean();
+    if (u && u.type === 'PLAYER' && u.guardianOrphaned) {
+      return res.status(403).json({
+        error: 'Huwezi kupakia video bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · Uploads are restricted for players without an active guardian. Open Mlezi Wangu to attach a guardian.',
+      });
+    }
+    return next();
+  } catch (e) {
+    return next();
+  }
+}
 
 const router = new Router({
   version: API_VERSION,
@@ -156,6 +178,18 @@ router.post('/medias/playlist', async (req, res) => {
   try {
     const { title, url, description, playerId } = req.body;
     if (!title || !url) return res.status(400).json({ error: 'title and url are required' });
+    // Same orphan gate as the main upload path — playlist entries
+    // surface on the player's profile, so orphans must be blocked.
+    if (playerId) {
+      const u = await User.findById(playerId)
+        .select('type guardianOrphaned')
+        .lean();
+      if (u && u.type === 'PLAYER' && u.guardianOrphaned) {
+        return res.status(403).json({
+          error: 'Huwezi kupakia video bila mlezi. · Uploads restricted for players without an active guardian.',
+        });
+      }
+    }
     const media = await Media.create({
       title, url, description, type: 'Link', isPlaylist: true,
       ...(playerId ? { player: playerId } : {}),
@@ -181,6 +215,7 @@ router.post('/medias/reorder', async (req, res) => {
 router.post(
   PATH_LIST,
   uploadFor(),
+  refuseOrphanedPlayerUpload,
   postFor({
     post: async (body, done) => {
       return Media.post(body, done);

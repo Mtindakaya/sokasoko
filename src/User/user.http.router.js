@@ -841,20 +841,39 @@ router.post('/users/:minorId/guardian/request', async (req, res) => {
         error: 'You already have an active guardian. Remove them first.',
       });
     }
-    // Cancel any existing PENDING request from this minor.
+    const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'A player';
+    // Grab any prior PENDING requests so we can tell those guardians
+    // that the minor withdrew before we mark them cancelled.
+    const priorPending = await GuardianRequest.find({
+      minor: minor._id,
+      status: 'PENDING',
+    }).select('guardian').lean();
     await GuardianRequest.updateMany(
       { minor: minor._id, status: 'PENDING' },
       { status: 'CANCELLED', respondedAt: new Date() },
     );
+    for (const prior of priorPending) {
+      if (String(prior.guardian) !== String(guardianId)) {
+        sendChatNotice(
+          minor._id,
+          prior.guardian,
+          `${minorName} ameghairi ombi la ulezi kwako. · ${minorName} withdrew their guardian request.`,
+          'Ombi Limeghairiwa · Request Withdrawn',
+        );
+      }
+    }
     const doc = await GuardianRequest.create({
       minor: minor._id,
       guardian: guardianId,
       note: note || '',
       status: 'PENDING',
     });
-    const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'A player';
-    sendChatNotice(minor._id, guardianId,
-      `${minorName} ameomba uwe mlezi wake. Fungua Marafiki / Wards Requests kwenye SokaSoko kukubali au kukataa. · ${minorName} has requested you as their guardian. Open Guardian Requests to accept or decline.`);
+    sendChatNotice(
+      minor._id,
+      guardianId,
+      `${minorName} ameomba uwe mlezi wake. Fungua Marafiki / Wards Requests kwenye SokaSoko kukubali au kukataa. · ${minorName} has requested you as their guardian. Open Guardian Requests to accept or decline.`,
+      'Ombi Jipya la Ulezi · New Guardian Request',
+    );
     return res.status(201).json({ data: doc });
   } catch (err) {
     return res.status(500).json({ error: err.message });
