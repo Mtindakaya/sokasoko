@@ -363,6 +363,14 @@ UserSchema.index({
   company_name: 'text',
 });
 
+// Hot query paths for the guardian roster + orphan-exclusion filter
+// on PATH_LIST. Without this the guardian's dependents fetch is a full
+// scan every time.
+UserSchema.index({ createdBy: 1, type: 1, guardianOrphaned: 1 });
+UserSchema.index({ guardian: 1, type: 1, guardianOrphaned: 1 });
+UserSchema.index({ type: 1, createdAt: -1 });
+UserSchema.index({ accountNumber: 1 });
+
 // Auto-set free trial dates on first save for PLAYER and SCOUT
 UserSchema.pre('save', function preValidate(done) {
   if (this.isNew && (this.type === 'PLAYER' || this.type === 'SCOUT')) {

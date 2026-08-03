@@ -164,6 +164,7 @@ router.get(PATH_LIST, async (req, res) => {
       ];
     }
     if (req.query.academy) filter.academy = req.query.academy;
+    if (req.query.agent) filter.agent = req.query.agent;
     // Exclude orphaned minors from PLAYER/REFEREE lists by default so a
     // guardian's roster instantly reflects removals. Callers who want to
     // see orphans (e.g. admin tools) can pass ?includeOrphaned=1.

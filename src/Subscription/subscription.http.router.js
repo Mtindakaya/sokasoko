@@ -22,14 +22,16 @@ router.get(BASE, async (req, res) => {
     if (status) filter.status = status;
     if (userType) filter.userType = userType;
 
-    const subscriptions = await Subscription.find(filter)
-      .populate('user', 'firstName lastName phone accountNumber type')
-      .populate('activatedBy', 'firstName lastName')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
-
-    const total = await Subscription.countDocuments(filter);
+    const [subscriptions, total] = await Promise.all([
+      Subscription.find(filter)
+        .populate('user', 'firstName lastName phone accountNumber type')
+        .populate('activatedBy', 'firstName lastName')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(parseInt(limit))
+        .lean(),
+      Subscription.countDocuments(filter),
+    ]);
 
     return res.status(200).json({
       data: subscriptions,

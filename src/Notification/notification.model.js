@@ -22,4 +22,9 @@ const NotificationSchema = new Schema(
   { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } }
 );
 
+// Hot query path is "my notifications, newest first" and "how many
+// unread". Compound index services both without a full-collection scan.
+NotificationSchema.index({ userId: 1, createdAt: -1 });
+NotificationSchema.index({ userId: 1, read: 1 });
+
 module.exports = model('Notification', NotificationSchema);

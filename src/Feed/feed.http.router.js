@@ -16,8 +16,15 @@ router.get('/v1/feed', async (req, res) => {
 
   try {
     const [allDocs, total, adverts] = await Promise.all([
+      // Cap the shuffle pool so we don't drag every Media doc into memory
+      // just to slice a 10-item page. 500 is deep enough to feel random
+      // and shallow enough to stay under a few ms even as the collection
+      // grows.
       Media.find({ isPlaylist: { $ne: true } })
+        .select('title description url type likes createdBy createdAt')
         .populate('createdBy', 'firstName lastName profileImage type position academy_name company_name')
+        .sort({ createdAt: -1 })
+        .limit(500)
         .lean(),
       Media.countDocuments({ isPlaylist: { $ne: true } }),
       parseInt(page, 10) === 1

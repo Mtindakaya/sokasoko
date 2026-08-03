@@ -9,10 +9,14 @@ const BASE = `/v${API_VERSION.split('.')[0]}/notifications`;
 // GET /v1/notifications/my/:userId
 router.get(`${BASE}/my/:userId`, async (req, res) => {
   try {
-    const notifications = await Notification.find({ userId: req.params.userId })
-      .sort({ createdAt: -1 })
-      .limit(50);
-    const unreadCount = await Notification.countDocuments({ userId: req.params.userId, read: false });
+    const [notifications, unreadCount] = await Promise.all([
+      Notification.find({ userId: req.params.userId })
+        .select('title body type read metadata createdAt')
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean(),
+      Notification.countDocuments({ userId: req.params.userId, read: false }),
+    ]);
     return res.status(200).json({ data: notifications, unreadCount });
   } catch (err) {
     return res.status(500).json({ error: err.message });

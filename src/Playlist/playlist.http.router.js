@@ -110,7 +110,11 @@ router.patch('/playlists/active/info', async (req, res) => {
 // GET /v1/playlists/media-library
 router.get('/playlists/media-library', async (req, res) => {
   try {
-    const media = await Media.find({ isPlaylist: true }).sort({ createdAt: -1 });
+    const media = await Media.find({ isPlaylist: true })
+      .select('title description url type player createdAt')
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean();
     return res.status(200).json({ data: media });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -120,7 +124,9 @@ router.get('/playlists/media-library', async (req, res) => {
 // GET /v1/playlists/override-players
 router.get('/playlists/override-players', async (req, res) => {
   try {
-    const players = await User.find({ playlistOverride: true }).select('firstName lastName accountNumber profileImage type');
+    const players = await User.find({ playlistOverride: true })
+      .select('firstName lastName accountNumber profileImage type')
+      .lean();
     return res.status(200).json({ data: players });
   } catch (err) {
     return res.status(500).json({ error: err.message });
