@@ -151,12 +151,26 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.type) filter.type = req.query.type;
     if (req.query.school) filter.school = req.query.school;
     if (req.query.gender) filter.gender = req.query.gender;
-    if (req.query.createdBy) filter.createdBy = req.query.createdBy;
+    if (req.query.createdBy) {
+      // A guardian's roster should include everyone currently under them
+      // (new `guardian` field) plus legacy minors created before the
+      // guardian-lifecycle rollout (still linked only via `createdBy`,
+      // and not yet re-attached to someone else). This handles both
+      // legacy minors and minors newly accepted by request.
+      const gid = req.query.createdBy;
+      filter.$or = [
+        { guardian: gid },
+        { createdBy: gid, guardian: null },
+      ];
+    }
     if (req.query.academy) filter.academy = req.query.academy;
-    // Exclude orphaned minors from PLAYER lists by default so a guardian's
-    // roster instantly reflects removals. Callers who want to see orphans
-    // (e.g. admin tools) can pass ?includeOrphaned=1.
-    if (req.query.type === 'PLAYER' && !req.query.includeOrphaned) {
+    // Exclude orphaned minors from PLAYER/REFEREE lists by default so a
+    // guardian's roster instantly reflects removals. Callers who want to
+    // see orphans (e.g. admin tools) can pass ?includeOrphaned=1.
+    if (
+      ['PLAYER', 'REFEREE'].includes(req.query.type) &&
+      !req.query.includeOrphaned
+    ) {
       filter.guardianOrphaned = { $ne: true };
     }
     if (req.query.position) filter.position = req.query.position;
