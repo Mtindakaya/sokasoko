@@ -40,6 +40,11 @@ MediaSchema.index({
   title: 'text',
 });
 
+// Compound index tuned for the hot query path: profile pane + MyFiles
+// both filter by createdBy and order by (order asc, createdAt asc).
+MediaSchema.index({ createdBy: 1, order: 1, createdAt: 1 });
+MediaSchema.index({ player: 1 });
+
 MediaSchema.pre('save', function preValidate(done) {
   return this.preValidate(done);
 });

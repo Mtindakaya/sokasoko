@@ -149,7 +149,19 @@ router.get(PATH_LIST, async (req, res) => {
         Object.assign(filter, query);
       }
     }
-    const data = await Media.find(filter).sort({ order: 1, createdAt: 1 });
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    // .lean() drops Mongoose hydration; populate is trimmed to just the
+    // fields the profile pane + MyFiles list actually render (avatar,
+    // display name, id). Combined with the {createdBy, order, createdAt}
+    // compound index this is the difference between multi-second and
+    // sub-100ms responses for a busy user.
+    const data = await Media.find(filter)
+      .select('title description url type order likes commentsCount voteCount player createdBy createdAt updatedAt')
+      .populate('createdBy', 'firstName lastName profileImage')
+      .populate('player', 'firstName lastName profileImage')
+      .sort({ order: 1, createdAt: 1 })
+      .limit(limit)
+      .lean();
     return res.status(200).json({ data });
   } catch (err) {
     return res.status(500).json({ error: err.message });
