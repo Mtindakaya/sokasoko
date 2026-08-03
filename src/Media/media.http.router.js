@@ -21,6 +21,7 @@ const PATH_SEARCH = '/medias/search';
 const Media = require('./media.model');
 const Comment = require('./comment.model');
 const User = require('../User/user.model');
+const ChatMessage = require('../Chat/chat.model');
 
 // Reject uploads for orphaned minors — same restriction as chat/matches.
 // The check runs against `player` (the media's subject) and, as a
@@ -237,11 +238,49 @@ router.put(
   })
 );
 
-router.delete(
-  PATH_SINGLE,
-  deleteFor({
-    del: (options, done) => Media.del(options, done),
-  })
-);
+// DELETE /v1/medias/:id — remove the media doc, propagate the change to
+// chat messages that had forwarded it (they now show "[Post deleted]"
+// with a null reference so no dangling populate), and compact the
+// remaining priority order for the owner so the profile pane's 1..N
+// slots stay contiguous.
+router.delete(PATH_SINGLE, async (req, res) => {
+  try {
+    const media = await Media.findById(req.params.id)
+      .select('createdBy')
+      .lean();
+    if (!media) return res.status(404).json({ error: 'Media not found' });
+
+    await Media.deleteOne({ _id: req.params.id });
+
+    await ChatMessage.updateMany(
+      { sharedMedia: req.params.id },
+      {
+        $set: {
+          sharedMedia: null,
+          content: '[Chapisho limefutwa · Post deleted]',
+        },
+      },
+    );
+
+    if (media.createdBy) {
+      const remaining = await Media.find({
+        createdBy: media.createdBy,
+        isPlaylist: { $ne: true },
+      })
+        .sort({ order: 1, createdAt: 1 })
+        .select('_id')
+        .lean();
+      await Promise.all(
+        remaining.map((m, idx) =>
+          Media.updateOne({ _id: m._id }, { $set: { order: idx } }),
+        ),
+      );
+    }
+
+    return res.status(200).json({ data: { _id: req.params.id } });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
