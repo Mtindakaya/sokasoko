@@ -243,7 +243,7 @@ router.post(`${BASE}/:id/register`, async (req, res) => {
       const player = await User.findById(playerId)
         .select('type guardianOrphaned')
         .lean();
-      if (player && player.type === 'PLAYER' && player.guardianOrphaned) {
+      if (player && ['PLAYER', 'REFEREE'].includes(player.type) && player.guardianOrphaned) {
         return res.status(403).json({
           error: 'Huwezi kujiunga na trial bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · You cannot join a trial without an active guardian. Open Mlezi Wangu to attach a guardian.',
         });

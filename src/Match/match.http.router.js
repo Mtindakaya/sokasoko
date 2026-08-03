@@ -20,7 +20,7 @@ async function orphanedPlayerBlock(userId) {
     const u = await User.findById(userId)
       .select('type guardianOrphaned')
       .lean();
-    if (u && u.type === 'PLAYER' && u.guardianOrphaned) {
+    if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
       return {
         error: 'Huwezi kutuma ombi bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · This action is restricted for players without an active guardian. Open Mlezi Wangu to attach a guardian.',
       };
@@ -126,6 +126,24 @@ router.post(BASE, async (req, res) => {
     const blocked = await orphanedPlayerBlock(scheduledBy);
     if (blocked) return res.status(403).json(blocked);
     const { assistantReferee1, assistantReferee2, scout, scouts: scoutIds } = req.body;
+
+    // Referees who are orphaned minors cannot be selected. Check the
+    // three referee slots and reject the whole match if any is orphaned.
+    const refCandidates = [referee, assistantReferee1, assistantReferee2].filter(Boolean);
+    if (refCandidates.length) {
+      const orphanedRefs = await User.find({
+        _id: { $in: refCandidates },
+        type: 'REFEREE',
+        guardianOrphaned: true,
+      }).select('firstName lastName').lean();
+      if (orphanedRefs.length) {
+        const names = orphanedRefs.map(r => `${r.firstName || ''} ${r.lastName || ''}`.trim()).filter(Boolean).join(', ');
+        return res.status(403).json({
+          error: `Mwamuzi ${names} hana mlezi. Hawezi kuchaguliwa kwa mchezo. · Referee ${names} has no active guardian and cannot be selected.`,
+        });
+      }
+    }
+
     const normalizedScouts = Array.isArray(scoutIds)
       ? scoutIds.map(id => ({ scout: id, status: 'PENDING' }))
       : scout ? [{ scout, status: 'PENDING' }] : [];

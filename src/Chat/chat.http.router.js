@@ -160,12 +160,12 @@ module.exports = function createChatRouter(io) {
         // a system agent. Keeping the check simple here: if either party
         // is an orphaned minor (guardianOrphaned && type === 'PLAYER'),
         // block.
-        const senderOrphaned = sender && sender.type === 'PLAYER' && sender.guardianOrphaned === true;
-        const receiverOrphaned = receiver && receiver.type === 'PLAYER' && receiver.guardianOrphaned === true;
+        const senderOrphaned = sender && ['PLAYER', 'REFEREE'].includes(sender.type) && sender.guardianOrphaned === true;
+        const receiverOrphaned = receiver && ['PLAYER', 'REFEREE'].includes(receiver.type) && receiver.guardianOrphaned === true;
         if (senderOrphaned || receiverOrphaned) {
           return res.status(403).json({
-            message:
-              'Message not delivered — the player is not currently linked to a guardian.',
+            error: 'Huwezi kutuma ujumbe bila mlezi. · Message not delivered — this account is not currently linked to a guardian.',
+            message: 'Huwezi kutuma ujumbe bila mlezi. · Message not delivered — this account is not currently linked to a guardian.',
           });
         }
         if (receiver && receiver.friendsOnly) {
