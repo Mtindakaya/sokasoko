@@ -18,6 +18,18 @@ const PlaylistSchema = new Schema(
     isActive: { type: Boolean, default: false },
     globalOverride: { type: Boolean, default: false },
     votingEnabled: { type: Boolean, default: false },
+    // Which User types this playlist targets. Empty array = broadcast
+    // (every user type sees it). Non-empty = only those types.
+    // Audience-scoped playlists can coexist with the broadcast; on
+    // GET /active, audience-specific wins over broadcast for a given
+    // caller.
+    targetAudiences: [{
+      type: String,
+      enum: [
+        'PLAYER', 'COACH', 'GUARDIAN', 'ACADEMY', 'SCHOOL', 'VENDOR',
+        'CLUB', 'SPONSOR', 'AGENT', 'REFEREE', 'SCOUT', 'FIELD_OWNER',
+      ],
+    }],
     scheduledSessions: [
       {
         startTime: { type: String, required: true }, // "HH:MM" 24-hour

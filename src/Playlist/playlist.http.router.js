@@ -62,13 +62,42 @@ const withEffectiveOverride = (playlist, userId) => {
 // ── Specific GET routes BEFORE /:id to avoid param capture ───────────────────
 
 // GET /v1/playlists/active
+// Audience routing:
+//   - No userId → return the first isActive playlist (legacy behavior).
+//   - With userId → look up the caller's type. Prefer an audience-scoped
+//     active playlist whose targetAudiences includes their type; fall
+//     back to a broadcast active playlist (targetAudiences empty).
 router.get('/playlists/active', async (req, res) => {
   try {
     const { userId } = req.query;
-    const playlist = await Playlist.findOne({ isActive: true }).populate({
-      path: 'videos',
-      populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
-    });
+    let userType = null;
+    if (userId) {
+      const u = await User.findById(userId).select('type').lean();
+      if (u) userType = u.type;
+    }
+    let playlist = null;
+    if (userType) {
+      playlist = await Playlist.findOne({
+        isActive: true,
+        targetAudiences: userType,
+      }).populate({
+        path: 'videos',
+        populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
+      });
+    }
+    if (!playlist) {
+      // Broadcast fallback (or no-user-context legacy).
+      playlist = await Playlist.findOne({
+        isActive: true,
+        $or: [
+          { targetAudiences: { $exists: false } },
+          { targetAudiences: { $size: 0 } },
+        ],
+      }).populate({
+        path: 'videos',
+        populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
+      });
+    }
     if (!playlist) return res.status(404).json({ error: 'No active playlist' });
     return res.status(200).json(withEffectiveOverride(playlist, userId));
   } catch (err) {
@@ -102,6 +131,28 @@ router.patch('/playlists/active/info', async (req, res) => {
     const playlist = await Playlist.findOneAndUpdate({ isActive: true }, update, { new: true });
     if (!playlist) return res.status(404).json({ error: 'No active playlist' });
     return res.status(200).json(withEffectiveOverride(playlist));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /v1/playlists/:id/audiences — replace the targetAudiences list
+// on any playlist (active or not). Body: { targetAudiences: [<type>...] }
+router.patch('/playlists/:id/audiences', async (req, res) => {
+  try {
+    const raw = req.body.targetAudiences;
+    if (!Array.isArray(raw)) {
+      return res.status(400).json({ error: 'targetAudiences must be an array' });
+    }
+    const allowed = new Set(['PLAYER','COACH','GUARDIAN','ACADEMY','SCHOOL','VENDOR','CLUB','SPONSOR','AGENT','REFEREE','SCOUT','FIELD_OWNER']);
+    const clean = raw.filter(t => allowed.has(t));
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      { targetAudiences: clean },
+      { new: true },
+    );
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -274,10 +325,38 @@ router.patch('/playlists/:id/rename', async (req, res) => {
   }
 });
 
-// POST /v1/playlists/:id/activate — set this playlist as active, deactivate others
+// POST /v1/playlists/:id/activate — set this playlist as active.
+// Only deactivates OTHER active playlists whose audience set overlaps
+// with this one's (broadcast [] is treated as "any audience"), so
+// audience-scoped playlists can coexist. Two PLAYER-only playlists
+// still can't both be active — the newly activated one wins.
 router.post('/playlists/:id/activate', async (req, res) => {
   try {
-    await Playlist.updateMany({}, { isActive: false });
+    const target = await Playlist.findById(req.params.id).select('targetAudiences').lean();
+    if (!target) return res.status(404).json({ error: 'Playlist not found' });
+    const targetAud = target.targetAudiences || [];
+    let deactivateFilter;
+    if (targetAud.length === 0) {
+      // Broadcast — deactivate any active broadcast (there should be at
+      // most one). Audience-scoped playlists keep running independently.
+      deactivateFilter = {
+        _id: { $ne: req.params.id },
+        isActive: true,
+        $or: [
+          { targetAudiences: { $exists: false } },
+          { targetAudiences: { $size: 0 } },
+        ],
+      };
+    } else {
+      // Audience-scoped — deactivate any active playlist whose audience
+      // set intersects (same specific type would double-target users).
+      deactivateFilter = {
+        _id: { $ne: req.params.id },
+        isActive: true,
+        targetAudiences: { $in: targetAud },
+      };
+    }
+    await Playlist.updateMany(deactivateFilter, { isActive: false });
     const playlist = await Playlist.findByIdAndUpdate(req.params.id, { isActive: true }, { new: true });
     if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
     return res.status(200).json(playlist);
