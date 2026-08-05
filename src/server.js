@@ -64,11 +64,6 @@ app.get('/', (request, response) => {
 
 app.use('/uploads', require('express').static('public/uploads'));
 
-// Publicly-served data deletion request page. Play Console links here
-// from the store listing so users can request account/data deletion
-// without needing to be signed in to the app.
-app.use(require('./DataDeletion/data_deletion.http.router'));
-
 // Public profile page for PDF hyperlinks
 app.get('/profile/:userId', async (req, res) => {
   try {
