@@ -24,7 +24,7 @@
     "@lykmapipo/mongoose-common": "^0.40.0",
     "@lykmapipo/mongoose-faker": "^0.12.0",
     "async": "^3.2.1",
-    "aws-sdk": "^1.18.0",
+    "aws-sdk": "^2.1600.0",
     "axios": "^1.14.0",
     "bcryptjs": "^2.4.3",
     "btoa": "^1.2.1",
