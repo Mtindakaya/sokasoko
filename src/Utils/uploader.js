@@ -31,7 +31,9 @@ if (HAS_S3) {
     storage: multerS3({
       s3,
       bucket: S3_BUCKET,
-      acl: 'public-read',
+      // No `acl:` here — modern buckets have ACLs disabled (Bucket
+      // owner enforced) per AWS best practice. Public read is granted
+      // via the bucket policy documented in the S3 setup instructions.
       contentType: multerS3.AUTO_CONTENT_TYPE,
       cacheControl: 'public, max-age=31536000, immutable',
       metadata: (req, file, cb) => cb(null, { fieldname: file.fieldname }),
