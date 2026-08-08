@@ -5,6 +5,7 @@ const IsmailiConversation = require('./ismaili_conversation.model');
 const IsmailiUsage = require('./ismaili_usage.model');
 const User = require('../User/user.model');
 const AdvisoryEntry = require('../Advisory/advisory_entry.model');
+const ChatMessage = require('../Chat/chat.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -182,6 +183,30 @@ router.post(BASE, async (req, res) => {
       role: 'assistant',
       content: reply,
     });
+
+    // Mirror the exchange into the ChatMessage collection so the DM
+    // history in the Ismaili conversation thread includes quick-ask
+    // sessions. Without this mirror, the floating bubble and the DM
+    // chat maintain separate histories that the user can't reconcile.
+    const ISMAILI_ID = getString('ISMAILI_USER_ID', '');
+    if (ISMAILI_ID) {
+      try {
+        await ChatMessage.create({
+          sender: user._id,
+          receiver: ISMAILI_ID,
+          content: message,
+          read: true, // user already read their own message
+        });
+        await ChatMessage.create({
+          sender: ISMAILI_ID,
+          receiver: user._id,
+          content: reply,
+          read: false,
+        });
+      } catch (chatErr) {
+        console.log('[Ismaili] chat mirror failed:', chatErr.message);
+      }
+    }
 
     return res.status(200).json({
       reply,
