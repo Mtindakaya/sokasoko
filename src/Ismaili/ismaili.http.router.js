@@ -4,6 +4,7 @@ const { getString, getNumber } = require('@lykmapipo/env');
 const IsmailiConversation = require('./ismaili_conversation.model');
 const IsmailiUsage = require('./ismaili_usage.model');
 const User = require('../User/user.model');
+const AdvisoryEntry = require('../Advisory/advisory_entry.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -233,6 +234,50 @@ router.get(BASE + '/history', async (req, res) => {
       .limit(cap)
       .lean();
     return res.status(200).json({ data: turns.reverse() });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/ai/ismaili/donate — a user donates a Q+A thread to the
+// Advisory knowledge base. Lands in the moderator review queue as
+// status=PENDING with source=CHAT_RECYCLE. Nothing is published until
+// a moderator approves.
+// Body: { userId, question, answer }
+router.post(BASE + '/donate', async (req, res) => {
+  try {
+    const { userId, question, answer } = req.body;
+    if (!userId || !question || !answer) {
+      return res.status(400).json({
+        error: 'userId, question and answer are required',
+      });
+    }
+    const q = String(question).trim();
+    const a = String(answer).trim();
+    if (!q || !a) {
+      return res.status(400).json({ error: 'question and answer cannot be empty' });
+    }
+
+    // Naive language detection — good enough for tagging; a moderator
+    // can override on review.
+    const swahiliHints = /\b(na|kwa|ya|wa|kuwa|katika|mimi|wewe|mchezo|mpira|kocha|mwamuzi)\b/i;
+    const language = swahiliHints.test(q + ' ' + a) ? 'sw' : 'en';
+
+    // Title from the first line of the question, capped to 200 chars.
+    const title = q.split(/\r?\n/)[0].slice(0, 200);
+    const body = `**Swali · Question:**\n${q}\n\n**Jibu la Ismaili · Ismaili’s answer:**\n${a}`.slice(0, 10000);
+
+    const doc = await AdvisoryEntry.create({
+      title,
+      body,
+      topic: 'OTHER',
+      language,
+      source: 'CHAT_RECYCLE',
+      sourceChannel: 'CHAT_RECYCLE',
+      contributor: userId,
+      status: 'PENDING',
+    });
+    return res.status(201).json({ data: { _id: doc._id, status: doc.status } });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
