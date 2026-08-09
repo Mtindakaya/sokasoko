@@ -217,6 +217,23 @@ router.get(PATH_LIST, async (req, res) => {
 
     await attachPrimaryVideoUrls(data);
 
+    // Referee results: attach subscription status so the picker can badge
+    // subscribed refs and, when asked, surface them first.
+    if (req.query.type === 'REFEREE' && data.length) {
+      const { Subscription } = require('../Subscription/subscription.model');
+      const statuses = await Promise.all(
+        data.map(u => Subscription.getActiveSubscription(u._id))
+      );
+      data.forEach((u, i) => {
+        const s = statuses[i];
+        u.refereeSubscribed = !!s && ['MINOR', 'ADULT'].includes(s.tier);
+      });
+      if (req.query.sortBySubscribed === '1' || req.query.sortBySubscribed === 'true') {
+        data.sort((a, b) =>
+          (b.refereeSubscribed ? 1 : 0) - (a.refereeSubscribed ? 1 : 0));
+      }
+    }
+
     return res.status(200).json({ data, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     return res.status(500).json({ error: err.message });

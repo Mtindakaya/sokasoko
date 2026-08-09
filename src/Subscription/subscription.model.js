@@ -14,8 +14,17 @@ const SCHEMA_OPTIONS = {
 // Grace period after endDate before tier auto-downgrades to STANDARD.
 const GRACE_PERIOD_DAYS = 5;
 
+// REFEREE-specific thresholds. Referees officiate free until they hit
+// the game count; then a subscription is required. Warning fires at
+// REFEREE_WARN_AT_GAMES so they have a chance to subscribe before block.
+// Existing refs already past the threshold get a one-time grandfather
+// window measured in days from the first eligibility check post-deploy.
+const REFEREE_FREE_GAME_THRESHOLD = 10;
+const REFEREE_WARN_AT_GAMES = 8;
+const REFEREE_GRANDFATHER_DAYS = 15;
+
 const PLAN_TYPES = ['MONTHLY', 'QUARTERLY', 'BIANNUAL', 'ANNUAL'];
-const TIERS = ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE'];
+const TIERS = ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE', 'MINOR', 'ADULT'];
 const CURRENCIES = ['TZS', 'USD'];
 const PAYMENT_METHODS = [
   'MANUAL', 'SELCOM', 'AZAMPAY', 'MPESA', 'PAYPAL', 'GOOGLE_PAY', 'CARD',
@@ -55,10 +64,24 @@ const PRICES = {
   ACADEMY:     { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   CLUB:        { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   AGENT:       { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
-  REFEREE:     { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   SCOUT:       { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   VENDOR:      { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   FIELD_OWNER: { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
+  // REFEREE: two age-based tiers. Server auto-picks MINOR vs ADULT from
+  // user.dob at subscribe time; user does not choose. There is no free
+  // STANDARD tier here — free access is granted via the game-count
+  // free-trial (see REFEREE_FREE_GAME_THRESHOLD) rather than as a tier.
+  REFEREE: {
+    MINOR: {
+      MONTHLY:   { TZS: 5000,  USD: null },
+      QUARTERLY: { TZS: 10000, USD: null },
+    },
+    ADULT: {
+      MONTHLY:   { TZS: 10000, USD: null },
+      QUARTERLY: { TZS: 25000, USD: null },
+      BIANNUAL:  { TZS: 40000, USD: null },
+    },
+  },
 };
 
 // Feature caps per userType/tier. `null` = unlimited (with any fair-use
@@ -92,6 +115,13 @@ const FEATURE_CAPS = {
       evaluationRequestsInitiatedPerMonth: null,
       canJoinChallenges: true,
     },
+  },
+  // REFEREE tiers only gate one thing: match-assignment eligibility. Both
+  // MINOR and ADULT unlock the same behaviour — the tier controls pricing,
+  // not features.
+  REFEREE: {
+    MINOR: { matchAssignmentEligible: true },
+    ADULT: { matchAssignmentEligible: true },
   },
 };
 
@@ -275,6 +305,95 @@ SubscriptionSchema.statics.getFeatureCaps = function (userType, tier) {
   return FEATURE_CAPS[userType]?.[tier] || null;
 };
 
+// Count matches the referee has officiated (as head ref OR either
+// assistant) that reached COMPLETED status.
+SubscriptionSchema.statics.getRefereeGameCount = async function (userId) {
+  const Match = mongoose.model('Match');
+  return Match.countDocuments({
+    status: 'COMPLETED',
+    $or: [
+      { referee: userId },
+      { assistantReferee1: userId },
+      { assistantReferee2: userId },
+    ],
+  });
+};
+
+// Which age bracket a referee's subscription should use, based on DOB.
+// Under 18 → MINOR; 18+ or missing DOB → ADULT (safe default).
+SubscriptionSchema.statics.getRefereeAgeBracket = function (dob) {
+  if (!dob) return 'ADULT';
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return 'ADULT';
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+  return age < 18 ? 'MINOR' : 'ADULT';
+};
+
+// Full eligibility snapshot for a referee. Returns:
+//   { eligible, reason, gamesOfficiated, subscribed, tier,
+//     grandfatherEndsAt, threshold, warnAt }
+// The one side effect: if the referee is at ≥threshold with no
+// subscription and no grandfather stamp, this method sets
+// user.refereeGrandfatherUntil = now + 15 days on their User doc so the
+// next check honours the grace window.
+SubscriptionSchema.statics.getRefereeEligibility = async function (userId) {
+  const User = mongoose.model('User');
+  const [user, sub, games] = await Promise.all([
+    User.findById(userId).select('dob refereeGrandfatherUntil type').lean(),
+    this.getActiveSubscription(userId),
+    this.getRefereeGameCount(userId),
+  ]);
+  const now = new Date();
+  const subscribed = !!sub && ['MINOR', 'ADULT'].includes(sub.tier);
+  const tier = subscribed ? sub.tier : null;
+
+  if (subscribed) {
+    return {
+      eligible: true, reason: 'SUBSCRIBED',
+      gamesOfficiated: games, subscribed: true, tier,
+      grandfatherEndsAt: null,
+      threshold: REFEREE_FREE_GAME_THRESHOLD,
+      warnAt: REFEREE_WARN_AT_GAMES,
+    };
+  }
+
+  if (games < REFEREE_FREE_GAME_THRESHOLD) {
+    return {
+      eligible: true, reason: 'FREE_TRIAL',
+      gamesOfficiated: games, subscribed: false, tier: null,
+      grandfatherEndsAt: null,
+      threshold: REFEREE_FREE_GAME_THRESHOLD,
+      warnAt: REFEREE_WARN_AT_GAMES,
+    };
+  }
+
+  // At threshold with no subscription — apply / honour grandfather.
+  let grandfatherEndsAt = user?.refereeGrandfatherUntil
+    ? new Date(user.refereeGrandfatherUntil) : null;
+  if (!grandfatherEndsAt) {
+    grandfatherEndsAt = new Date(
+      now.getTime() + REFEREE_GRANDFATHER_DAYS * 24 * 60 * 60 * 1000);
+    try {
+      await User.updateOne({ _id: userId },
+        { $set: { refereeGrandfatherUntil: grandfatherEndsAt } });
+    } catch (_) { /* non-critical */ }
+  }
+  const inGrace = grandfatherEndsAt > now;
+  return {
+    eligible: inGrace,
+    reason: inGrace ? 'GRANDFATHER' : 'SUBSCRIPTION_REQUIRED',
+    gamesOfficiated: games,
+    subscribed: false,
+    tier: null,
+    grandfatherEndsAt,
+    threshold: REFEREE_FREE_GAME_THRESHOLD,
+    warnAt: REFEREE_WARN_AT_GAMES,
+  };
+};
+
 mongoose.plugin(actions);
 
 module.exports = {
@@ -290,4 +409,7 @@ module.exports = {
   SUBSCRIPTION_ELIGIBLE_TYPES,
   NON_SUBSCRIPTION_TYPES,
   GRACE_PERIOD_DAYS,
+  REFEREE_FREE_GAME_THRESHOLD,
+  REFEREE_WARN_AT_GAMES,
+  REFEREE_GRANDFATHER_DAYS,
 };

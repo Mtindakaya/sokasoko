@@ -40,6 +40,7 @@ router.get(`${BASE}/prices`, (req, res) => {
 
 // GET /v1/subscriptions/me?userId=&userType=
 // Effective tier for the caller plus current month's usage snapshot.
+// For REFEREE, also includes refereeStatus with game count + eligibility.
 router.get(`${BASE}/me`, async (req, res) => {
   try {
     const { userId, userType } = req.query;
@@ -51,10 +52,25 @@ router.get(`${BASE}/me`, async (req, res) => {
       SubscriptionUsage.snapshot(userId, userType),
       Subscription.getActiveSubscription(userId),
     ]);
+
+    let refereeStatus = null;
+    if (userType === 'REFEREE') {
+      const User = require('../User/user.model');
+      const [status, u] = await Promise.all([
+        Subscription.getRefereeEligibility(userId),
+        User.findById(userId).select('dob').lean(),
+      ]);
+      refereeStatus = {
+        ...status,
+        ageBracket: Subscription.getRefereeAgeBracket(u?.dob),
+      };
+    }
+
     return res.status(200).json({
       tier,
       usage: snapshot,
       subscription: subscription || null,
+      refereeStatus,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -111,9 +127,10 @@ router.get(`${BASE}/user/:userId`, async (req, res) => {
 router.post(BASE, async (req, res) => {
   try {
     const {
-      user, userType, tier = 'STANDARD', plan,
+      user, userType, plan,
       currency, paymentMethod, notes, transactionId,
     } = req.body;
+    let { tier = 'STANDARD' } = req.body;
 
     if (!user || !userType || !plan) {
       return res.status(400).json({ error: 'user, userType and plan are required' });
@@ -121,6 +138,14 @@ router.post(BASE, async (req, res) => {
     if (!SUBSCRIPTION_ELIGIBLE_TYPES.includes(userType)) {
       return res.status(400).json({ error: `${userType} is not subscription-eligible` });
     }
+
+    // REFEREE: server auto-picks MINOR/ADULT from DOB. Ignore client tier.
+    if (userType === 'REFEREE') {
+      const User = require('../User/user.model');
+      const u = await User.findById(user).select('dob').lean();
+      tier = Subscription.getRefereeAgeBracket(u?.dob);
+    }
+
     if (!TIERS.includes(tier)) {
       return res.status(400).json({ error: 'invalid tier' });
     }

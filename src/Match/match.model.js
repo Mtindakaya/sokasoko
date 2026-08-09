@@ -185,6 +185,7 @@ const MatchSchema = new Schema(
 MatchSchema.pre('save', async function (next) {
   if (this.homeConfirmed && this.awayConfirmed && this.status !== 'COMPLETED') {
     this.status = 'COMPLETED';
+    this._justCompleted = true;
     if (!this.matchId) {
       try {
         const counter = await Counter.getNextSequenceValue('matchId');
@@ -195,6 +196,54 @@ MatchSchema.pre('save', async function (next) {
     }
   }
   next();
+});
+
+// After a match completes, tell each involved referee where they stand
+// against the free-game threshold. Fires only on the transition into
+// COMPLETED (guarded by _justCompleted set in the pre-save above).
+MatchSchema.post('save', async function () {
+  if (!this._justCompleted) return;
+  this._justCompleted = false;
+  const refIds = [this.referee, this.assistantReferee1, this.assistantReferee2]
+    .filter(Boolean).map(String);
+  if (refIds.length === 0) return;
+  try {
+    const {
+      Subscription,
+      REFEREE_FREE_GAME_THRESHOLD,
+      REFEREE_WARN_AT_GAMES,
+    } = require('../Subscription/subscription.model');
+    const Notification = require('../Notification/notification.model');
+    for (const refId of refIds) {
+      const [count, sub] = await Promise.all([
+        Subscription.getRefereeGameCount(refId),
+        Subscription.getActiveSubscription(refId),
+      ]);
+      const isSubbed = !!sub && ['MINOR', 'ADULT'].includes(sub.tier);
+      if (isSubbed) continue; // no pushing subscribed refs
+      let title = null;
+      let body = null;
+      if (count === REFEREE_WARN_AT_GAMES) {
+        const left = REFEREE_FREE_GAME_THRESHOLD - REFEREE_WARN_AT_GAMES;
+        title = 'Karibu utahitajika kujisajili';
+        body = `Umeongoza mechi ${count}. Umebaki na mechi ${left} kabla ya kudaiwa uandikishaji ili uendelee kupewa mechi.`;
+      } else if (count === REFEREE_FREE_GAME_THRESHOLD) {
+        title = 'Uandikishaji unahitajika';
+        body = `Umeongoza mechi ${count}. Jisajili sasa ili uendelee kupewa mechi. Una siku 15 za muda wa neema.`;
+      }
+      if (title) {
+        try {
+          await Notification.create({
+            userId: refId, title, body,
+            type: 'SUBSCRIPTION',
+            metadata: { role: 'REFEREE', gamesOfficiated: count },
+          });
+        } catch (_) { /* best-effort */ }
+      }
+    }
+  } catch (err) {
+    console.log('[match] referee post-complete hook failed:', err.message);
+  }
 });
 
 mongoose.plugin(actions);

@@ -6,6 +6,7 @@ const TournamentRegistration = require('../TournamentRegistration/tournament_reg
 const User = require('../User/user.model');
 const ChatMessage = require('../Chat/chat.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
+const { Subscription } = require('../Subscription/subscription.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -141,6 +142,26 @@ router.post(BASE, async (req, res) => {
         const names = orphanedRefs.map(r => `${r.firstName || ''} ${r.lastName || ''}`.trim()).filter(Boolean).join(', ');
         return res.status(403).json({
           error: `Mwamuzi ${names} hana mlezi. Hawezi kuchaguliwa kwa mchezo. · Referee ${names} has no active guardian and cannot be selected.`,
+        });
+      }
+
+      // Subscription/free-trial eligibility for each referee. A ref who
+      // has officiated >= threshold games without subscribing (and past
+      // any grandfather window) is blocked from new assignments.
+      const ineligible = [];
+      for (const refId of refCandidates) {
+        const status = await Subscription.getRefereeEligibility(refId);
+        if (!status.eligible) {
+          const u = await User.findById(refId).select('firstName lastName').lean();
+          const name = `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || refId;
+          ineligible.push({ name, gamesOfficiated: status.gamesOfficiated });
+        }
+      }
+      if (ineligible.length) {
+        const names = ineligible.map(i => `${i.name} (mechi ${i.gamesOfficiated})`).join(', ');
+        return res.status(403).json({
+          error: `Mwamuzi ${names} hana uandikishaji hai. Hawezi kuchaguliwa kwa mchezo.`,
+          reason: 'REFEREE_SUBSCRIPTION_REQUIRED',
         });
       }
     }
