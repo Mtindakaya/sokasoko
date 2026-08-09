@@ -6,6 +6,7 @@ const IsmailiUsage = require('./ismaili_usage.model');
 const User = require('../User/user.model');
 const AdvisoryEntry = require('../Advisory/advisory_entry.model');
 const ChatMessage = require('../Chat/chat.model');
+const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -141,6 +142,41 @@ router.post(BASE, async (req, res) => {
     const user = await User.findById(userId).select('_id firstName type').lean();
     if (!user) return res.status(404).json({ error: 'user not found' });
 
+    // Subscription-tier enforcement (returns allowed:true for user types
+    // without FEATURE_CAPS defined yet — legacy blanket quota below is
+    // the safety net for those).
+    const tierCheck = await SubscriptionUsage.consume({
+      user: user._id,
+      userType: user.type,
+      feature: 'ai',
+    });
+    if (!tierCheck.allowed) {
+      const isSwahili = /[?]|habari|nini|kwa|na |ni |una|una?/i.test(message);
+      let msg;
+      if (tierCheck.reason === 'TIER_DISALLOWED') {
+        msg = isSwahili
+          ? 'Kifurushi chako cha Standard hakiruhusu maswali ya AI. Boresha hadi Gold au Platinum.'
+          : 'AI queries are not included in the Standard tier. Upgrade to Gold or Platinum.';
+      } else if (tierCheck.reason === 'MONTHLY_CAP') {
+        msg = isSwahili
+          ? `Umefikia kikomo cha ${tierCheck.cap} maswali kwa mwezi. Boresha hadi Platinum kwa matumizi bila kikomo.`
+          : `You have reached the ${tierCheck.cap} monthly AI query cap. Upgrade to Platinum for unlimited use.`;
+      } else if (tierCheck.reason === 'HOURLY_FAIR_USE' || tierCheck.reason === 'DAILY_FAIR_USE') {
+        msg = isSwahili
+          ? 'Kikomo cha matumizi kimefikiwa. Tafadhali jaribu tena baadaye.'
+          : 'Fair-use limit reached. Please try again shortly.';
+      } else {
+        msg = isSwahili ? 'Kikomo kimefikiwa.' : 'Quota limit reached.';
+      }
+      return res.status(429).json({
+        error: msg,
+        reason: tierCheck.reason,
+        cap: tierCheck.cap,
+        tier: tierCheck.tier,
+      });
+    }
+
+    // Legacy blanket safety net for user types without tier caps yet.
     const quota = await checkAndConsumeQuota(user._id);
     if (!quota.ok) {
       return res.status(429).json({

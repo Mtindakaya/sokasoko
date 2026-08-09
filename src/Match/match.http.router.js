@@ -5,6 +5,7 @@ const Match = require('./match.model');
 const TournamentRegistration = require('../TournamentRegistration/tournament_registration.model');
 const User = require('../User/user.model');
 const ChatMessage = require('../Chat/chat.model');
+const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -404,6 +405,21 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
     const alreadyAttached = (match.scouts || []).some(s => s.scout && s.scout.toString() === scoutId)
       || (match.scout && match.scout.toString() === scoutId);
     if (!alreadyAttached) {
+      // Tier gate — only for PLAYER-initiated requests. Team-owner (ACADEMY,
+      // CLUB, etc.) requests bypass this cap for now.
+      if (isPlayerOnTeam) {
+        const check = await SubscriptionUsage.consume({
+          user: requester._id,
+          userType: 'PLAYER',
+          feature: 'evaluationRequests',
+        });
+        if (!check.allowed) {
+          const msg = check.reason === 'TIER_DISALLOWED'
+            ? 'Standard players cannot request scout evaluations. Upgrade to Gold or Platinum.'
+            : `You have reached this month's cap of ${check.cap} scout requests. Upgrade to Platinum for unlimited.`;
+          return res.status(429).json({ error: msg, reason: check.reason, cap: check.cap, tier: check.tier });
+        }
+      }
       match.scouts.push({
         scout: scoutId,
         status: 'PENDING',

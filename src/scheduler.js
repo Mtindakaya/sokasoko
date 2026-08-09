@@ -5,6 +5,62 @@ const ScoutCv = require('./ScoutCv/scout_cv.model');
 const Notification = require('./Notification/notification.model');
 const { sendSms } = require('./Utils/utils');
 
+// Promote lapsed subscriptions: ACTIVE → GRACE at endDate, then
+// GRACE → EXPIRED once the 5-day grace window closes. When a subscription
+// expires, effective tier drops back to STANDARD automatically because
+// getEffectiveTier() no longer finds an ACTIVE-or-GRACE record.
+const runSubscriptionLapseSweep = async () => {
+  console.log('Running subscription lapse sweep...');
+  const now = new Date();
+  const activeToGrace = await Subscription.updateMany(
+    { status: 'ACTIVE', endDate: { $lte: now } },
+    { $set: { status: 'GRACE' } }
+  );
+  const graceToExpired = await Subscription.updateMany(
+    { status: 'GRACE', gracePeriodEndsAt: { $lte: now } },
+    { $set: { status: 'EXPIRED' } }
+  );
+  const inGrace = activeToGrace.modifiedCount || activeToGrace.nModified || 0;
+  const expired = graceToExpired.modifiedCount || graceToExpired.nModified || 0;
+
+  // Bell notification when someone drops into grace so they know to renew.
+  if (inGrace > 0) {
+    const newlyInGrace = await Subscription.find({
+      status: 'GRACE',
+      updatedAt: { $gte: new Date(now.getTime() - 60 * 60 * 1000) },
+    }).select('user tier').lean();
+    for (const s of newlyInGrace) {
+      try {
+        await Notification.create({
+          userId: s.user,
+          title: 'Subscription renewal reminder',
+          body: `Your ${s.tier} subscription has ended. You have 5 days to renew before your account falls back to Standard.`,
+          type: 'SUBSCRIPTION',
+          metadata: { tier: s.tier, phase: 'GRACE' },
+        });
+      } catch (_) { /* best-effort */ }
+    }
+  }
+  if (expired > 0) {
+    const newlyExpired = await Subscription.find({
+      status: 'EXPIRED',
+      updatedAt: { $gte: new Date(now.getTime() - 60 * 60 * 1000) },
+    }).select('user tier').lean();
+    for (const s of newlyExpired) {
+      try {
+        await Notification.create({
+          userId: s.user,
+          title: 'Subscription expired',
+          body: `Your ${s.tier} subscription has expired. Your account is now on the Standard tier — upgrade any time to restore full features.`,
+          type: 'SUBSCRIPTION',
+          metadata: { tier: s.tier, phase: 'EXPIRED' },
+        });
+      } catch (_) { /* best-effort */ }
+    }
+  }
+  console.log(`Lapse sweep complete. Grace: ${inGrace}, Expired: ${expired}.`);
+};
+
 const runDailyCheck = async () => {
   console.log('Running daily subscription check...');
   const now = new Date();
@@ -102,6 +158,10 @@ cron.schedule('0 8 * * *', runDailyCheck);
 // Run on the 1st of every month at 7:00 AM
 cron.schedule('0 7 1 * *', runMonthlyProgressReports);
 
-console.log('Scheduler started — daily at 8:00 AM, monthly progress reports on 1st at 7:00 AM');
+// Subscription lapse sweep — every 6 hours so grace-period transitions
+// happen close to real time without hammering the DB.
+cron.schedule('0 */6 * * *', runSubscriptionLapseSweep);
 
-module.exports = { runDailyCheck, runMonthlyProgressReports };
+console.log('Scheduler started — daily 8:00, monthly-reports 1st 7:00, lapse-sweep every 6h');
+
+module.exports = { runDailyCheck, runMonthlyProgressReports, runSubscriptionLapseSweep };

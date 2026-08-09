@@ -6,6 +6,8 @@ const ScoutInvoice = require('../ScoutInvoice/scout_invoice.model');
 const User = require('../User/user.model');
 const Match = require('../Match/match.model');
 const ChatMessage = require('../Chat/chat.model');
+const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
+const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -242,6 +244,26 @@ router.post(BASE, async (req, res) => {
       return res.status(409).json({ error: 'You have already submitted an evaluation for this player at this event.' });
     }
 
+    // Enforce evaluations-received-per-month cap on the target PLAYER.
+    if (req.body.player) {
+      const target = await User.findById(req.body.player).select('type').lean();
+      if (target && target.type === 'PLAYER') {
+        const check = await SubscriptionUsage.consume({
+          user: req.body.player,
+          userType: 'PLAYER',
+          feature: 'evaluationsReceived',
+        });
+        if (!check.allowed) {
+          return res.status(429).json({
+            error: `Player has reached their monthly evaluation cap (${check.cap}). They need to upgrade to accept more evaluations this month.`,
+            reason: check.reason,
+            cap: check.cap,
+            tier: check.tier,
+          });
+        }
+      }
+    }
+
     const report = await ScoutReport.create(req.body);
     const populated = await ScoutReport.findById(report._id)
       .populate('scout', 'firstName lastName type accountNumber')
@@ -321,7 +343,52 @@ router.get(BASE, async (req, res) => {
       return r;
     });
 
-    return res.status(200).json({ data: enriched });
+    // Tier-gated view for PLAYER callers.
+    // Standard: reports are counted but body is withheld ("upgrade to see").
+    // Gold/Platinum: monthly cap on visible reports; overflow returns as
+    // gated so the client can prompt an upgrade rather than silently drop.
+    let gated = enriched;
+    let tier = null;
+    let capThisMonth = null;
+    if (userType === 'PLAYER') {
+      tier = await Subscription.getEffectiveTier(userId, 'PLAYER');
+      const caps = FEATURE_CAPS.PLAYER?.[tier] || {};
+      capThisMonth = caps.reportsPerMonth;
+      const share = caps.evaluationsShareWithPlayer !== false;
+
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+
+      let visibleInMonth = 0;
+      gated = enriched.map((r) => {
+        const inThisMonth = new Date(r.createdAt) >= monthStart;
+        let locked = !share; // Standard: always locked
+        if (!locked && capThisMonth != null && inThisMonth) {
+          if (visibleInMonth >= capThisMonth) locked = true;
+          else visibleInMonth += 1;
+        }
+        if (!locked) return r;
+        // Redact body fields; keep envelope so client can render an
+        // upgrade prompt in the report slot.
+        return {
+          _id: r._id,
+          createdAt: r.createdAt,
+          scout: r.scout,
+          eventType: r.eventType,
+          eventId: r.eventId,
+          eventData: r.eventData,
+          locked: true,
+          lockReason: !share ? 'TIER_HIDES_CONTENT' : 'MONTHLY_CAP',
+        };
+      });
+    }
+
+    return res.status(200).json({
+      data: gated,
+      tier,
+      capThisMonth,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
