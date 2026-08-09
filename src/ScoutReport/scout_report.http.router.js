@@ -244,6 +244,17 @@ router.post(BASE, async (req, res) => {
       return res.status(409).json({ error: 'You have already submitted an evaluation for this player at this event.' });
     }
 
+    // Scout must have an active PRO subscription — no free reports.
+    if (req.body.scout) {
+      const scoutStatus = await Subscription.getScoutEligibility(req.body.scout);
+      if (!scoutStatus.eligible) {
+        return res.status(403).json({
+          error: 'Huwezi kuwasilisha ripoti bila uandikishaji hai.',
+          reason: 'SCOUT_SUBSCRIPTION_REQUIRED',
+        });
+      }
+    }
+
     // Enforce evaluations-received-per-month cap on the target PLAYER.
     if (req.body.player) {
       const target = await User.findById(req.body.player).select('type').lean();

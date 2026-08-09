@@ -169,6 +169,28 @@ router.post(BASE, async (req, res) => {
     const normalizedScouts = Array.isArray(scoutIds)
       ? scoutIds.map(id => ({ scout: id, status: 'PENDING' }))
       : scout ? [{ scout, status: 'PENDING' }] : [];
+
+    // Every scout on the match must have an active PRO subscription. There
+    // is no free trial for scouts — official work requires a live sub.
+    const scoutCandidates = normalizedScouts.map(s => s.scout).filter(Boolean);
+    if (scoutCandidates.length) {
+      const ineligible = [];
+      for (const scoutId of scoutCandidates) {
+        const status = await Subscription.getScoutEligibility(scoutId);
+        if (!status.eligible) {
+          const u = await User.findById(scoutId).select('firstName lastName').lean();
+          const name = `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || scoutId;
+          ineligible.push(name);
+        }
+      }
+      if (ineligible.length) {
+        return res.status(403).json({
+          error: `Scout ${ineligible.join(', ')} hana uandikishaji hai. Hawezi kuchaguliwa kwa kazi rasmi ya scouting.`,
+          reason: 'SCOUT_SUBSCRIPTION_REQUIRED',
+        });
+      }
+    }
+
     const match = await Match.create({
       homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee,
       assistantReferee1, assistantReferee2,
@@ -404,6 +426,13 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (!scout || scout.type !== 'SCOUT') {
       return res.status(400).json({ error: 'scoutId must reference a registered SCOUT' });
+    }
+    const scoutStatus = await Subscription.getScoutEligibility(scoutId);
+    if (!scoutStatus.eligible) {
+      return res.status(403).json({
+        error: 'Scout hana uandikishaji hai — hawezi kupokea maombi ya kazi rasmi.',
+        reason: 'SCOUT_SUBSCRIPTION_REQUIRED',
+      });
     }
     if (!requester) return res.status(400).json({ error: 'requester not found' });
     if (['COMPLETED', 'CANCELLED'].includes(match.status)) {

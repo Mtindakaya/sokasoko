@@ -66,11 +66,17 @@ router.get(`${BASE}/me`, async (req, res) => {
       };
     }
 
+    let scoutStatus = null;
+    if (userType === 'SCOUT') {
+      scoutStatus = await Subscription.getScoutEligibility(userId);
+    }
+
     return res.status(200).json({
       tier,
       usage: snapshot,
       subscription: subscription || null,
       refereeStatus,
+      scoutStatus,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -144,6 +150,10 @@ router.post(BASE, async (req, res) => {
       const User = require('../User/user.model');
       const u = await User.findById(user).select('dob').lean();
       tier = Subscription.getRefereeAgeBracket(u?.dob);
+    }
+    // SCOUT: single PRO tier — always override client tier.
+    if (userType === 'SCOUT') {
+      tier = 'PRO';
     }
 
     if (!TIERS.includes(tier)) {

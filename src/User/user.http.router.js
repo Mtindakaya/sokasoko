@@ -233,6 +233,24 @@ router.get(PATH_LIST, async (req, res) => {
           (b.refereeSubscribed ? 1 : 0) - (a.refereeSubscribed ? 1 : 0));
       }
     }
+    // Scout results: attach subscription status. Because unsubscribed
+    // scouts cannot be selected for official work at all, pickers can
+    // pass `onlySubscribed=1` to filter them out entirely.
+    if (req.query.type === 'SCOUT' && data.length) {
+      const { Subscription } = require('../Subscription/subscription.model');
+      const statuses = await Promise.all(
+        data.map(u => Subscription.getActiveSubscription(u._id))
+      );
+      data.forEach((u, i) => {
+        const s = statuses[i];
+        u.scoutSubscribed = !!s && s.tier === 'PRO';
+      });
+      if (req.query.onlySubscribed === '1' || req.query.onlySubscribed === 'true') {
+        for (let i = data.length - 1; i >= 0; i--) {
+          if (!data[i].scoutSubscribed) data.splice(i, 1);
+        }
+      }
+    }
 
     return res.status(200).json({ data, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
@@ -312,7 +330,21 @@ router.get('/users/eligible-scouts', async (req, res) => {
     for (const u of [...scouts, ...teachers]) {
       byId.set(String(u._id), u);
     }
-    return res.status(200).json({ data: Array.from(byId.values()) });
+    const list = Array.from(byId.values());
+    // Attach scoutSubscribed on SCOUT entries so the picker can grey out
+    // unsubscribed scouts. Sports-teacher (COACH) rows pass through
+    // untouched — coaching subscription is separate.
+    try {
+      const { Subscription } = require('../Subscription/subscription.model');
+      const scoutRows = list.filter(u => u.type === 'SCOUT');
+      const subs = await Promise.all(
+        scoutRows.map(u => Subscription.getActiveSubscription(u._id))
+      );
+      scoutRows.forEach((u, i) => {
+        u.scoutSubscribed = !!subs[i] && subs[i].tier === 'PRO';
+      });
+    } catch (_) { /* enrichment is best-effort */ }
+    return res.status(200).json({ data: list });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

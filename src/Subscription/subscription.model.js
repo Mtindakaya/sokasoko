@@ -21,10 +21,10 @@ const GRACE_PERIOD_DAYS = 5;
 // window measured in days from the first eligibility check post-deploy.
 const REFEREE_FREE_GAME_THRESHOLD = 10;
 const REFEREE_WARN_AT_GAMES = 8;
-const REFEREE_GRANDFATHER_DAYS = 15;
+const REFEREE_GRANDFATHER_DAYS = 5;
 
 const PLAN_TYPES = ['MONTHLY', 'QUARTERLY', 'BIANNUAL', 'ANNUAL'];
-const TIERS = ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE', 'MINOR', 'ADULT'];
+const TIERS = ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE', 'MINOR', 'ADULT', 'PRO'];
 const CURRENCIES = ['TZS', 'USD'];
 const PAYMENT_METHODS = [
   'MANUAL', 'SELCOM', 'AZAMPAY', 'MPESA', 'PAYPAL', 'GOOGLE_PAY', 'CARD',
@@ -64,7 +64,16 @@ const PRICES = {
   ACADEMY:     { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   CLUB:        { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   AGENT:       { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
-  SCOUT:       { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
+  // SCOUT: single PRO tier. No free STANDARD — an unsubscribed scout
+  // cannot be selected for official work, cannot evaluate players, and
+  // cannot file reports.
+  SCOUT: {
+    PRO: {
+      MONTHLY:   { TZS: 10000, USD: null },
+      QUARTERLY: { TZS: 25000, USD: null },
+      BIANNUAL:  { TZS: 40000, USD: null },
+    },
+  },
   VENDOR:      { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   FIELD_OWNER: { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   // REFEREE: two age-based tiers. Server auto-picks MINOR vs ADULT from
@@ -122,6 +131,16 @@ const FEATURE_CAPS = {
   REFEREE: {
     MINOR: { matchAssignmentEligible: true },
     ADULT: { matchAssignmentEligible: true },
+  },
+  // SCOUT: PRO tier unlocks three things simultaneously — being pickable
+  // for official scouting work, performing player evaluations, and filing
+  // scout reports. All are gated together (no partial subscription).
+  SCOUT: {
+    PRO: {
+      scoutAssignmentEligible: true,
+      canEvaluatePlayers: true,
+      canSubmitScoutReports: true,
+    },
   },
 };
 
@@ -305,6 +324,20 @@ SubscriptionSchema.statics.getFeatureCaps = function (userType, tier) {
   return FEATURE_CAPS[userType]?.[tier] || null;
 };
 
+// SCOUT eligibility: strict subscription gate — no free trial. Returns
+// { eligible, subscribed, subscription }. Used to gate assignment,
+// evaluation, and report submission for scouts.
+SubscriptionSchema.statics.getScoutEligibility = async function (userId) {
+  const sub = await this.getActiveSubscription(userId);
+  const subscribed = !!sub && sub.tier === 'PRO';
+  return {
+    eligible: subscribed,
+    subscribed,
+    reason: subscribed ? 'SUBSCRIBED' : 'SUBSCRIPTION_REQUIRED',
+    subscription: sub || null,
+  };
+};
+
 // Count matches the referee has officiated (as head ref OR either
 // assistant) that reached COMPLETED status.
 SubscriptionSchema.statics.getRefereeGameCount = async function (userId) {
@@ -337,7 +370,7 @@ SubscriptionSchema.statics.getRefereeAgeBracket = function (dob) {
 //     grandfatherEndsAt, threshold, warnAt }
 // The one side effect: if the referee is at ≥threshold with no
 // subscription and no grandfather stamp, this method sets
-// user.refereeGrandfatherUntil = now + 15 days on their User doc so the
+// user.refereeGrandfatherUntil = now + REFEREE_GRANDFATHER_DAYS on their User doc so the
 // next check honours the grace window.
 SubscriptionSchema.statics.getRefereeEligibility = async function (userId) {
   const User = mongoose.model('User');
