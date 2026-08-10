@@ -125,12 +125,12 @@ router.post(BASE, async (req, res) => {
       return res.status(400).json({ error: 'title, organizer, startDate, location and gender are required' });
     }
 
-    // Tier gate for COACH + ACADEMY organizers. For ACADEMY we also
-    // enforce the team-based cap when trialFor is Academies or Both.
+    // Tier gate for COACH / ACADEMY / CLUB organizers. Team-based trial
+    // cap (Academies or Both) also applies to ACADEMY + CLUB.
     try {
       const org = await User.findById(organizer).select('type').lean();
       const orgType = org?.type;
-      if (orgType === 'COACH' || orgType === 'ACADEMY') {
+      if (['COACH', 'ACADEMY', 'CLUB'].includes(orgType)) {
         const tier = await Subscription.getEffectiveTier(organizer, orgType);
         const caps = FEATURE_CAPS[orgType]?.[tier] || {};
         if (caps.canPostTrials !== true && caps.canCreateTrials !== true) {
@@ -140,14 +140,13 @@ router.post(BASE, async (req, res) => {
             tier,
           });
         }
-        // Team-based cap only bites when this trial is for academies.
         const teamBased = req.body.trialFor === 'Academies' || req.body.trialFor === 'Both';
-        if (teamBased && orgType === 'ACADEMY') {
+        if (teamBased && (orgType === 'ACADEMY' || orgType === 'CLUB')) {
           const capTeams = caps.maxTeamBasedTrialTeams;
           if (capTeams != null && (req.body.maxParticipants || 0) > capTeams) {
             return res.status(403).json({
               error: `Kifurushi cha ${tier} kinaruhusu timu hadi ${capTeams} tu kwenye trial ya team-based. Boresha hadi Platinum.`,
-              reason: 'ACADEMY_TRIAL_TEAM_LIMIT',
+              reason: `${orgType}_TRIAL_TEAM_LIMIT`,
               tier,
               maxTeamBasedTrialTeams: capTeams,
             });

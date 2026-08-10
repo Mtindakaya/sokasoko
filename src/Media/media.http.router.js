@@ -46,16 +46,17 @@ async function refuseOrphanedPlayerUpload(req, res, next) {
   }
 }
 
-// ACADEMY monthly post cap. Media created by an ACADEMY user counts as
-// one home-feed post; the tier decides how many are allowed each month.
+// ACADEMY / CLUB monthly post cap. Media created by a metered user type
+// counts as one home-feed post; the tier decides how many are allowed.
+const METERED_POST_TYPES = ['ACADEMY', 'CLUB'];
 async function meterAcademyPostCap(req, res, next) {
   try {
     const creatorId = req.body.createdBy;
     if (!creatorId) return next();
     const u = await User.findById(creatorId).select('type').lean();
-    if (u?.type !== 'ACADEMY') return next();
+    if (!u || !METERED_POST_TYPES.includes(u.type)) return next();
     const check = await SubscriptionUsage.consume({
-      user: creatorId, userType: 'ACADEMY', feature: 'homeFeedPosts',
+      user: creatorId, userType: u.type, feature: 'homeFeedPosts',
     });
     if (!check.allowed) {
       return res.status(429).json({

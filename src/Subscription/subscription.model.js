@@ -75,6 +75,26 @@ const PRICES = {
       BIANNUAL:  { TZS: 200000, USD: null },
     },
   },
+  // CLUB: three tiers. Unlike PLAYER/COACH/ACADEMY, CLUB Standard is
+  // PAID from day 1 (professional org). 30-day auto-Gold trial still
+  // applies for onboarding — after that, no tier is free.
+  CLUB: {
+    STANDARD: {
+      MONTHLY:   { TZS: 20000,  USD: null },
+      QUARTERLY: { TZS: 50000,  USD: null },
+      BIANNUAL:  { TZS: 100000, USD: null },
+    },
+    GOLD: {
+      MONTHLY:   { TZS: 50000,  USD: null },
+      QUARTERLY: { TZS: 120000, USD: null },
+      BIANNUAL:  { TZS: 200000, USD: null },
+    },
+    PLATINUM: {
+      MONTHLY:   { TZS: 100000, USD: null },
+      QUARTERLY: { TZS: 250000, USD: null },
+      BIANNUAL:  { TZS: 500000, USD: null },
+    },
+  },
   // Other eligible types: pricing not yet locked. STANDARD free floor only.
   COACH: {
     STANDARD: {
@@ -243,6 +263,73 @@ const FEATURE_CAPS = {
       reachScope: 'NATIONAL',
     },
   },
+  // CLUB: mirrors ACADEMY caps for the initial launch. Deltas will be
+  // introduced as CLUB-specific features (transfer market, official
+  // league standings, etc.) are defined.
+  CLUB: {
+    STANDARD: {
+      ai: 30,
+      reportsGeneratedPerMonth: 0,
+      playerReportQueriesPerMonth: 0,
+      homeFeedPostsPerMonth: 5,
+      canPostTrials: false,
+      canRequestScouting: false,
+      canCreateTournaments: false,
+      canAddScoutsToOwnMatches: false,
+      canPerformOfficialScouting: false,
+      maxTournamentTeams: 0,
+      maxTeamBasedTrialTeams: 0,
+      maxAgeLevels: 1,
+      mixedGender: false,
+      docVettingIncluded: false,
+      advancedAnalytics: false,
+      monthlyClubReport: false,
+      featuredPlacement: false,
+      reachScope: 'REGIONAL',
+    },
+    GOLD: {
+      ai: 200,
+      reportsGeneratedPerMonth: 10,
+      playerReportQueriesPerMonth: 20,
+      homeFeedPostsPerMonth: 25,
+      canPostTrials: true,
+      canRequestScouting: true,
+      canCreateTournaments: true,
+      canAddScoutsToOwnMatches: true,
+      canPerformOfficialScouting: false,
+      maxTournamentTeams: 8,
+      maxTeamBasedTrialTeams: 8,
+      maxAgeLevels: 3,
+      mixedGender: true,
+      docVettingIncluded: false,
+      advancedAnalytics: false,
+      monthlyClubReport: false,
+      featuredPlacement: false,
+      reachScope: 'REGIONAL',
+    },
+    PLATINUM: {
+      ai: null,
+      aiFairUsePerHour: 30,
+      aiFairUsePerDay: 300,
+      reportsGeneratedPerMonth: null,
+      playerReportQueriesPerMonth: null,
+      homeFeedPostsPerMonth: null,
+      canPostTrials: true,
+      canRequestScouting: true,
+      canCreateTournaments: true,
+      canAddScoutsToOwnMatches: true,
+      canPerformOfficialScouting: false,
+      maxTournamentTeams: null,
+      maxTeamBasedTrialTeams: null,
+      maxAgeLevels: null,
+      mixedGender: true,
+      docVettingIncluded: true,
+      advancedAnalytics: true,
+      monthlyClubReport: true,
+      featuredPlacement: true,
+      reachScope: 'NATIONAL',
+    },
+  },
   // COACH: three tiers with meaningful spread. Standard = free onboarding
   // (also acts as a 30-day auto-Gold trial from account creation).
   // Gold = paying coach — can post trials/tournaments, run player reports,
@@ -314,6 +401,7 @@ const FEATURE_CAPS = {
 // roster and evaluate the platform before the paywall kicks in.
 const COACH_TRIAL_DAYS = 30;
 const ACADEMY_TRIAL_DAYS = 30;
+const CLUB_TRIAL_DAYS = 30;
 
 // Free promotion video slots per month per user type (legacy VENDOR feature).
 const FREE_PROMO_SLOTS = {
@@ -490,14 +578,17 @@ SubscriptionSchema.statics.getEffectiveTier = async function (userId, userType) 
   if (!SUBSCRIPTION_ELIGIBLE_TYPES.includes(userType)) return 'FREE';
   const sub = await this.getActiveSubscription(userId);
   if (sub) return sub.tier;
-  // COACH / ACADEMY auto-Gold onboarding trial.
-  if (userType === 'COACH' || userType === 'ACADEMY') {
+  // COACH / ACADEMY / CLUB auto-Gold onboarding trial.
+  if (['COACH', 'ACADEMY', 'CLUB'].includes(userType)) {
     try {
       const User = mongoose.model('User');
       const u = await User.findById(userId).select('createdAt').lean();
       if (u && u.createdAt) {
         const trialDays = userType === 'ACADEMY'
-          ? ACADEMY_TRIAL_DAYS : COACH_TRIAL_DAYS;
+          ? ACADEMY_TRIAL_DAYS
+          : userType === 'CLUB'
+            ? CLUB_TRIAL_DAYS
+            : COACH_TRIAL_DAYS;
         const ageDays = (Date.now() - new Date(u.createdAt).getTime())
           / (24 * 60 * 60 * 1000);
         if (ageDays < trialDays) return 'GOLD';
@@ -523,6 +614,32 @@ SubscriptionSchema.statics.canPerformOfficialScouting = async function (userId) 
     return tier === 'GOLD' || tier === 'PLATINUM';
   }
   return false;
+};
+
+// Club eligibility snapshot — mirrors the academy helper.
+SubscriptionSchema.statics.getClubEligibility = async function (userId) {
+  const User = mongoose.model('User');
+  const [user, sub, tier] = await Promise.all([
+    User.findById(userId).select('createdAt').lean(),
+    this.getActiveSubscription(userId),
+    this.getEffectiveTier(userId, 'CLUB'),
+  ]);
+  const subscribed = !!sub && ['STANDARD', 'GOLD', 'PLATINUM'].includes(sub.tier);
+  let trialActive = false;
+  let trialEndsAt = null;
+  if (!subscribed && user?.createdAt) {
+    trialEndsAt = new Date(new Date(user.createdAt).getTime()
+      + CLUB_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    trialActive = trialEndsAt > new Date();
+  }
+  return {
+    tier,
+    subscribed,
+    subscription: sub || null,
+    trialActive,
+    trialEndsAt,
+    trialDays: CLUB_TRIAL_DAYS,
+  };
 };
 
 // Academy eligibility snapshot — mirrors the coach helper.
@@ -676,4 +793,5 @@ module.exports = {
   REFEREE_WARN_AT_GAMES,
   COACH_TRIAL_DAYS,
   ACADEMY_TRIAL_DAYS,
+  CLUB_TRIAL_DAYS,
 };

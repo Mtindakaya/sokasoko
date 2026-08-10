@@ -60,7 +60,7 @@ router.post(BASE, async (req, res) => {
     try {
       const org = await User.findById(organizer).select('type').lean();
       const orgType = org?.type;
-      if (orgType === 'COACH' || orgType === 'ACADEMY') {
+      if (['COACH', 'ACADEMY', 'CLUB'].includes(orgType)) {
         const tier = await Subscription.getEffectiveTier(organizer, orgType);
         const caps = FEATURE_CAPS[orgType]?.[tier] || {};
         if (caps.canCreateTournaments !== true) {

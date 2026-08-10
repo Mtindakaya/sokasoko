@@ -235,7 +235,7 @@ router.post(BASE, async (req, res) => {
       try {
         const scheduler = await User.findById(scheduledBy).select('type').lean();
         const schedType = scheduler?.type;
-        if (schedType === 'COACH' || schedType === 'ACADEMY') {
+        if (['COACH', 'ACADEMY', 'CLUB'].includes(schedType)) {
           const { FEATURE_CAPS } = require('../Subscription/subscription.model');
           const tier = await Subscription.getEffectiveTier(scheduledBy, schedType);
           const caps = FEATURE_CAPS[schedType]?.[tier] || {};
@@ -517,17 +517,18 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
     }
     if (!requester) return res.status(400).json({ error: 'requester not found' });
 
-    // ACADEMY tier gate — Standard cannot request scouts. (PLAYER caller
-    // is metered by evaluationRequests below; team-owner ACADEMY blocked here.)
-    if (requester.type === 'ACADEMY') {
+    // ACADEMY / CLUB tier gate — Standard cannot request scouts. (PLAYER
+    // caller is metered by evaluationRequests below.)
+    if (requester.type === 'ACADEMY' || requester.type === 'CLUB') {
       const { FEATURE_CAPS } = require('../Subscription/subscription.model');
-      const acadTier = await Subscription.getEffectiveTier(requestedBy, 'ACADEMY');
-      const acadCaps = FEATURE_CAPS.ACADEMY?.[acadTier] || {};
-      if (acadCaps.canRequestScouting !== true) {
+      const orgType = requester.type;
+      const rTier = await Subscription.getEffectiveTier(requestedBy, orgType);
+      const rCaps = FEATURE_CAPS[orgType]?.[rTier] || {};
+      if (rCaps.canRequestScouting !== true) {
         return res.status(403).json({
-          error: `Kifurushi cha ${acadTier} hakiruhusu kuomba scout. Boresha hadi Gold.`,
-          reason: 'ACADEMY_SCOUT_REQUEST_BLOCKED',
-          tier: acadTier,
+          error: `Kifurushi cha ${rTier} hakiruhusu kuomba scout. Boresha hadi Gold.`,
+          reason: `${orgType}_SCOUT_REQUEST_BLOCKED`,
+          tier: rTier,
         });
       }
     }

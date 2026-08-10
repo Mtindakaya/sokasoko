@@ -60,7 +60,7 @@ router.post(BASE, async (req, res) => {
     // Standard  : cannot generate any reports.
     // Gold      : PLAYER reports only (10/month cap on generation).
     // Platinum  : PLAYER + TEAM + MARKET reports, unlimited.
-    if ((user.type === 'COACH' || user.type === 'ACADEMY') && !isSelfReport) {
+    if (['COACH', 'ACADEMY', 'CLUB'].includes(user.type) && !isSelfReport) {
       const utype = user.type;
       const tier = await Subscription.getEffectiveTier(requestedBy, utype);
       const caps = FEATURE_CAPS[utype]?.[tier] || {};
@@ -69,15 +69,13 @@ router.post(BASE, async (req, res) => {
         TEAM:   'canGenerateTeamReport',
         MARKET: 'canGenerateMarketReport',
       }[reportType];
-      // ACADEMY caps intentionally don't define canGenerate* keys — they
-      // reuse the same {PLAYER/TEAM/MARKET on Platinum, PLAYER on Gold}
-      // policy via a shared inference below. If a coach-only key is set,
-      // honour it; otherwise infer from reportsGeneratedPerMonth being > 0
-      // (Gold) plus tier === 'PLATINUM' (unlocks TEAM/MARKET).
+      // ACADEMY / CLUB caps intentionally don't define canGenerate* keys —
+      // they reuse the same {PLAYER on Gold, PLAYER+TEAM+MARKET on Platinum}
+      // policy via a shared inference below.
       let allowed = false;
       if (typeKey && caps[typeKey] === true) {
         allowed = true;
-      } else if (utype === 'ACADEMY') {
+      } else if (utype === 'ACADEMY' || utype === 'CLUB') {
         if (reportType === 'PLAYER') {
           allowed = (caps.reportsGeneratedPerMonth == null || caps.reportsGeneratedPerMonth > 0);
         } else if (reportType === 'TEAM' || reportType === 'MARKET') {

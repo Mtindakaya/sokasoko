@@ -81,6 +81,11 @@ router.get(`${BASE}/me`, async (req, res) => {
       academyStatus = await Subscription.getAcademyEligibility(userId);
     }
 
+    let clubStatus = null;
+    if (userType === 'CLUB') {
+      clubStatus = await Subscription.getClubEligibility(userId);
+    }
+
     return res.status(200).json({
       tier,
       usage: snapshot,
@@ -89,6 +94,7 @@ router.get(`${BASE}/me`, async (req, res) => {
       scoutStatus,
       coachStatus,
       academyStatus,
+      clubStatus,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
