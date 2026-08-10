@@ -32,6 +32,66 @@ async function orphanedPlayerBlock(userId) {
 }
 
 // GET /v1/matches/scouting/:userId — matches where user is official or temp scout (NOTE: before /:id)
+// GET /v1/matches/refereeing/:userId — every COMPLETED match this user has
+// officiated as head referee OR either assistant. Powers the referee's My
+// CV screen. Ordered newest first.
+router.get(`${BASE}/refereeing/:userId`, async (req, res) => {
+  try {
+    const uid = req.params.userId;
+    const matches = await Match.find({
+      status: 'COMPLETED',
+      $or: [
+        { referee: uid },
+        { assistantReferee1: uid },
+        { assistantReferee2: uid },
+      ],
+    })
+      .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('venue', 'name region district ward')
+      .populate('tournament', 'name type')
+      .select('homeTeam awayTeam venue tournament scheduledDate homeScore awayScore matchId referee assistantReferee1 assistantReferee2 status')
+      .sort({ scheduledDate: -1 })
+      .lean();
+    // Tag the caller's role on each row so the UI can distinguish
+    // 'Referee' vs 'Assistant Referee' without extra joins client-side.
+    matches.forEach((m) => {
+      if (String(m.referee) === uid) m.myRole = 'REFEREE';
+      else if (String(m.assistantReferee1) === uid) m.myRole = 'ASSISTANT_1';
+      else if (String(m.assistantReferee2) === uid) m.myRole = 'ASSISTANT_2';
+    });
+
+    // Attach per-match rating aggregate (avg stars + count) in one round-trip.
+    if (matches.length) {
+      try {
+        const RefereeRating = require('../RefereeRating/referee_rating.model');
+        const matchIds = matches.map(m => m._id);
+        const agg = await RefereeRating.aggregate([
+          { $match: { referee: new (require('mongoose')).Types.ObjectId(uid),
+                      match: { $in: matchIds } } },
+          { $group: { _id: '$match',
+                      avgStars: { $avg: '$stars' },
+                      count: { $sum: 1 } } },
+        ]);
+        const byMatch = {};
+        for (const r of agg) {
+          byMatch[String(r._id)] = {
+            averageRating: Math.round(r.avgStars * 10) / 10,
+            gamesRated: r.count,
+          };
+        }
+        matches.forEach((m) => {
+          m.rating = byMatch[String(m._id)] || null;
+        });
+      } catch (e) { /* enrichment best-effort */ }
+    }
+
+    return res.status(200).json({ data: matches });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get(`${BASE}/scouting/:userId`, async (req, res) => {
   try {
     const matches = await Match.find({
