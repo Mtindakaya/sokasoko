@@ -13,7 +13,9 @@ const RefereeRatingSchema = new Schema(
   { timestamps: true }
 );
 
-// One rating per coach per match
-RefereeRatingSchema.index({ match: 1, ratedBy: 1 }, { unique: true });
+// One rating per (match, coach, officiated referee). A coach can rate all
+// three officials (head ref + 2 assistants) on a single match, but only
+// once per official.
+RefereeRatingSchema.index({ match: 1, ratedBy: 1, referee: 1 }, { unique: true });
 
 module.exports = mongoose.model('RefereeRating', RefereeRatingSchema);

@@ -33,16 +33,27 @@ router.post(`${BASE}/seed`, async (req, res) => {
 });
 
 // GET /v1/referee-ratings/check?matchId=&ratedBy=
+// GET /v1/referee-ratings/check?matchId=&ratedBy=[&referee=]
+// Returns { ratings: [...] } — every rating this user has already submitted
+// on this match, one per officiated referee. Optional `referee` filter
+// narrows to a single official (preserves the older single-target semantics).
 router.get(`${BASE}/check`, async (req, res) => {
   try {
-    const { matchId, ratedBy } = req.query;
+    const { matchId, ratedBy, referee } = req.query;
     if (!matchId || !ratedBy) {
       return res.status(400).json({ error: 'matchId and ratedBy are required' });
     }
-    const existing = await RefereeRating.findOne({ match: matchId, ratedBy })
-      .select('_id stars comment createdAt')
+    const filter = { match: matchId, ratedBy };
+    if (referee) filter.referee = referee;
+    const rows = await RefereeRating.find(filter)
+      .select('_id referee stars comment createdAt')
       .lean();
-    return res.json({ exists: !!existing, rating: existing || null });
+    // Back-compat: keep the singular `rating` for callers that pass `referee`.
+    return res.json({
+      ratings: rows,
+      rating: referee ? (rows[0] || null) : null,
+      exists: rows.length > 0,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -117,17 +128,34 @@ router.post(BASE, async (req, res) => {
     if (match.status !== 'COMPLETED') {
       return res.status(400).json({ error: 'Can only rate referee for completed matches' });
     }
+    // Eligibility: the caller must be either a registered coach on the
+    // match OR the team-owner user id (homeTeam / awayTeam). Team owners
+    // cover the common case where a match never had its homeCoach /
+    // awayCoach populated but a coach-role user still wants to rate.
     const isHomeCoach = match.homeCoach?.toString() === ratedBy;
     const isAwayCoach = match.awayCoach?.toString() === ratedBy;
-    if (!isHomeCoach && !isAwayCoach) {
-      return res.status(403).json({ error: 'Only the match coaches can rate the referee' });
+    const isHomeTeam  = match.homeTeam?.toString() === ratedBy;
+    const isAwayTeam  = match.awayTeam?.toString() === ratedBy;
+    if (!isHomeCoach && !isAwayCoach && !isHomeTeam && !isAwayTeam) {
+      return res.status(403).json({ error: 'Only the match coaches or team owners can rate the referee crew' });
+    }
+
+    // The refereeId must be one of the three officiating slots on the match —
+    // prevents a coach from rating an unrelated user.
+    const officiatingSlots = [
+      match.referee?.toString(),
+      match.assistantReferee1?.toString(),
+      match.assistantReferee2?.toString(),
+    ].filter(Boolean);
+    if (!officiatingSlots.includes(refereeId)) {
+      return res.status(400).json({ error: 'refereeId was not officiating this match' });
     }
 
     const rating = await RefereeRating.create({ match: matchId, referee: refereeId, ratedBy, stars, comment });
     return res.status(201).json({ data: rating });
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(409).json({ error: 'You have already rated the referee for this match' });
+      return res.status(409).json({ error: 'You have already rated this official for this match' });
     }
     return res.status(500).json({ error: err.message });
   }
