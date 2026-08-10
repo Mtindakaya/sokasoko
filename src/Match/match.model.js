@@ -229,7 +229,7 @@ MatchSchema.post('save', async function () {
         body = `Umeongoza mechi ${count}. Umebaki na mechi ${left} kabla ya kudaiwa uandikishaji ili uendelee kupewa mechi.`;
       } else if (count === REFEREE_FREE_GAME_THRESHOLD) {
         title = 'Uandikishaji unahitajika';
-        body = `Umeongoza mechi ${count}. Jisajili sasa ili uendelee kupewa mechi. Una siku 5 za muda wa neema.`;
+        body = `Umeongoza mechi ${count}. Jisajili sasa ili uendelee kupewa mechi.`;
       }
       if (title) {
         try {

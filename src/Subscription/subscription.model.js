@@ -17,11 +17,8 @@ const GRACE_PERIOD_DAYS = 5;
 // REFEREE-specific thresholds. Referees officiate free until they hit
 // the game count; then a subscription is required. Warning fires at
 // REFEREE_WARN_AT_GAMES so they have a chance to subscribe before block.
-// Existing refs already past the threshold get a one-time grandfather
-// window measured in days from the first eligibility check post-deploy.
 const REFEREE_FREE_GAME_THRESHOLD = 10;
 const REFEREE_WARN_AT_GAMES = 8;
-const REFEREE_GRANDFATHER_DAYS = 5;
 
 const PLAN_TYPES = ['MONTHLY', 'QUARTERLY', 'BIANNUAL', 'ANNUAL'];
 const TIERS = ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE', 'MINOR', 'ADULT', 'PRO'];
@@ -366,20 +363,12 @@ SubscriptionSchema.statics.getRefereeAgeBracket = function (dob) {
 };
 
 // Full eligibility snapshot for a referee. Returns:
-//   { eligible, reason, gamesOfficiated, subscribed, tier,
-//     grandfatherEndsAt, threshold, warnAt }
-// The one side effect: if the referee is at ≥threshold with no
-// subscription and no grandfather stamp, this method sets
-// user.refereeGrandfatherUntil = now + REFEREE_GRANDFATHER_DAYS on their User doc so the
-// next check honours the grace window.
+//   { eligible, reason, gamesOfficiated, subscribed, tier, threshold, warnAt }
 SubscriptionSchema.statics.getRefereeEligibility = async function (userId) {
-  const User = mongoose.model('User');
-  const [user, sub, games] = await Promise.all([
-    User.findById(userId).select('dob refereeGrandfatherUntil type').lean(),
+  const [sub, games] = await Promise.all([
     this.getActiveSubscription(userId),
     this.getRefereeGameCount(userId),
   ]);
-  const now = new Date();
   const subscribed = !!sub && ['MINOR', 'ADULT'].includes(sub.tier);
   const tier = subscribed ? sub.tier : null;
 
@@ -387,41 +376,21 @@ SubscriptionSchema.statics.getRefereeEligibility = async function (userId) {
     return {
       eligible: true, reason: 'SUBSCRIBED',
       gamesOfficiated: games, subscribed: true, tier,
-      grandfatherEndsAt: null,
       threshold: REFEREE_FREE_GAME_THRESHOLD,
       warnAt: REFEREE_WARN_AT_GAMES,
     };
   }
-
   if (games < REFEREE_FREE_GAME_THRESHOLD) {
     return {
       eligible: true, reason: 'FREE_TRIAL',
       gamesOfficiated: games, subscribed: false, tier: null,
-      grandfatherEndsAt: null,
       threshold: REFEREE_FREE_GAME_THRESHOLD,
       warnAt: REFEREE_WARN_AT_GAMES,
     };
   }
-
-  // At threshold with no subscription — apply / honour grandfather.
-  let grandfatherEndsAt = user?.refereeGrandfatherUntil
-    ? new Date(user.refereeGrandfatherUntil) : null;
-  if (!grandfatherEndsAt) {
-    grandfatherEndsAt = new Date(
-      now.getTime() + REFEREE_GRANDFATHER_DAYS * 24 * 60 * 60 * 1000);
-    try {
-      await User.updateOne({ _id: userId },
-        { $set: { refereeGrandfatherUntil: grandfatherEndsAt } });
-    } catch (_) { /* non-critical */ }
-  }
-  const inGrace = grandfatherEndsAt > now;
   return {
-    eligible: inGrace,
-    reason: inGrace ? 'GRANDFATHER' : 'SUBSCRIPTION_REQUIRED',
-    gamesOfficiated: games,
-    subscribed: false,
-    tier: null,
-    grandfatherEndsAt,
+    eligible: false, reason: 'SUBSCRIPTION_REQUIRED',
+    gamesOfficiated: games, subscribed: false, tier: null,
     threshold: REFEREE_FREE_GAME_THRESHOLD,
     warnAt: REFEREE_WARN_AT_GAMES,
   };
@@ -444,5 +413,4 @@ module.exports = {
   GRACE_PERIOD_DAYS,
   REFEREE_FREE_GAME_THRESHOLD,
   REFEREE_WARN_AT_GAMES,
-  REFEREE_GRANDFATHER_DAYS,
 };

@@ -171,11 +171,6 @@ const UserSchema = new Schema(
     // Set to the previous guardian's id on removal so the new guardian's
     // acceptance can notify them: "minor X is now with guardian Y".
     previousGuardian: { type: Schema.Types.ObjectId, ref: 'User', default: null },
-    // REFEREE only. Stamped the first time an existing referee is checked
-    // for eligibility while already past the free-game threshold — grants
-    // them a one-time 15-day grace window to subscribe before their next
-    // assignment gets blocked.
-    refereeGrandfatherUntil: { type: Date, default: null },
     suspend: { type: Boolean, default: false },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },
