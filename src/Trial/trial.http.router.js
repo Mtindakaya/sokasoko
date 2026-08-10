@@ -125,20 +125,33 @@ router.post(BASE, async (req, res) => {
       return res.status(400).json({ error: 'title, organizer, startDate, location and gender are required' });
     }
 
-    // COACH tier gate — only Gold/Platinum can post trials. Other organizer
-    // types (ACADEMY / SCHOOL / CLUB) are not tier-gated here (they'll be
-    // covered when their own tier catalogs are defined).
+    // Tier gate for COACH + ACADEMY organizers. For ACADEMY we also
+    // enforce the team-based cap when trialFor is Academies or Both.
     try {
       const org = await User.findById(organizer).select('type').lean();
-      if (org?.type === 'COACH') {
-        const tier = await Subscription.getEffectiveTier(organizer, 'COACH');
-        const caps = FEATURE_CAPS.COACH?.[tier] || {};
-        if (caps.canCreateTrials !== true) {
+      const orgType = org?.type;
+      if (orgType === 'COACH' || orgType === 'ACADEMY') {
+        const tier = await Subscription.getEffectiveTier(organizer, orgType);
+        const caps = FEATURE_CAPS[orgType]?.[tier] || {};
+        if (caps.canPostTrials !== true && caps.canCreateTrials !== true) {
           return res.status(403).json({
             error: `Kifurushi cha ${tier} hakiruhusu kuchapisha trials. Boresha hadi Gold.`,
-            reason: 'COACH_TRIAL_CREATION_BLOCKED',
+            reason: `${orgType}_TRIAL_CREATION_BLOCKED`,
             tier,
           });
+        }
+        // Team-based cap only bites when this trial is for academies.
+        const teamBased = req.body.trialFor === 'Academies' || req.body.trialFor === 'Both';
+        if (teamBased && orgType === 'ACADEMY') {
+          const capTeams = caps.maxTeamBasedTrialTeams;
+          if (capTeams != null && (req.body.maxParticipants || 0) > capTeams) {
+            return res.status(403).json({
+              error: `Kifurushi cha ${tier} kinaruhusu timu hadi ${capTeams} tu kwenye trial ya team-based. Boresha hadi Platinum.`,
+              reason: 'ACADEMY_TRIAL_TEAM_LIMIT',
+              tier,
+              maxTeamBasedTrialTeams: capTeams,
+            });
+          }
         }
       }
     } catch (_) { /* fall through — don't block on org lookup failures */ }

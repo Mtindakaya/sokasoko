@@ -230,18 +230,19 @@ router.post(BASE, async (req, res) => {
       ? scoutIds.map(id => ({ scout: id, status: 'PENDING' }))
       : scout ? [{ scout, status: 'PENDING' }] : [];
 
-    // COACH gate on adding scouts to own matches — Standard blocked.
+    // COACH / ACADEMY gate on adding scouts to own matches — Standard blocked.
     if (normalizedScouts.length && scheduledBy) {
       try {
         const scheduler = await User.findById(scheduledBy).select('type').lean();
-        if (scheduler?.type === 'COACH') {
+        const schedType = scheduler?.type;
+        if (schedType === 'COACH' || schedType === 'ACADEMY') {
           const { FEATURE_CAPS } = require('../Subscription/subscription.model');
-          const tier = await Subscription.getEffectiveTier(scheduledBy, 'COACH');
-          const caps = FEATURE_CAPS.COACH?.[tier] || {};
+          const tier = await Subscription.getEffectiveTier(scheduledBy, schedType);
+          const caps = FEATURE_CAPS[schedType]?.[tier] || {};
           if (caps.canAddScoutsToOwnMatches !== true) {
             return res.status(403).json({
               error: `Kifurushi cha ${tier} hakiruhusu kuongeza scout kwenye mechi yako. Boresha hadi Gold.`,
-              reason: 'COACH_ADD_SCOUT_BLOCKED',
+              reason: `${schedType}_ADD_SCOUT_BLOCKED`,
               tier,
             });
           }
@@ -515,6 +516,21 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
       });
     }
     if (!requester) return res.status(400).json({ error: 'requester not found' });
+
+    // ACADEMY tier gate — Standard cannot request scouts. (PLAYER caller
+    // is metered by evaluationRequests below; team-owner ACADEMY blocked here.)
+    if (requester.type === 'ACADEMY') {
+      const { FEATURE_CAPS } = require('../Subscription/subscription.model');
+      const acadTier = await Subscription.getEffectiveTier(requestedBy, 'ACADEMY');
+      const acadCaps = FEATURE_CAPS.ACADEMY?.[acadTier] || {};
+      if (acadCaps.canRequestScouting !== true) {
+        return res.status(403).json({
+          error: `Kifurushi cha ${acadTier} hakiruhusu kuomba scout. Boresha hadi Gold.`,
+          reason: 'ACADEMY_SCOUT_REQUEST_BLOCKED',
+          tier: acadTier,
+        });
+      }
+    }
     if (['COMPLETED', 'CANCELLED'].includes(match.status)) {
       return res.status(400).json({ error: 'Match is not scheduled' });
     }

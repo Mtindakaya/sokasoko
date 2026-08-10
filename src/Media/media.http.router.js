@@ -22,6 +22,8 @@ const Media = require('./media.model');
 const Comment = require('./comment.model');
 const User = require('../User/user.model');
 const ChatMessage = require('../Chat/chat.model');
+const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
+const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 
 // Reject uploads for orphaned minors — same restriction as chat/matches.
 // The check runs against `player` (the media's subject) and, as a
@@ -36,6 +38,31 @@ async function refuseOrphanedPlayerUpload(req, res, next) {
     if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
       return res.status(403).json({
         error: 'Huwezi kupakia video bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · Uploads are restricted for minors without an active guardian. Open Mlezi Wangu to attach a guardian.',
+      });
+    }
+    return next();
+  } catch (e) {
+    return next();
+  }
+}
+
+// ACADEMY monthly post cap. Media created by an ACADEMY user counts as
+// one home-feed post; the tier decides how many are allowed each month.
+async function meterAcademyPostCap(req, res, next) {
+  try {
+    const creatorId = req.body.createdBy;
+    if (!creatorId) return next();
+    const u = await User.findById(creatorId).select('type').lean();
+    if (u?.type !== 'ACADEMY') return next();
+    const check = await SubscriptionUsage.consume({
+      user: creatorId, userType: 'ACADEMY', feature: 'homeFeedPosts',
+    });
+    if (!check.allowed) {
+      return res.status(429).json({
+        error: `Umefikia kikomo cha ${check.cap} posts kwa mwezi kwa kifurushi cha ${check.tier}. Boresha kifurushi.`,
+        reason: check.reason,
+        cap: check.cap,
+        tier: check.tier,
       });
     }
     return next();
@@ -229,6 +256,7 @@ router.post(
   PATH_LIST,
   uploadFor(),
   refuseOrphanedPlayerUpload,
+  meterAcademyPostCap,
   postFor({
     post: async (body, done) => {
       return Media.post(body, done);

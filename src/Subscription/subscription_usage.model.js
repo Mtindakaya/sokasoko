@@ -12,8 +12,9 @@ const { Schema, model } = mongoose;
 const FEATURE_CAP_FIELDS = {
   ai:                  'ai',
   reports:             'reportsPerMonth',                     // PLAYER: reports received
-  reportsGenerated:    'reportsGeneratedPerMonth',            // COACH: reports produced
-  playerQueries:       'playerReportQueriesPerMonth',         // COACH: player-lookup reports
+  reportsGenerated:    'reportsGeneratedPerMonth',            // COACH/ACADEMY: reports produced
+  playerQueries:       'playerReportQueriesPerMonth',         // COACH/ACADEMY: player-lookup reports
+  homeFeedPosts:       'homeFeedPostsPerMonth',               // ACADEMY: outbound posts
   evaluationsReceived: 'evaluationsReceivedPerMonth',
   evaluationRequests:  'evaluationRequestsInitiatedPerMonth',
 };
@@ -41,6 +42,7 @@ const SubscriptionUsageSchema = new Schema(
     reports:             { type: Number, default: 0 },
     reportsGenerated:    { type: Number, default: 0 },
     playerQueries:       { type: Number, default: 0 },
+    homeFeedPosts:       { type: Number, default: 0 },
     evaluationsReceived: { type: Number, default: 0 },
     evaluationRequests:  { type: Number, default: 0 },
     // Auto-cleanup for short-lived DAY/HOUR docs.

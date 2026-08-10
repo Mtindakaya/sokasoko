@@ -56,28 +56,44 @@ router.post(BASE, async (req, res) => {
       }
     }
 
-    // COACH tier gating.
+    // COACH / ACADEMY tier gating (same rules for both).
     // Standard  : cannot generate any reports.
     // Gold      : PLAYER reports only (10/month cap on generation).
     // Platinum  : PLAYER + TEAM + MARKET reports, unlimited.
-    if (user.type === 'COACH' && !isSelfReport) {
-      const tier = await Subscription.getEffectiveTier(requestedBy, 'COACH');
-      const caps = FEATURE_CAPS.COACH?.[tier] || {};
+    if ((user.type === 'COACH' || user.type === 'ACADEMY') && !isSelfReport) {
+      const utype = user.type;
+      const tier = await Subscription.getEffectiveTier(requestedBy, utype);
+      const caps = FEATURE_CAPS[utype]?.[tier] || {};
       const typeKey = {
         PLAYER: 'canGeneratePlayerReport',
         TEAM:   'canGenerateTeamReport',
         MARKET: 'canGenerateMarketReport',
       }[reportType];
-      if (typeKey && caps[typeKey] !== true) {
+      // ACADEMY caps intentionally don't define canGenerate* keys — they
+      // reuse the same {PLAYER/TEAM/MARKET on Platinum, PLAYER on Gold}
+      // policy via a shared inference below. If a coach-only key is set,
+      // honour it; otherwise infer from reportsGeneratedPerMonth being > 0
+      // (Gold) plus tier === 'PLATINUM' (unlocks TEAM/MARKET).
+      let allowed = false;
+      if (typeKey && caps[typeKey] === true) {
+        allowed = true;
+      } else if (utype === 'ACADEMY') {
+        if (reportType === 'PLAYER') {
+          allowed = (caps.reportsGeneratedPerMonth == null || caps.reportsGeneratedPerMonth > 0);
+        } else if (reportType === 'TEAM' || reportType === 'MARKET') {
+          allowed = tier === 'PLATINUM';
+        }
+      }
+      if (!allowed) {
         return res.status(403).json({
           error: `Kifurushi chako cha ${tier} hakiruhusu ripoti ya ${reportType}. Boresha kifurushi.`,
-          reason: 'COACH_REPORT_TYPE_BLOCKED',
+          reason: `${utype}_REPORT_TYPE_BLOCKED`,
           tier,
         });
       }
-      // Meter monthly generation against the coach's cap.
+      // Meter monthly generation against the tier's cap.
       const check = await SubscriptionUsage.consume({
-        user: requestedBy, userType: 'COACH', feature: 'reportsGenerated',
+        user: requestedBy, userType: utype, feature: 'reportsGenerated',
       });
       if (!check.allowed) {
         return res.status(429).json({
@@ -87,7 +103,7 @@ router.post(BASE, async (req, res) => {
           tier: check.tier,
         });
       }
-      price = 0; // subscribed coaches don't pay per-report on top of tier.
+      price = 0; // subscribed callers don't pay per-report on top of tier.
     }
 
     const reportRequest = await ReportRequest.create({

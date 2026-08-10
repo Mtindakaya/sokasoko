@@ -55,24 +55,25 @@ router.post(BASE, async (req, res) => {
       return res.status(400).json({ error: 'name, type, organizer, startDate and endDate are required' });
     }
 
-    // COACH tier gate — Standard blocked entirely. Gold capped at
-    // caps.maxTournamentTeams (8). Platinum unlimited.
+    // Tier gate for COACH + ACADEMY organizers. Standard blocked entirely.
+    // Gold capped at maxTournamentTeams (8). Platinum unlimited.
     try {
       const org = await User.findById(organizer).select('type').lean();
-      if (org?.type === 'COACH') {
-        const tier = await Subscription.getEffectiveTier(organizer, 'COACH');
-        const caps = FEATURE_CAPS.COACH?.[tier] || {};
+      const orgType = org?.type;
+      if (orgType === 'COACH' || orgType === 'ACADEMY') {
+        const tier = await Subscription.getEffectiveTier(organizer, orgType);
+        const caps = FEATURE_CAPS[orgType]?.[tier] || {};
         if (caps.canCreateTournaments !== true) {
           return res.status(403).json({
             error: `Kifurushi cha ${tier} hakiruhusu kuchapisha mashindano. Boresha hadi Gold.`,
-            reason: 'COACH_TOURNAMENT_CREATION_BLOCKED',
+            reason: `${orgType}_TOURNAMENT_CREATION_BLOCKED`,
             tier,
           });
         }
         if (caps.maxTournamentTeams != null && maxTeams > caps.maxTournamentTeams) {
           return res.status(403).json({
             error: `Kifurushi cha ${tier} kinaruhusu timu hadi ${caps.maxTournamentTeams} tu kwa shindano moja. Boresha hadi Platinum kwa idadi isiyo na kikomo.`,
-            reason: 'COACH_TOURNAMENT_TEAM_LIMIT',
+            reason: `${orgType}_TOURNAMENT_TEAM_LIMIT`,
             tier,
             maxTournamentTeams: caps.maxTournamentTeams,
           });

@@ -18,6 +18,7 @@ const PATH_SCHEMA = '/academys/schema/';
 
 const Academy = require('./academy.model');
 const User = require('../User/user.model');
+const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 
 const router = new Router({
   version: API_VERSION,
@@ -62,6 +63,41 @@ router.post(
 
         const player = await User.findById(playerId).lean();
         if (!player) return done(new Error('Player not found'), null);
+
+        // ACADEMY tier gate — roster composition (age levels + gender).
+        // Standard: 1 age level + 1 gender only.
+        // Gold:     up to 3 age levels + mixed gender.
+        // Platinum: unlimited age levels + mixed gender.
+        try {
+          const acad = addedBy ? await User.findById(addedBy).select('type').lean() : null;
+          if (acad?.type === 'ACADEMY') {
+            const tier = await Subscription.getEffectiveTier(addedBy, 'ACADEMY');
+            const caps = FEATURE_CAPS.ACADEMY?.[tier] || {};
+            const existingRows = await Academy.find({ addedBy })
+              .populate('player', 'gender')
+              .lean();
+            const currentLevels = new Set(
+              existingRows.map(r => r.level).filter(Boolean));
+            const currentGenders = new Set(
+              existingRows.map(r => r.player?.gender).filter(Boolean));
+            const nextLevels = new Set(currentLevels);
+            if (level) nextLevels.add(level);
+            const nextGenders = new Set(currentGenders);
+            if (player.gender) nextGenders.add(player.gender);
+            if (caps.maxAgeLevels != null && nextLevels.size > caps.maxAgeLevels) {
+              return done(new Error(
+                `Kifurushi cha ${tier} kinaruhusu makundi ya umri ${caps.maxAgeLevels} tu. Boresha kifurushi.`
+              ), null);
+            }
+            if (caps.mixedGender === false && nextGenders.size > 1) {
+              return done(new Error(
+                `Kifurushi cha ${tier} kinaruhusu jinsia moja tu kwenye roster. Boresha kifurushi.`
+              ), null);
+            }
+          }
+        } catch (e) {
+          console.log('[ACADEMY POST] tier check error:', e.message);
+        }
 
         // Check for a live enrollment (not a dangling ObjectId from a crashed request)
         if (player.academy) {

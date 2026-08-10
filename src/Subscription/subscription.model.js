@@ -56,6 +56,25 @@ const PRICES = {
       BIANNUAL:  { TZS: 40000, USD: null },
     },
   },
+  // ACADEMY: three tiers, same shape as COACH but scaled up for the
+  // higher-volume org (rosters, trials, tournaments, doc vetting).
+  ACADEMY: {
+    STANDARD: {
+      MONTHLY:   { TZS: 0, USD: 0 },
+      QUARTERLY: { TZS: 0, USD: 0 },
+      BIANNUAL:  { TZS: 0, USD: 0 },
+    },
+    GOLD: {
+      MONTHLY:   { TZS: 20000,  USD: null },
+      QUARTERLY: { TZS: 50000,  USD: null },
+      BIANNUAL:  { TZS: 100000, USD: null },
+    },
+    PLATINUM: {
+      MONTHLY:   { TZS: 50000,  USD: null },
+      QUARTERLY: { TZS: 120000, USD: null },
+      BIANNUAL:  { TZS: 200000, USD: null },
+    },
+  },
   // Other eligible types: pricing not yet locked. STANDARD free floor only.
   COACH: {
     STANDARD: {
@@ -155,6 +174,75 @@ const FEATURE_CAPS = {
       canSubmitScoutReports: true,
     },
   },
+  // ACADEMY: three tiers. Standard restricts roster composition to a
+  // single age level + single gender. Gold opens 3 age levels + mixed
+  // gender + trials/tournaments/scouting. Platinum unlocks everything
+  // (nation-wide reach, featured placement, advanced analytics, monthly
+  // academy report, doc-vetting included).
+  ACADEMY: {
+    STANDARD: {
+      ai: 30,
+      reportsGeneratedPerMonth: 0,
+      playerReportQueriesPerMonth: 0,
+      homeFeedPostsPerMonth: 5,
+      canPostTrials: false,
+      canRequestScouting: false,
+      canCreateTournaments: false,
+      canAddScoutsToOwnMatches: false,
+      canPerformOfficialScouting: false,
+      maxTournamentTeams: 0,
+      maxTeamBasedTrialTeams: 0,
+      maxAgeLevels: 1,
+      mixedGender: false,
+      docVettingIncluded: false,
+      advancedAnalytics: false,
+      monthlyAcademyReport: false,
+      featuredPlacement: false,
+      reachScope: 'REGIONAL',
+    },
+    GOLD: {
+      ai: 200,
+      reportsGeneratedPerMonth: 10,
+      playerReportQueriesPerMonth: 20,
+      homeFeedPostsPerMonth: 25,
+      canPostTrials: true,
+      canRequestScouting: true,
+      canCreateTournaments: true,
+      canAddScoutsToOwnMatches: true,
+      canPerformOfficialScouting: false,
+      maxTournamentTeams: 8,
+      maxTeamBasedTrialTeams: 8,
+      maxAgeLevels: 3,
+      mixedGender: true,
+      docVettingIncluded: false,
+      advancedAnalytics: false,
+      monthlyAcademyReport: false,
+      featuredPlacement: false,
+      reachScope: 'REGIONAL',
+    },
+    PLATINUM: {
+      ai: null,
+      aiFairUsePerHour: 30,
+      aiFairUsePerDay: 300,
+      reportsGeneratedPerMonth: null,
+      playerReportQueriesPerMonth: null,
+      homeFeedPostsPerMonth: null,
+      canPostTrials: true,
+      canRequestScouting: true,
+      canCreateTournaments: true,
+      canAddScoutsToOwnMatches: true,
+      canPerformOfficialScouting: false,
+      maxTournamentTeams: null,
+      maxTeamBasedTrialTeams: null,
+      maxAgeLevels: null,
+      mixedGender: true,
+      docVettingIncluded: true,
+      advancedAnalytics: true,
+      monthlyAcademyReport: true,
+      featuredPlacement: true,
+      reachScope: 'NATIONAL',
+    },
+  },
   // COACH: three tiers with meaningful spread. Standard = free onboarding
   // (also acts as a 30-day auto-Gold trial from account creation).
   // Gold = paying coach — can post trials/tournaments, run player reports,
@@ -221,10 +309,11 @@ const FEATURE_CAPS = {
   },
 };
 
-// COACH onboarding trial: first N days from account creation grant the
-// Standard coach an auto-Gold experience so they can build a roster and
-// evaluate the platform before the paywall kicks in.
+// COACH / ACADEMY onboarding trial: first N days from account creation
+// grant the Standard user an auto-Gold experience so they can build a
+// roster and evaluate the platform before the paywall kicks in.
 const COACH_TRIAL_DAYS = 30;
+const ACADEMY_TRIAL_DAYS = 30;
 
 // Free promotion video slots per month per user type (legacy VENDOR feature).
 const FREE_PROMO_SLOTS = {
@@ -401,15 +490,17 @@ SubscriptionSchema.statics.getEffectiveTier = async function (userId, userType) 
   if (!SUBSCRIPTION_ELIGIBLE_TYPES.includes(userType)) return 'FREE';
   const sub = await this.getActiveSubscription(userId);
   if (sub) return sub.tier;
-  // COACH auto-Gold onboarding trial.
-  if (userType === 'COACH') {
+  // COACH / ACADEMY auto-Gold onboarding trial.
+  if (userType === 'COACH' || userType === 'ACADEMY') {
     try {
       const User = mongoose.model('User');
       const u = await User.findById(userId).select('createdAt').lean();
       if (u && u.createdAt) {
+        const trialDays = userType === 'ACADEMY'
+          ? ACADEMY_TRIAL_DAYS : COACH_TRIAL_DAYS;
         const ageDays = (Date.now() - new Date(u.createdAt).getTime())
           / (24 * 60 * 60 * 1000);
-        if (ageDays < COACH_TRIAL_DAYS) return 'GOLD';
+        if (ageDays < trialDays) return 'GOLD';
       }
     } catch (_) { /* fall through */ }
   }
@@ -432,6 +523,32 @@ SubscriptionSchema.statics.canPerformOfficialScouting = async function (userId) 
     return tier === 'GOLD' || tier === 'PLATINUM';
   }
   return false;
+};
+
+// Academy eligibility snapshot — mirrors the coach helper.
+SubscriptionSchema.statics.getAcademyEligibility = async function (userId) {
+  const User = mongoose.model('User');
+  const [user, sub, tier] = await Promise.all([
+    User.findById(userId).select('createdAt').lean(),
+    this.getActiveSubscription(userId),
+    this.getEffectiveTier(userId, 'ACADEMY'),
+  ]);
+  const subscribed = !!sub && ['GOLD', 'PLATINUM'].includes(sub.tier);
+  let trialActive = false;
+  let trialEndsAt = null;
+  if (!subscribed && user?.createdAt) {
+    trialEndsAt = new Date(new Date(user.createdAt).getTime()
+      + ACADEMY_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    trialActive = trialEndsAt > new Date();
+  }
+  return {
+    tier,
+    subscribed,
+    subscription: sub || null,
+    trialActive,
+    trialEndsAt,
+    trialDays: ACADEMY_TRIAL_DAYS,
+  };
 };
 
 // Coach eligibility snapshot for the mobile subscription screen.
@@ -558,4 +675,5 @@ module.exports = {
   REFEREE_FREE_GAME_THRESHOLD,
   REFEREE_WARN_AT_GAMES,
   COACH_TRIAL_DAYS,
+  ACADEMY_TRIAL_DAYS,
 };
