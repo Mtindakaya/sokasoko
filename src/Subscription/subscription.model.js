@@ -113,8 +113,6 @@ const PRICES = {
       BIANNUAL:  { TZS: 40000, USD: null },
     },
   },
-  ACADEMY:     { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
-  CLUB:        { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   // AGENT: two paid tiers only. Standard exists on the enum as the
   // "locked out" state after trial expires — it grants nothing. Gold
   // is the standard paid tier. Enterprise pricing is null everywhere
