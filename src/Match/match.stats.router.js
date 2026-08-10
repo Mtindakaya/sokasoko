@@ -121,15 +121,26 @@ router.get('/v1/stats/coach/:id', async (req, res) => {
 });
 
 // GET /v1/stats/referee/:id
+// Counts any COMPLETED match where the user served as head referee OR
+// assistantReferee1 OR assistantReferee2. Each match row is tagged with
+// the caller's role so the UI can distinguish (matches the CV endpoint).
 router.get('/v1/stats/referee/:id', async (req, res) => {
   try {
+    const uid = req.params.id;
     const [matches, ratings] = await Promise.all([
-      Match.find({ referee: req.params.id, status: 'COMPLETED' })
+      Match.find({
+        status: 'COMPLETED',
+        $or: [
+          { referee: uid },
+          { assistantReferee1: uid },
+          { assistantReferee2: uid },
+        ],
+      })
         .populate('homeTeam', 'firstName lastName academyName type accountNumber')
         .populate('awayTeam', 'firstName lastName academyName type accountNumber')
         .populate('tournament', 'name')
         .sort({ scheduledDate: -1 }),
-      RefereeRating.find({ referee: req.params.id }).lean(),
+      RefereeRating.find({ referee: uid }).lean(),
     ]);
 
     const gamesRated = ratings.length;
@@ -138,9 +149,13 @@ router.get('/v1/stats/referee/:id', async (req, res) => {
       : null;
     const tier = averageRating !== null ? _computeTier(averageRating) : null;
 
-    return res.json({
-      totals: { matchesRefereed: matches.length, averageRating, tier, gamesRated },
-      matches: matches.map(m => ({
+    let mainRef = 0, asst1 = 0, asst2 = 0;
+    const matchRows = matches.map((m) => {
+      let role = 'REFEREE';
+      if (String(m.referee) === uid) { role = 'REFEREE'; mainRef++; }
+      else if (String(m.assistantReferee1) === uid) { role = 'ASSISTANT_1'; asst1++; }
+      else if (String(m.assistantReferee2) === uid) { role = 'ASSISTANT_2'; asst2++; }
+      return {
         matchId: m._id,
         date: m.scheduledDate,
         homeTeam: m.homeTeam,
@@ -148,7 +163,18 @@ router.get('/v1/stats/referee/:id', async (req, res) => {
         homeScore: m.homeScore,
         awayScore: m.awayScore,
         tournament: m.tournament,
-      }))
+        role,
+      };
+    });
+
+    return res.json({
+      totals: {
+        matchesRefereed: matches.length,
+        asMainRef: mainRef,
+        asAssistant: asst1 + asst2,
+        averageRating, tier, gamesRated,
+      },
+      matches: matchRows,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
