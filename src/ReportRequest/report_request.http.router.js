@@ -4,7 +4,8 @@ const fs = require('fs');
 const { getString } = require('@lykmapipo/env');
 const User = require('../User/user.model');
 const ReportRequest = require('./report_request.model');
-const { Subscription } = require('../Subscription/subscription.model');
+const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
+const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 
 // npm install pdfkit
 const PDFDocument = require('pdfkit');
@@ -53,6 +54,40 @@ router.post(BASE, async (req, res) => {
         const activeSub = await Subscription.getActiveSubscription(requestedBy);
         if (activeSub) price = 0;
       }
+    }
+
+    // COACH tier gating.
+    // Standard  : cannot generate any reports.
+    // Gold      : PLAYER reports only (10/month cap on generation).
+    // Platinum  : PLAYER + TEAM + MARKET reports, unlimited.
+    if (user.type === 'COACH' && !isSelfReport) {
+      const tier = await Subscription.getEffectiveTier(requestedBy, 'COACH');
+      const caps = FEATURE_CAPS.COACH?.[tier] || {};
+      const typeKey = {
+        PLAYER: 'canGeneratePlayerReport',
+        TEAM:   'canGenerateTeamReport',
+        MARKET: 'canGenerateMarketReport',
+      }[reportType];
+      if (typeKey && caps[typeKey] !== true) {
+        return res.status(403).json({
+          error: `Kifurushi chako cha ${tier} hakiruhusu ripoti ya ${reportType}. Boresha kifurushi.`,
+          reason: 'COACH_REPORT_TYPE_BLOCKED',
+          tier,
+        });
+      }
+      // Meter monthly generation against the coach's cap.
+      const check = await SubscriptionUsage.consume({
+        user: requestedBy, userType: 'COACH', feature: 'reportsGenerated',
+      });
+      if (!check.allowed) {
+        return res.status(429).json({
+          error: `Umefikia kikomo cha ${check.cap} ripoti kwa mwezi. Boresha hadi Platinum kwa matumizi bila kikomo.`,
+          reason: check.reason,
+          cap: check.cap,
+          tier: check.tier,
+        });
+      }
+      price = 0; // subscribed coaches don't pay per-report on top of tier.
     }
 
     const reportRequest = await ReportRequest.create({

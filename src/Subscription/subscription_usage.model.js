@@ -11,7 +11,9 @@ const { Schema, model } = mongoose;
 // The value is the cap-field name on FEATURE_CAPS.
 const FEATURE_CAP_FIELDS = {
   ai:                  'ai',
-  reports:             'reportsPerMonth',
+  reports:             'reportsPerMonth',                     // PLAYER: reports received
+  reportsGenerated:    'reportsGeneratedPerMonth',            // COACH: reports produced
+  playerQueries:       'playerReportQueriesPerMonth',         // COACH: player-lookup reports
   evaluationsReceived: 'evaluationsReceivedPerMonth',
   evaluationRequests:  'evaluationRequestsInitiatedPerMonth',
 };
@@ -37,6 +39,8 @@ const SubscriptionUsageSchema = new Schema(
     // Counters — only the field for the metered feature is incremented.
     ai:                  { type: Number, default: 0 },
     reports:             { type: Number, default: 0 },
+    reportsGenerated:    { type: Number, default: 0 },
+    playerQueries:       { type: Number, default: 0 },
     evaluationsReceived: { type: Number, default: 0 },
     evaluationRequests:  { type: Number, default: 0 },
     // Auto-cleanup for short-lived DAY/HOUR docs.

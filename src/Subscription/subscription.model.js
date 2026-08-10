@@ -57,7 +57,23 @@ const PRICES = {
     },
   },
   // Other eligible types: pricing not yet locked. STANDARD free floor only.
-  COACH:       { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
+  COACH: {
+    STANDARD: {
+      MONTHLY:   { TZS: 0, USD: 0 },
+      QUARTERLY: { TZS: 0, USD: 0 },
+      BIANNUAL:  { TZS: 0, USD: 0 },
+    },
+    GOLD: {
+      MONTHLY:   { TZS: 5000,  USD: null },
+      QUARTERLY: { TZS: 10000, USD: null },
+      BIANNUAL:  { TZS: 20000, USD: null },
+    },
+    PLATINUM: {
+      MONTHLY:   { TZS: 10000, USD: null },
+      QUARTERLY: { TZS: 25000, USD: null },
+      BIANNUAL:  { TZS: 40000, USD: null },
+    },
+  },
   ACADEMY:     { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   CLUB:        { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   AGENT:       { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
@@ -139,7 +155,76 @@ const FEATURE_CAPS = {
       canSubmitScoutReports: true,
     },
   },
+  // COACH: three tiers with meaningful spread. Standard = free onboarding
+  // (also acts as a 30-day auto-Gold trial from account creation).
+  // Gold = paying coach — can post trials/tournaments, run player reports,
+  // and their Coach account satisfies the "official scouting" gate.
+  // Platinum = premium — nation-wide reach, featured placement, advanced
+  // analytics, and access to Team + Market shortlist reports.
+  COACH: {
+    STANDARD: {
+      ai: 30,
+      reportsGeneratedPerMonth: 0,
+      playerReportQueriesPerMonth: 0,
+      canPerformOfficialScouting: false,
+      canCreateTrials: false,
+      canCreateTournaments: false,
+      canAddScoutsToOwnMatches: false,
+      canUsePlayerRequests: false,
+      canGeneratePlayerReport: false,
+      canGenerateTeamReport: false,
+      canGenerateMarketReport: false,
+      maxTournamentTeams: 0,
+      maxManagedTeams: 1,
+      featuredPlacement: false,
+      advancedAnalytics: false,
+      reachScope: 'REGIONAL',
+    },
+    GOLD: {
+      ai: 200,
+      reportsGeneratedPerMonth: 10,
+      playerReportQueriesPerMonth: 20,
+      canPerformOfficialScouting: true,
+      canCreateTrials: true,
+      canCreateTournaments: true,
+      canAddScoutsToOwnMatches: true,
+      canUsePlayerRequests: true,
+      canGeneratePlayerReport: true,
+      canGenerateTeamReport: false,
+      canGenerateMarketReport: false,
+      maxTournamentTeams: 8,
+      maxManagedTeams: 1,
+      featuredPlacement: false,
+      advancedAnalytics: false,
+      reachScope: 'REGIONAL',
+    },
+    PLATINUM: {
+      ai: null,
+      aiFairUsePerHour: 30,
+      aiFairUsePerDay: 300,
+      reportsGeneratedPerMonth: null,
+      playerReportQueriesPerMonth: null,
+      canPerformOfficialScouting: true,
+      canCreateTrials: true,
+      canCreateTournaments: true,
+      canAddScoutsToOwnMatches: true,
+      canUsePlayerRequests: true,
+      canGeneratePlayerReport: true,
+      canGenerateTeamReport: true,
+      canGenerateMarketReport: true,
+      maxTournamentTeams: null,
+      maxManagedTeams: null,
+      featuredPlacement: true,
+      advancedAnalytics: true,
+      reachScope: 'NATIONAL',
+    },
+  },
 };
+
+// COACH onboarding trial: first N days from account creation grant the
+// Standard coach an auto-Gold experience so they can build a roster and
+// evaluate the platform before the paywall kicks in.
+const COACH_TRIAL_DAYS = 30;
 
 // Free promotion video slots per month per user type (legacy VENDOR feature).
 const FREE_PROMO_SLOTS = {
@@ -309,11 +394,70 @@ SubscriptionSchema.statics.getActiveSubscription = async function (userId) {
 // Resolve the tier a user is currently entitled to.
 // Returns 'STANDARD' for eligible types with no paid subscription,
 // 'FREE' for non-subscription types (GUARDIAN/SPONSOR/SCHOOL).
+// Special case: COACH accounts younger than COACH_TRIAL_DAYS get
+// promoted to GOLD for the onboarding period even if unsubscribed.
 SubscriptionSchema.statics.getEffectiveTier = async function (userId, userType) {
   if (NON_SUBSCRIPTION_TYPES.includes(userType)) return 'FREE';
   if (!SUBSCRIPTION_ELIGIBLE_TYPES.includes(userType)) return 'FREE';
   const sub = await this.getActiveSubscription(userId);
-  return sub ? sub.tier : 'STANDARD';
+  if (sub) return sub.tier;
+  // COACH auto-Gold onboarding trial.
+  if (userType === 'COACH') {
+    try {
+      const User = mongoose.model('User');
+      const u = await User.findById(userId).select('createdAt').lean();
+      if (u && u.createdAt) {
+        const ageDays = (Date.now() - new Date(u.createdAt).getTime())
+          / (24 * 60 * 60 * 1000);
+        if (ageDays < COACH_TRIAL_DAYS) return 'GOLD';
+      }
+    } catch (_) { /* fall through */ }
+  }
+  return 'STANDARD';
+};
+
+// True if this user is authorised to do OFFICIAL scouting work — either
+// as a paid PRO scout OR as a Gold/Platinum coach (coaches double as
+// scouts once they pay). Used by scout-picker + match creation gates.
+SubscriptionSchema.statics.canPerformOfficialScouting = async function (userId) {
+  const User = mongoose.model('User');
+  const u = await User.findById(userId).select('type').lean();
+  if (!u) return false;
+  if (u.type === 'SCOUT') {
+    const sub = await this.getActiveSubscription(userId);
+    return !!sub && sub.tier === 'PRO';
+  }
+  if (u.type === 'COACH') {
+    const tier = await this.getEffectiveTier(userId, 'COACH');
+    return tier === 'GOLD' || tier === 'PLATINUM';
+  }
+  return false;
+};
+
+// Coach eligibility snapshot for the mobile subscription screen.
+SubscriptionSchema.statics.getCoachEligibility = async function (userId) {
+  const User = mongoose.model('User');
+  const [user, sub, tier] = await Promise.all([
+    User.findById(userId).select('createdAt').lean(),
+    this.getActiveSubscription(userId),
+    this.getEffectiveTier(userId, 'COACH'),
+  ]);
+  const subscribed = !!sub && ['GOLD', 'PLATINUM'].includes(sub.tier);
+  let trialActive = false;
+  let trialEndsAt = null;
+  if (!subscribed && user?.createdAt) {
+    trialEndsAt = new Date(new Date(user.createdAt).getTime()
+      + COACH_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    trialActive = trialEndsAt > new Date();
+  }
+  return {
+    tier,               // effective tier including trial promotion
+    subscribed,
+    subscription: sub || null,
+    trialActive,
+    trialEndsAt,
+    trialDays: COACH_TRIAL_DAYS,
+  };
 };
 
 // Convenience: look up the cap dict for a user type + tier.
@@ -413,4 +557,5 @@ module.exports = {
   GRACE_PERIOD_DAYS,
   REFEREE_FREE_GAME_THRESHOLD,
   REFEREE_WARN_AT_GAMES,
+  COACH_TRIAL_DAYS,
 };

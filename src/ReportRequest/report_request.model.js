@@ -20,7 +20,10 @@ const ReportRequestSchema = new Schema(
     },
     reportType: {
       type: String,
-      enum: ['PLAYER', 'REFEREE', 'COACH', 'VENUE'],
+      // TEAM = shortlist of academies/schools/clubs. MARKET = high-level
+      // talent-pool overview (regional/positional breakdown). Both are
+      // Platinum-only for COACH; other user types unrestricted.
+      enum: ['PLAYER', 'REFEREE', 'COACH', 'VENUE', 'TEAM', 'MARKET'],
       required: [true, 'reportType is required'],
     },
     filters: {

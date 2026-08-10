@@ -3,6 +3,8 @@ const { getString } = require('@lykmapipo/env');
 const Trial = require('./trial.model');
 const TrialRegistration = require('./trial_registration.model');
 const { uploadFor } = require('../Utils/uploader');
+const User = require('../User/user.model');
+const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -122,6 +124,25 @@ router.post(BASE, async (req, res) => {
     if (!title || !organizer || !startDate || !location || !gender) {
       return res.status(400).json({ error: 'title, organizer, startDate, location and gender are required' });
     }
+
+    // COACH tier gate — only Gold/Platinum can post trials. Other organizer
+    // types (ACADEMY / SCHOOL / CLUB) are not tier-gated here (they'll be
+    // covered when their own tier catalogs are defined).
+    try {
+      const org = await User.findById(organizer).select('type').lean();
+      if (org?.type === 'COACH') {
+        const tier = await Subscription.getEffectiveTier(organizer, 'COACH');
+        const caps = FEATURE_CAPS.COACH?.[tier] || {};
+        if (caps.canCreateTrials !== true) {
+          return res.status(403).json({
+            error: `Kifurushi cha ${tier} hakiruhusu kuchapisha trials. Boresha hadi Gold.`,
+            reason: 'COACH_TRIAL_CREATION_BLOCKED',
+            tier,
+          });
+        }
+      }
+    } catch (_) { /* fall through — don't block on org lookup failures */ }
+
     const body = { ...req.body };
     if (body.scouts) body.scouts = normalizeScouts(body.scouts);
     const trial = await Trial.create(body);

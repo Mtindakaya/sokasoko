@@ -230,14 +230,34 @@ router.post(BASE, async (req, res) => {
       ? scoutIds.map(id => ({ scout: id, status: 'PENDING' }))
       : scout ? [{ scout, status: 'PENDING' }] : [];
 
-    // Every scout on the match must have an active PRO subscription. There
-    // is no free trial for scouts — official work requires a live sub.
+    // COACH gate on adding scouts to own matches — Standard blocked.
+    if (normalizedScouts.length && scheduledBy) {
+      try {
+        const scheduler = await User.findById(scheduledBy).select('type').lean();
+        if (scheduler?.type === 'COACH') {
+          const { FEATURE_CAPS } = require('../Subscription/subscription.model');
+          const tier = await Subscription.getEffectiveTier(scheduledBy, 'COACH');
+          const caps = FEATURE_CAPS.COACH?.[tier] || {};
+          if (caps.canAddScoutsToOwnMatches !== true) {
+            return res.status(403).json({
+              error: `Kifurushi cha ${tier} hakiruhusu kuongeza scout kwenye mechi yako. Boresha hadi Gold.`,
+              reason: 'COACH_ADD_SCOUT_BLOCKED',
+              tier,
+            });
+          }
+        }
+      } catch (_) { /* fall through */ }
+    }
+
+    // Every scout on the match must be eligible for official work: either
+    // an active PRO SCOUT subscription, OR a Gold/Platinum COACH (coaches
+    // double as scouts once they pay).
     const scoutCandidates = normalizedScouts.map(s => s.scout).filter(Boolean);
     if (scoutCandidates.length) {
       const ineligible = [];
       for (const scoutId of scoutCandidates) {
-        const status = await Subscription.getScoutEligibility(scoutId);
-        if (!status.eligible) {
+        const canScout = await Subscription.canPerformOfficialScouting(scoutId);
+        if (!canScout) {
           const u = await User.findById(scoutId).select('firstName lastName').lean();
           const name = `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || scoutId;
           ineligible.push(name);
@@ -484,11 +504,11 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
       User.findById(requestedBy).select('type firstName lastName school academy'),
     ]);
     if (!match) return res.status(404).json({ error: 'Match not found' });
-    if (!scout || scout.type !== 'SCOUT') {
-      return res.status(400).json({ error: 'scoutId must reference a registered SCOUT' });
+    if (!scout || (scout.type !== 'SCOUT' && scout.type !== 'COACH')) {
+      return res.status(400).json({ error: 'scoutId must reference a SCOUT or COACH' });
     }
-    const scoutStatus = await Subscription.getScoutEligibility(scoutId);
-    if (!scoutStatus.eligible) {
+    const canScout = await Subscription.canPerformOfficialScouting(scoutId);
+    if (!canScout) {
       return res.status(403).json({
         error: 'Scout hana uandikishaji hai — hawezi kupokea maombi ya kazi rasmi.',
         reason: 'SCOUT_SUBSCRIPTION_REQUIRED',

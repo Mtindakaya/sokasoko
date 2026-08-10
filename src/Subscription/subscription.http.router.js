@@ -71,12 +71,18 @@ router.get(`${BASE}/me`, async (req, res) => {
       scoutStatus = await Subscription.getScoutEligibility(userId);
     }
 
+    let coachStatus = null;
+    if (userType === 'COACH') {
+      coachStatus = await Subscription.getCoachEligibility(userId);
+    }
+
     return res.status(200).json({
       tier,
       usage: snapshot,
       subscription: subscription || null,
       refereeStatus,
       scoutStatus,
+      coachStatus,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });

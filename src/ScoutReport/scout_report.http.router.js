@@ -244,10 +244,11 @@ router.post(BASE, async (req, res) => {
       return res.status(409).json({ error: 'You have already submitted an evaluation for this player at this event.' });
     }
 
-    // Scout must have an active PRO subscription — no free reports.
+    // Scout must be eligible for official work — PRO SCOUT OR Gold/Platinum
+    // COACH. No free reports.
     if (req.body.scout) {
-      const scoutStatus = await Subscription.getScoutEligibility(req.body.scout);
-      if (!scoutStatus.eligible) {
+      const canScout = await Subscription.canPerformOfficialScouting(req.body.scout);
+      if (!canScout) {
         return res.status(403).json({
           error: 'Huwezi kuwasilisha ripoti bila uandikishaji hai.',
           reason: 'SCOUT_SUBSCRIPTION_REQUIRED',
