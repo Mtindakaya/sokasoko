@@ -21,9 +21,10 @@ const ReportRequestSchema = new Schema(
     reportType: {
       type: String,
       // TEAM = shortlist of academies/schools/clubs. MARKET = high-level
-      // talent-pool overview (regional/positional breakdown). Both are
-      // Platinum-only for COACH; other user types unrestricted.
-      enum: ['PLAYER', 'REFEREE', 'COACH', 'VENUE', 'TEAM', 'MARKET'],
+      // talent-pool overview. CUSTOM = bespoke analysis request (Enterprise
+      // AGENT only). Both TEAM and MARKET are Platinum-only for COACH /
+      // ACADEMY / CLUB; ENTERPRISE-only for AGENT.
+      enum: ['PLAYER', 'REFEREE', 'COACH', 'VENUE', 'TEAM', 'MARKET', 'CUSTOM'],
       required: [true, 'reportType is required'],
     },
     filters: {

@@ -115,7 +115,27 @@ const PRICES = {
   },
   ACADEMY:     { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   CLUB:        { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
-  AGENT:       { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
+  // AGENT: two paid tiers only. Standard exists on the enum as the
+  // "locked out" state after trial expires — it grants nothing. Gold
+  // is the standard paid tier. Enterprise pricing is null everywhere
+  // (contact-us / negotiated per account, admin sets amount manually).
+  AGENT: {
+    STANDARD: {
+      MONTHLY:   { TZS: 0, USD: 0 },
+      QUARTERLY: { TZS: 0, USD: 0 },
+      BIANNUAL:  { TZS: 0, USD: 0 },
+    },
+    GOLD: {
+      MONTHLY:   { TZS: 100000, USD: null },
+      QUARTERLY: { TZS: 250000, USD: null },
+      BIANNUAL:  { TZS: 500000, USD: null },
+    },
+    ENTERPRISE: {
+      MONTHLY:   { TZS: null, USD: null },
+      QUARTERLY: { TZS: null, USD: null },
+      BIANNUAL:  { TZS: null, USD: null },
+    },
+  },
   // SCOUT: single PRO tier. No free STANDARD — an unsubscribed scout
   // cannot be selected for official work, cannot evaluate players, and
   // cannot file reports.
@@ -330,6 +350,61 @@ const FEATURE_CAPS = {
       reachScope: 'NATIONAL',
     },
   },
+  // AGENT: two-tier model. Standard = locked-out state (post-trial,
+  // pre-subscription). Gold = paying agent with player reports +
+  // evaluations + trials + analysis. Enterprise = customised reports,
+  // priority, unlimited everything (negotiated per account).
+  AGENT: {
+    STANDARD: {
+      ai: 0,
+      reportsGeneratedPerMonth: 0,
+      playerReportQueriesPerMonth: 0,
+      homeFeedPostsPerMonth: 0,
+      canPostTrials: false,
+      canRequestScouting: false,
+      canViewPlayerEvaluations: false,
+      canGeneratePlayerReport: false,
+      canGenerateTeamReport: false,
+      canGenerateMarketReport: false,
+      canGenerateCustomAnalysis: false,
+      advancedAnalytics: false,
+      reachScope: 'REGIONAL',
+    },
+    GOLD: {
+      ai: 200,
+      reportsGeneratedPerMonth: 10,
+      playerReportQueriesPerMonth: 20,
+      homeFeedPostsPerMonth: 25,
+      canPostTrials: true,
+      canRequestScouting: true,
+      canViewPlayerEvaluations: true,
+      canGeneratePlayerReport: true,
+      canGenerateTeamReport: false,
+      canGenerateMarketReport: false,
+      canGenerateCustomAnalysis: false,
+      advancedAnalytics: false,
+      reachScope: 'REGIONAL',
+    },
+    ENTERPRISE: {
+      ai: null,
+      aiFairUsePerHour: 30,
+      aiFairUsePerDay: 300,
+      reportsGeneratedPerMonth: null,
+      playerReportQueriesPerMonth: null,
+      homeFeedPostsPerMonth: null,
+      canPostTrials: true,
+      canRequestScouting: true,
+      canViewPlayerEvaluations: true,
+      canGeneratePlayerReport: true,
+      canGenerateTeamReport: true,
+      canGenerateMarketReport: true,
+      canGenerateCustomAnalysis: true,
+      advancedAnalytics: true,
+      monthlyAgentReport: true,
+      featuredPlacement: true,
+      reachScope: 'NATIONAL',
+    },
+  },
   // COACH: three tiers with meaningful spread. Standard = free onboarding
   // (also acts as a 30-day auto-Gold trial from account creation).
   // Gold = paying coach — can post trials/tournaments, run player reports,
@@ -402,6 +477,7 @@ const FEATURE_CAPS = {
 const COACH_TRIAL_DAYS = 30;
 const ACADEMY_TRIAL_DAYS = 30;
 const CLUB_TRIAL_DAYS = 30;
+const AGENT_TRIAL_DAYS = 30;
 
 // Free promotion video slots per month per user type (legacy VENDOR feature).
 const FREE_PROMO_SLOTS = {
@@ -578,20 +654,23 @@ SubscriptionSchema.statics.getEffectiveTier = async function (userId, userType) 
   if (!SUBSCRIPTION_ELIGIBLE_TYPES.includes(userType)) return 'FREE';
   const sub = await this.getActiveSubscription(userId);
   if (sub) return sub.tier;
-  // COACH / ACADEMY / CLUB auto-Gold onboarding trial.
-  if (['COACH', 'ACADEMY', 'CLUB'].includes(userType)) {
+  // COACH / ACADEMY / CLUB / AGENT auto-Gold onboarding trial. AGENT falls
+  // to STANDARD (locked-out) once the trial expires — there's no free
+  // fallback tier that grants features.
+  const trialTypes = {
+    COACH:   COACH_TRIAL_DAYS,
+    ACADEMY: ACADEMY_TRIAL_DAYS,
+    CLUB:    CLUB_TRIAL_DAYS,
+    AGENT:   AGENT_TRIAL_DAYS,
+  };
+  if (trialTypes[userType]) {
     try {
       const User = mongoose.model('User');
       const u = await User.findById(userId).select('createdAt').lean();
       if (u && u.createdAt) {
-        const trialDays = userType === 'ACADEMY'
-          ? ACADEMY_TRIAL_DAYS
-          : userType === 'CLUB'
-            ? CLUB_TRIAL_DAYS
-            : COACH_TRIAL_DAYS;
         const ageDays = (Date.now() - new Date(u.createdAt).getTime())
           / (24 * 60 * 60 * 1000);
-        if (ageDays < trialDays) return 'GOLD';
+        if (ageDays < trialTypes[userType]) return 'GOLD';
       }
     } catch (_) { /* fall through */ }
   }
@@ -614,6 +693,32 @@ SubscriptionSchema.statics.canPerformOfficialScouting = async function (userId) 
     return tier === 'GOLD' || tier === 'PLATINUM';
   }
   return false;
+};
+
+// Agent eligibility snapshot — subscribed=true only for GOLD or ENTERPRISE.
+SubscriptionSchema.statics.getAgentEligibility = async function (userId) {
+  const User = mongoose.model('User');
+  const [user, sub, tier] = await Promise.all([
+    User.findById(userId).select('createdAt').lean(),
+    this.getActiveSubscription(userId),
+    this.getEffectiveTier(userId, 'AGENT'),
+  ]);
+  const subscribed = !!sub && ['GOLD', 'ENTERPRISE'].includes(sub.tier);
+  let trialActive = false;
+  let trialEndsAt = null;
+  if (!subscribed && user?.createdAt) {
+    trialEndsAt = new Date(new Date(user.createdAt).getTime()
+      + AGENT_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    trialActive = trialEndsAt > new Date();
+  }
+  return {
+    tier,
+    subscribed,
+    subscription: sub || null,
+    trialActive,
+    trialEndsAt,
+    trialDays: AGENT_TRIAL_DAYS,
+  };
 };
 
 // Club eligibility snapshot — mirrors the academy helper.
@@ -794,4 +899,5 @@ module.exports = {
   COACH_TRIAL_DAYS,
   ACADEMY_TRIAL_DAYS,
   CLUB_TRIAL_DAYS,
+  AGENT_TRIAL_DAYS,
 };

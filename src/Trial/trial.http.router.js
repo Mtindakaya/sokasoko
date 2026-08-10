@@ -130,7 +130,7 @@ router.post(BASE, async (req, res) => {
     try {
       const org = await User.findById(organizer).select('type').lean();
       const orgType = org?.type;
-      if (['COACH', 'ACADEMY', 'CLUB'].includes(orgType)) {
+      if (['COACH', 'ACADEMY', 'CLUB', 'AGENT'].includes(orgType)) {
         const tier = await Subscription.getEffectiveTier(organizer, orgType);
         const caps = FEATURE_CAPS[orgType]?.[tier] || {};
         if (caps.canPostTrials !== true && caps.canCreateTrials !== true) {

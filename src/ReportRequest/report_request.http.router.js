@@ -60,7 +60,7 @@ router.post(BASE, async (req, res) => {
     // Standard  : cannot generate any reports.
     // Gold      : PLAYER reports only (10/month cap on generation).
     // Platinum  : PLAYER + TEAM + MARKET reports, unlimited.
-    if (['COACH', 'ACADEMY', 'CLUB'].includes(user.type) && !isSelfReport) {
+    if (['COACH', 'ACADEMY', 'CLUB', 'AGENT'].includes(user.type) && !isSelfReport) {
       const utype = user.type;
       const tier = await Subscription.getEffectiveTier(requestedBy, utype);
       const caps = FEATURE_CAPS[utype]?.[tier] || {};
@@ -68,10 +68,12 @@ router.post(BASE, async (req, res) => {
         PLAYER: 'canGeneratePlayerReport',
         TEAM:   'canGenerateTeamReport',
         MARKET: 'canGenerateMarketReport',
+        CUSTOM: 'canGenerateCustomAnalysis',
       }[reportType];
       // ACADEMY / CLUB caps intentionally don't define canGenerate* keys —
       // they reuse the same {PLAYER on Gold, PLAYER+TEAM+MARKET on Platinum}
-      // policy via a shared inference below.
+      // policy via a shared inference below. AGENT does define them
+      // explicitly so the first branch handles it directly.
       let allowed = false;
       if (typeKey && caps[typeKey] === true) {
         allowed = true;

@@ -517,9 +517,9 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
     }
     if (!requester) return res.status(400).json({ error: 'requester not found' });
 
-    // ACADEMY / CLUB tier gate — Standard cannot request scouts. (PLAYER
-    // caller is metered by evaluationRequests below.)
-    if (requester.type === 'ACADEMY' || requester.type === 'CLUB') {
+    // ACADEMY / CLUB / AGENT tier gate — Standard cannot request scouts.
+    // (PLAYER caller is metered by evaluationRequests below.)
+    if (['ACADEMY', 'CLUB', 'AGENT'].includes(requester.type)) {
       const { FEATURE_CAPS } = require('../Subscription/subscription.model');
       const orgType = requester.type;
       const rTier = await Subscription.getEffectiveTier(requestedBy, orgType);

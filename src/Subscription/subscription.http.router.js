@@ -86,6 +86,11 @@ router.get(`${BASE}/me`, async (req, res) => {
       clubStatus = await Subscription.getClubEligibility(userId);
     }
 
+    let agentStatus = null;
+    if (userType === 'AGENT') {
+      agentStatus = await Subscription.getAgentEligibility(userId);
+    }
+
     return res.status(200).json({
       tier,
       usage: snapshot,
@@ -95,6 +100,7 @@ router.get(`${BASE}/me`, async (req, res) => {
       coachStatus,
       academyStatus,
       clubStatus,
+      agentStatus,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -182,7 +188,13 @@ router.post(BASE, async (req, res) => {
     }
 
     const selectedCurrency = currency || 'TZS';
-    const amount = PRICES[userType]?.[tier]?.[plan]?.[selectedCurrency];
+    let amount = PRICES[userType]?.[tier]?.[plan]?.[selectedCurrency];
+    // ENTERPRISE tier: pricing is negotiated per account. Accept the
+    // subscribe request as a "contact us" marker with amount=0; admin
+    // sets the real amount on activation.
+    if (tier === 'ENTERPRISE' && amount == null) {
+      amount = 0;
+    }
     if (amount == null) {
       return res.status(400).json({
         error: `Plan ${plan}/${selectedCurrency} is not offered for ${userType} ${tier}`,

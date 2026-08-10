@@ -48,7 +48,7 @@ async function refuseOrphanedPlayerUpload(req, res, next) {
 
 // ACADEMY / CLUB monthly post cap. Media created by a metered user type
 // counts as one home-feed post; the tier decides how many are allowed.
-const METERED_POST_TYPES = ['ACADEMY', 'CLUB'];
+const METERED_POST_TYPES = ['ACADEMY', 'CLUB', 'AGENT'];
 async function meterAcademyPostCap(req, res, next) {
   try {
     const creatorId = req.body.createdBy;
