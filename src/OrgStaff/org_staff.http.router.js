@@ -11,6 +11,9 @@ const BASE = `/v${API_VERSION.split('.')[0]}`;
 
 // Roles that carry FULL delegated org powers (only for Academy/Club).
 const FULL_POWER_ROLES = ['OWNER', 'MANAGER', 'COACH'];
+// Singleton roles — an org may have at most one holder each (ACTIVE or
+// PENDING count toward the check so we don't stack duplicate invites).
+const SINGLETON_ROLES = ['OWNER', 'MANAGER', 'COACH'];
 
 // Look up the org's staff cap for its current effective tier. SCHOOL has
 // a fixed FREE tier since it isn't subscription-eligible.
@@ -84,6 +87,20 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
         error: 'Mfanyakazi tayari yuko kwenye taasisi nyingine.',
         reason: 'STAFF_ALREADY_LINKED',
       });
+    }
+
+    // Singleton role enforcement — OWNER / MANAGER / COACH are one-per-org.
+    if (SINGLETON_ROLES.includes(role)) {
+      const existingRole = await OrgStaffLink.findOne({
+        org: orgId, role, status: { $in: ['ACTIVE', 'PENDING'] },
+      }).lean();
+      if (existingRole) {
+        return res.status(409).json({
+          error: `Tayari kuna mfanyakazi mmoja katika nafasi ya ${role}. Ondoa au badilisha kabla ya kualika mwingine.`,
+          reason: 'STAFF_ROLE_TAKEN',
+          role,
+        });
+      }
     }
 
     const link = await OrgStaffLink.create({
@@ -212,6 +229,19 @@ router.post(`${BASE}/staff-invitations/:linkId/accept`, async (req, res) => {
         error: `Taasisi hii tayari imefikia kikomo cha wafanyakazi. Wasiliana nao.`,
         reason: 'STAFF_SEATS_FULL', cap, current: activeCount,
       });
+    }
+    // Re-check singleton role at accept time — another invite for the same
+    // role might have been accepted while this one waited.
+    if (SINGLETON_ROLES.includes(link.role)) {
+      const conflict = await OrgStaffLink.findOne({
+        org: link.org, role: link.role, status: 'ACTIVE',
+      });
+      if (conflict && conflict._id.toString() !== link._id.toString()) {
+        return res.status(409).json({
+          error: `Tayari kuna mfanyakazi mmoja katika nafasi ya ${link.role}.`,
+          reason: 'STAFF_ROLE_TAKEN', role: link.role,
+        });
+      }
     }
     link.status = 'ACTIVE';
     link.acceptedAt = new Date();
