@@ -30,7 +30,8 @@ function normalizeScouts(scouts) {
 router.get(BASE, async (req, res) => {
   try {
     const { page = 1, limit = 20, status, gender, ageGroup, organizer, trialFor } = req.query;
-    const filter = {};
+    // Only surface TRIAL rows here — clinics live behind /v1/clinics.
+    const filter = { eventType: 'TRIAL' };
     if (status) filter.status = status;
     if (gender) filter.gender = gender;
     if (ageGroup) filter.ageGroups = ageGroup; // array contains match
@@ -54,7 +55,7 @@ router.get(BASE, async (req, res) => {
 // GET /v1/trials/my/:userId — NOTE: before /:id
 router.get(`${BASE}/my/:userId`, async (req, res) => {
   try {
-    const trials = await Trial.find({ organizer: req.params.userId })
+    const trials = await Trial.find({ organizer: req.params.userId, eventType: 'TRIAL' })
       .populate('organizer', 'firstName lastName type academyName profileImage')
       .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage')
       .sort({ createdAt: -1 })
@@ -68,7 +69,7 @@ router.get(`${BASE}/my/:userId`, async (req, res) => {
 // GET /v1/trials/assigned/:scoutId — trials where this user is an assigned scout
 router.get(`${BASE}/assigned/:scoutId`, async (req, res) => {
   try {
-    const trials = await Trial.find({ 'scouts.scout': req.params.scoutId })
+    const trials = await Trial.find({ 'scouts.scout': req.params.scoutId, eventType: 'TRIAL' })
       .populate('organizer', 'firstName lastName type academyName profileImage')
       .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage')
       .sort({ startDate: 1 })

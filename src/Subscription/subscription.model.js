@@ -278,6 +278,7 @@ const FEATURE_CAPS = {
       docVettingIncluded: false,
       advancedAnalytics: false,
       staffSeats: 3,
+      canPostClinics: true,
       monthlyAcademyReport: false,
       featuredPlacement: false,
       reachScope: 'REGIONAL',
@@ -304,6 +305,7 @@ const FEATURE_CAPS = {
       featuredPlacement: true,
       reachScope: 'NATIONAL',
       staffSeats: 5,
+      canPostClinics: true,
     },
   },
   // CLUB: mirrors ACADEMY caps for the initial launch. Deltas will be
@@ -351,6 +353,7 @@ const FEATURE_CAPS = {
       featuredPlacement: false,
       reachScope: 'REGIONAL',
       staffSeats: 3,
+      canPostClinics: true,
     },
     PLATINUM: {
       ai: null,
@@ -374,6 +377,7 @@ const FEATURE_CAPS = {
       featuredPlacement: true,
       reachScope: 'NATIONAL',
       staffSeats: 5,
+      canPostClinics: true,
     },
   },
   // AGENT: two-tier model. Standard = locked-out state (post-trial,
@@ -462,6 +466,7 @@ const FEATURE_CAPS = {
       playerReportQueriesPerMonth: 20,
       canPerformOfficialScouting: true,
       canCreateTrials: true,
+      canPostClinics: true,
       canCreateTournaments: true,
       canAddScoutsToOwnMatches: true,
       canUsePlayerRequests: true,
@@ -482,6 +487,7 @@ const FEATURE_CAPS = {
       playerReportQueriesPerMonth: null,
       canPerformOfficialScouting: true,
       canCreateTrials: true,
+      canPostClinics: true,
       canCreateTournaments: true,
       canAddScoutsToOwnMatches: true,
       canUsePlayerRequests: true,
@@ -542,6 +548,7 @@ const FEATURE_CAPS = {
       sokasokoAccountSlot: 'PRIORITY',
       reachScope: 'NATIONAL',
       featuredPlacement: true,
+      canPostClinics: true,
     },
     ENTERPRISE: {
       ai: null,
@@ -558,6 +565,7 @@ const FEATURE_CAPS = {
       sokasokoAccountSlot: 'GUARANTEED',
       reachScope: 'NATIONAL',
       featuredPlacement: true,
+      canPostClinics: true,
     },
   },
   // SCHOOL: not subscription-eligible, but a fixed budget of delegated

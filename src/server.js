@@ -41,6 +41,7 @@ const ReportRequestRouter = require('./ReportRequest/report_request.http.router'
 const NotificationRouter = require('./Notification/notification.http.router');
 const AiAdvisorRouter = require('./AiAdvisor/ai_advisor.http.router');
 const TrialRouter = require('./Trial/trial.http.router');
+const ClinicRouter = require('./Trial/clinic.http.router');
 const ScoutReportRouter = require('./ScoutReport/scout_report.http.router');
 const IsmailiRouter = require('./Ismaili/ismaili.http.router');
 const AdvisoryRouter = require('./Advisory/advisory.http.router');
@@ -164,6 +165,7 @@ connect(MONGODB_URI, (error) => {
   app.use(NotificationRouter);
   app.use(AiAdvisorRouter);
   app.use(TrialRouter);
+  app.use(ClinicRouter);
   app.use(ScoutReportRouter);
   app.use(RefereeRatingRouter);
   app.use(IsmailiRouter);
