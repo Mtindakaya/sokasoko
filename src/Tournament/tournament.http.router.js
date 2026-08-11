@@ -59,10 +59,23 @@ router.post(BASE, async (req, res) => {
     // Gold capped at maxTournamentTeams (8). Platinum unlimited.
     try {
       const org = await User.findById(organizer).select('type').lean();
-      const orgType = org?.type;
+      let orgType = org?.type;
+      let ctx = null;
+      if (orgType === 'GUARDIAN') {
+        ctx = await Subscription.getEffectiveContext(organizer);
+        if (ctx?.delegated) orgType = ctx.userType;
+        else {
+          return res.status(403).json({
+            error: 'Walezi hawaruhusiwi kuchapisha mashindano.',
+            reason: 'GUARDIAN_TOURNAMENT_CREATION_BLOCKED',
+          });
+        }
+      }
       if (['COACH', 'ACADEMY', 'CLUB'].includes(orgType)) {
-        const tier = await Subscription.getEffectiveTier(organizer, orgType);
-        const caps = FEATURE_CAPS[orgType]?.[tier] || {};
+        const tier = ctx?.delegated ? ctx.tier
+          : await Subscription.getEffectiveTier(organizer, orgType);
+        const caps = ctx?.delegated ? ctx.caps
+          : (FEATURE_CAPS[orgType]?.[tier] || {});
         if (caps.canCreateTournaments !== true) {
           return res.status(403).json({
             error: `Kifurushi cha ${tier} hakiruhusu kuchapisha mashindano. Boresha hadi Gold.`,

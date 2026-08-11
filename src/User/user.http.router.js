@@ -439,6 +439,38 @@ router.post(PATH_LIST, uploadFor(), postFor({
   post: async (body, done) => {
     const userType = _.get(body, 'type', 'PLAYER');
     const phoneRaw = _.get(body, 'phone');
+
+    // GUARDIAN caps — enforce the 15 minors + 5 referee-minors limits.
+    // Only fires when a GUARDIAN is creating a PLAYER/REFEREE minor.
+    if (['PLAYER', 'REFEREE'].includes(userType) && body.createdBy) {
+      try {
+        const { FEATURE_CAPS } = require('../Subscription/subscription.model');
+        const creator = await User.findById(body.createdBy).select('type').lean();
+        if (creator?.type === 'GUARDIAN') {
+          const caps = FEATURE_CAPS.GUARDIAN?.FREE || {};
+          const currentMinors = await User.countDocuments({
+            createdBy: body.createdBy,
+            type: { $in: ['PLAYER', 'REFEREE'] },
+          });
+          if (caps.maxMinors != null && currentMinors >= caps.maxMinors) {
+            return done(new Error(
+              `Umefikia kikomo cha wachezaji ${caps.maxMinors}. Huwezi kuongeza zaidi.`
+            ), null);
+          }
+          if (userType === 'REFEREE' && caps.maxRefereeMinors != null) {
+            const refCount = await User.countDocuments({
+              createdBy: body.createdBy, type: 'REFEREE',
+            });
+            if (refCount >= caps.maxRefereeMinors) {
+              return done(new Error(
+                `Umefikia kikomo cha waamuzi ${caps.maxRefereeMinors} kama mlezi.`
+              ), null);
+            }
+          }
+        }
+      } catch (_) { /* fall through — best-effort */ }
+    }
+
     const phone = phoneRaw === '' || phoneRaw === null ? undefined : phoneRaw;
     // Fix dob format if needed
     if (body.dob) body.dob = body.dob.toString().replace(' ', 'T');

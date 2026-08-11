@@ -237,6 +237,7 @@ const FEATURE_CAPS = {
       monthlyAcademyReport: false,
       featuredPlacement: false,
       reachScope: 'REGIONAL',
+      staffSeats: 0,
     },
     GOLD: {
       ai: 200,
@@ -254,6 +255,7 @@ const FEATURE_CAPS = {
       mixedGender: true,
       docVettingIncluded: false,
       advancedAnalytics: false,
+      staffSeats: 3,
       monthlyAcademyReport: false,
       featuredPlacement: false,
       reachScope: 'REGIONAL',
@@ -279,6 +281,7 @@ const FEATURE_CAPS = {
       monthlyAcademyReport: true,
       featuredPlacement: true,
       reachScope: 'NATIONAL',
+      staffSeats: 5,
     },
   },
   // CLUB: mirrors ACADEMY caps for the initial launch. Deltas will be
@@ -304,6 +307,7 @@ const FEATURE_CAPS = {
       monthlyClubReport: false,
       featuredPlacement: false,
       reachScope: 'REGIONAL',
+      staffSeats: 0,
     },
     GOLD: {
       ai: 200,
@@ -324,6 +328,7 @@ const FEATURE_CAPS = {
       monthlyClubReport: false,
       featuredPlacement: false,
       reachScope: 'REGIONAL',
+      staffSeats: 3,
     },
     PLATINUM: {
       ai: null,
@@ -346,6 +351,7 @@ const FEATURE_CAPS = {
       monthlyClubReport: true,
       featuredPlacement: true,
       reachScope: 'NATIONAL',
+      staffSeats: 5,
     },
   },
   // AGENT: two-tier model. Standard = locked-out state (post-trial,
@@ -465,6 +471,35 @@ const FEATURE_CAPS = {
       featuredPlacement: true,
       advancedAnalytics: true,
       reachScope: 'NATIONAL',
+    },
+  },
+  // SCHOOL: not subscription-eligible, but a fixed budget of delegated
+  // sports-teacher seats is bundled with every school by fiat. Each of
+  // those seats runs at COACH GOLD tier (see resolveDelegatedTier).
+  SCHOOL: {
+    FREE: {
+      ai: 30,
+      canPostTrials: false,
+      canCreateTournaments: false,
+      canAddScoutsToOwnMatches: false,
+      staffSeats: 3,
+    },
+  },
+  // GUARDIAN: not subscription-eligible. These are the free-tier caps that
+  // apply to any GUARDIAN not currently a linked staff of an org.
+  GUARDIAN: {
+    FREE: {
+      ai: 30,
+      maxMinors: 15,
+      maxRefereeMinors: 5,
+      canPostTrials: false,
+      canScheduleMatches: false,
+      playerReportQueriesOwnMinorsOnly: true,
+      canGeneratePlayerReport: true,
+      canGenerateTeamReport: false,
+      canGenerateMarketReport: false,
+      canGenerateCustomAnalysis: false,
+      canPerformOfficialScouting: false,
     },
   },
 };
@@ -800,6 +835,85 @@ SubscriptionSchema.statics.getCoachEligibility = async function (userId) {
 // Convenience: look up the cap dict for a user type + tier.
 SubscriptionSchema.statics.getFeatureCaps = function (userType, tier) {
   return FEATURE_CAPS[userType]?.[tier] || null;
+};
+
+// Delegation: if the caller is an ACTIVE staff link of an org, return
+// { org, orgType, orgTier, role, caps } — the "effective" tier + caps
+// they inherit. Returns null when not linked (or linked but not ACTIVE).
+// School sports teachers inherit COACH GOLD. Academy/Club OWNER/MANAGER/
+// COACH inherit the org's own tier. OTHER roles inherit chat-only.
+SubscriptionSchema.statics.resolveDelegatedTier = async function (userId) {
+  let OrgStaffLink;
+  try {
+    OrgStaffLink = mongoose.model('OrgStaffLink');
+  } catch (_) { return null; }
+  const link = await OrgStaffLink.findOne({ staff: userId, status: 'ACTIVE' }).lean();
+  if (!link) return null;
+  const User = mongoose.model('User');
+  const org = await User.findById(link.org).select('type').lean();
+  if (!org) return null;
+  const orgType = org.type;
+  if (link.role === 'SPORTS_TEACHER' && orgType === 'SCHOOL') {
+    return {
+      org: link.org, orgType, orgTier: 'GOLD', role: link.role,
+      caps: FEATURE_CAPS.COACH?.GOLD || null,
+      effectiveUserType: 'COACH',
+    };
+  }
+  if (['OWNER', 'MANAGER', 'COACH'].includes(link.role)
+      && ['ACADEMY', 'CLUB'].includes(orgType)) {
+    const orgTier = await this.getEffectiveTier(link.org, orgType);
+    return {
+      org: link.org, orgType, orgTier, role: link.role,
+      caps: FEATURE_CAPS[orgType]?.[orgTier] || null,
+      effectiveUserType: orgType,
+    };
+  }
+  // OTHER role or unmatched combinations — chat-only elevation.
+  return {
+    org: link.org, orgType, orgTier: null, role: link.role,
+    caps: null,
+    effectiveUserType: null,
+  };
+};
+
+// Current ACTIVE staff count for an org (used for seat-quota checks).
+SubscriptionSchema.statics.countActiveStaff = async function (orgId) {
+  try {
+    const OrgStaffLink = mongoose.model('OrgStaffLink');
+    return OrgStaffLink.countDocuments({ org: orgId, status: 'ACTIVE' });
+  } catch (_) { return 0; }
+};
+
+// Effective context for enforcement checks — honours delegation.
+// If the caller is a delegated staff with elevated powers, returns the
+// org's effective userType + tier + caps (so a school sports teacher
+// behaves like COACH GOLD; an academy-linked COACH inherits the academy
+// tier). Otherwise falls back to the user's own type + tier.
+SubscriptionSchema.statics.getEffectiveContext = async function (userId) {
+  const User = mongoose.model('User');
+  const u = await User.findById(userId).select('type').lean();
+  if (!u) return null;
+  const delegated = await this.resolveDelegatedTier(userId);
+  if (delegated && delegated.effectiveUserType && delegated.caps) {
+    return {
+      userType: delegated.effectiveUserType,
+      tier: delegated.orgTier,
+      caps: delegated.caps,
+      delegated: true,
+      delegatedFrom: delegated.org,
+      delegatedRole: delegated.role,
+      actualUserType: u.type,
+    };
+  }
+  const tier = await this.getEffectiveTier(userId, u.type);
+  return {
+    userType: u.type,
+    tier,
+    caps: FEATURE_CAPS[u.type]?.[tier] || null,
+    delegated: false,
+    actualUserType: u.type,
+  };
 };
 
 // SCOUT eligibility: strict subscription gate — no free trial. Returns

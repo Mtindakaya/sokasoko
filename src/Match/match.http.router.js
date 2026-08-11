@@ -187,6 +187,23 @@ router.post(BASE, async (req, res) => {
     }
     const blocked = await orphanedPlayerBlock(scheduledBy);
     if (blocked) return res.status(403).json(blocked);
+
+    // GUARDIAN cap — bare guardians cannot schedule matches. Delegated
+    // staff (Academy/Club COACH role, or School SPORTS_TEACHER) can via
+    // getEffectiveContext.
+    if (scheduledBy) {
+      const schedUser = await User.findById(scheduledBy).select('type').lean();
+      if (schedUser?.type === 'GUARDIAN') {
+        const ctx = await Subscription.getEffectiveContext(scheduledBy);
+        if (!ctx?.delegated) {
+          return res.status(403).json({
+            error: 'Walezi hawaruhusiwi kupanga mechi. Coach or org staff pekee.',
+            reason: 'GUARDIAN_MATCH_SCHEDULE_BLOCKED',
+          });
+        }
+      }
+    }
+
     const { assistantReferee1, assistantReferee2, scout, scouts: scoutIds } = req.body;
 
     // Referees who are orphaned minors cannot be selected. Check the

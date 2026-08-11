@@ -168,6 +168,10 @@ const UserSchema = new Schema(
     // A minor with no active guardian. Restricts chat/match/scout/profile
     // for this user until reattached. Only meaningful when type=='PLAYER'.
     guardianOrphaned: { type: Boolean, default: false, index: true },
+    // Set on ACADEMY/CLUB/SCHOOL orgs when their ACTIVE staff count first
+    // exceeds their tier's staffSeats cap. Cleared once trimmed. If left
+    // stamped for >5 days, the scheduler disables all their staff links.
+    staffOverQuotaSince: { type: Date, default: null },
     // Set to the previous guardian's id on removal so the new guardian's
     // acceptance can notify them: "minor X is now with guardian Y".
     previousGuardian: { type: Schema.Types.ObjectId, ref: 'User', default: null },

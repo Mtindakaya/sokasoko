@@ -152,8 +152,85 @@ const runMonthlyProgressReports = async () => {
   console.log(`Monthly progress reports sent to ${players.length} subscribed players.`);
 };
 
+// Runs daily. When an org has more ACTIVE staff than its current tier's
+// staff-seat cap, a warning notification fires the first time, and after
+// STAFF_OVERQUOTA_GRACE_DAYS days over quota all their staff links are
+// disabled until the owner trims down.
+const STAFF_OVERQUOTA_GRACE_DAYS = 5;
+const runStaffQuotaSweep = async () => {
+  console.log('Running org-staff quota sweep...');
+  try {
+    const OrgStaffLink = require('./OrgStaff/org_staff.model');
+    const { FEATURE_CAPS, Subscription } = require('./Subscription/subscription.model');
+    const orgIds = await OrgStaffLink.distinct('org', { status: 'ACTIVE' });
+    for (const orgId of orgIds) {
+      const org = await User.findById(orgId).select('type staffOverQuotaSince').lean();
+      if (!org) continue;
+      const orgType = org.type;
+      let cap;
+      if (orgType === 'SCHOOL') {
+        cap = FEATURE_CAPS.SCHOOL?.FREE?.staffSeats || 0;
+      } else {
+        const tier = await Subscription.getEffectiveTier(orgId, orgType);
+        cap = (FEATURE_CAPS[orgType]?.[tier] || {}).staffSeats || 0;
+      }
+      const activeCount = await OrgStaffLink.countDocuments({
+        org: orgId, status: 'ACTIVE',
+      });
+      if (activeCount <= cap) {
+        if (org.staffOverQuotaSince) {
+          await User.updateOne({ _id: orgId }, { $unset: { staffOverQuotaSince: 1 } });
+        }
+        continue;
+      }
+      // Over quota. Stamp the start date on the first hit, then disable
+      // all staff once the grace window closes.
+      if (!org.staffOverQuotaSince) {
+        await User.updateOne({ _id: orgId },
+          { $set: { staffOverQuotaSince: new Date() } });
+        try {
+          await Notification.create({
+            userId: orgId,
+            title: 'Umezidi kikomo cha wafanyakazi',
+            body: `Una wafanyakazi ${activeCount} lakini kifurushi chako kinaruhusu ${cap}. Ondoa ${activeCount - cap} ndani ya siku ${STAFF_OVERQUOTA_GRACE_DAYS} au wote watazuiliwa.`,
+            type: 'STAFF_OVER_QUOTA',
+            metadata: { current: activeCount, cap },
+          });
+        } catch (_) {}
+      } else {
+        const graceEnd = new Date(new Date(org.staffOverQuotaSince).getTime()
+          + STAFF_OVERQUOTA_GRACE_DAYS * 24 * 60 * 60 * 1000);
+        if (new Date() > graceEnd) {
+          // Disable ALL staff for this org.
+          const links = await OrgStaffLink.find({ org: orgId, status: 'ACTIVE' });
+          for (const link of links) {
+            link.status = 'DISABLED';
+            link.disabledAt = new Date();
+            link.disabledReason = 'Org exceeded staff quota for 5+ days';
+            await link.save();
+            try {
+              await Notification.create({
+                userId: link.staff,
+                title: 'Ushirikiano wa mfanyakazi umezuiliwa',
+                body: 'Taasisi imezidi kikomo cha wafanyakazi. Wasiliana nao.',
+                type: 'STAFF_DISABLED',
+                metadata: { linkId: link._id.toString() },
+              });
+            } catch (_) {}
+          }
+          await User.updateOne({ _id: orgId },
+            { $unset: { staffOverQuotaSince: 1 } });
+        }
+      }
+    }
+  } catch (err) {
+    console.log('[scheduler] staff quota sweep failed:', err.message);
+  }
+};
+
 // Run every day at 8:00 AM
 cron.schedule('0 8 * * *', runDailyCheck);
+cron.schedule('30 8 * * *', runStaffQuotaSweep);
 
 // Run on the 1st of every month at 7:00 AM
 cron.schedule('0 7 1 * *', runMonthlyProgressReports);
@@ -164,4 +241,9 @@ cron.schedule('0 */6 * * *', runSubscriptionLapseSweep);
 
 console.log('Scheduler started — daily 8:00, monthly-reports 1st 7:00, lapse-sweep every 6h');
 
-module.exports = { runDailyCheck, runMonthlyProgressReports, runSubscriptionLapseSweep };
+module.exports = {
+  runDailyCheck,
+  runMonthlyProgressReports,
+  runSubscriptionLapseSweep,
+  runStaffQuotaSweep,
+};

@@ -125,14 +125,33 @@ router.post(BASE, async (req, res) => {
       return res.status(400).json({ error: 'title, organizer, startDate, location and gender are required' });
     }
 
-    // Tier gate for COACH / ACADEMY / CLUB organizers. Team-based trial
-    // cap (Academies or Both) also applies to ACADEMY + CLUB.
+    // Tier gate for COACH / ACADEMY / CLUB / AGENT organizers. Also
+    // GUARDIAN callers who are delegated org staff — they inherit the
+    // org tier via getEffectiveContext.
     try {
+      // A GUARDIAN posting a trial routes through delegation: their
+      // effective context might be the org they staff. Otherwise the
+      // organizer field itself is the org user.
       const org = await User.findById(organizer).select('type').lean();
-      const orgType = org?.type;
+      let orgType = org?.type;
+      let ctx = null;
+      if (orgType === 'GUARDIAN') {
+        ctx = await Subscription.getEffectiveContext(organizer);
+        if (ctx?.delegated) {
+          orgType = ctx.userType;
+        } else {
+          // Bare guardian — GUARDIAN.FREE caps block trial creation.
+          return res.status(403).json({
+            error: 'Walezi hawaruhusiwi kuchapisha trials.',
+            reason: 'GUARDIAN_TRIAL_CREATION_BLOCKED',
+          });
+        }
+      }
       if (['COACH', 'ACADEMY', 'CLUB', 'AGENT'].includes(orgType)) {
-        const tier = await Subscription.getEffectiveTier(organizer, orgType);
-        const caps = FEATURE_CAPS[orgType]?.[tier] || {};
+        const tier = ctx?.delegated ? ctx.tier
+          : await Subscription.getEffectiveTier(organizer, orgType);
+        const caps = ctx?.delegated ? ctx.caps
+          : (FEATURE_CAPS[orgType]?.[tier] || {});
         if (caps.canPostTrials !== true && caps.canCreateTrials !== true) {
           return res.status(403).json({
             error: `Kifurushi cha ${tier} hakiruhusu kuchapisha trials. Boresha hadi Gold.`,
