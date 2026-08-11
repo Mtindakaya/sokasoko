@@ -91,6 +91,11 @@ router.get(`${BASE}/me`, async (req, res) => {
       agentStatus = await Subscription.getAgentEligibility(userId);
     }
 
+    let vendorStatus = null;
+    if (userType === 'VENDOR') {
+      vendorStatus = await Subscription.getVendorEligibility(userId);
+    }
+
     // Delegation snapshot — any user type can be a linked org staff.
     // For a GUARDIAN this is critical (their whole "coach powers" hinge on it).
     const delegation = await Subscription.resolveDelegatedTier(userId);
@@ -105,6 +110,7 @@ router.get(`${BASE}/me`, async (req, res) => {
       academyStatus,
       clubStatus,
       agentStatus,
+      vendorStatus,
       delegation, // null when not staff of any org
     });
   } catch (err) {

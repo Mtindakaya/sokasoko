@@ -144,7 +144,30 @@ const PRICES = {
       BIANNUAL:  { TZS: 40000, USD: null },
     },
   },
-  VENDOR:      { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
+  // VENDOR: four paid tiers. Key differentiator is ad space + reach.
+  // Enterprise pricing is negotiated (nulls; admin sets amount on activation).
+  VENDOR: {
+    STANDARD: {
+      MONTHLY:   { TZS: 30000,   USD: null },
+      QUARTERLY: { TZS: 75000,   USD: null },
+      BIANNUAL:  { TZS: 150000,  USD: null },
+    },
+    GOLD: {
+      MONTHLY:   { TZS: 100000,  USD: null },
+      QUARTERLY: { TZS: 250000,  USD: null },
+      BIANNUAL:  { TZS: 500000,  USD: null },
+    },
+    PLATINUM: {
+      MONTHLY:   { TZS: 300000,  USD: null },
+      QUARTERLY: { TZS: 750000,  USD: null },
+      BIANNUAL:  { TZS: 1500000, USD: null },
+    },
+    ENTERPRISE: {
+      MONTHLY:   { TZS: null, USD: null },
+      QUARTERLY: { TZS: null, USD: null },
+      BIANNUAL:  { TZS: null, USD: null },
+    },
+  },
   FIELD_OWNER: { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   // REFEREE: two age-based tiers. Server auto-picks MINOR vs ADULT from
   // user.dob at subscribe time; user does not choose. There is no free
@@ -473,6 +496,71 @@ const FEATURE_CAPS = {
       reachScope: 'NATIONAL',
     },
   },
+  // VENDOR: four tiers. Ad space + reach is the differentiator. Enterprise
+  // adds broadcast-to-all + guaranteed Sokasoko house-account slots.
+  // Product-listings and promo-slot caps are Vendor-specific — the
+  // consumers (advert routes, product listings) may not exist yet for
+  // some fields; caps stand and enforcement will follow when endpoints ship.
+  VENDOR: {
+    STANDARD: {
+      ai: 30,
+      productListings: 5,
+      promoSlotsPerMonth: 2,
+      homeFeedPostsPerMonth: 5,
+      flashSalesPerMonth: 0,
+      adInHomeFeed: false,
+      featuredInVendorDirectory: false,
+      analyticsLevel: 'BASIC',       // BASIC | ADVANCED | ADVANCED_EXPORT
+      canBroadcastToAll: false,
+      sokasokoAccountSlot: 'NONE',   // NONE | PRIORITY | GUARANTEED
+      reachScope: 'LOCAL',           // LOCAL | REGIONAL | NATIONAL
+      featuredPlacement: false,
+    },
+    GOLD: {
+      ai: 100,
+      productListings: 25,
+      promoSlotsPerMonth: 5,
+      homeFeedPostsPerMonth: 25,
+      flashSalesPerMonth: 1,
+      adInHomeFeed: true,
+      featuredInVendorDirectory: false,
+      analyticsLevel: 'BASIC',
+      canBroadcastToAll: false,
+      sokasokoAccountSlot: 'NONE',
+      reachScope: 'REGIONAL',
+      featuredPlacement: false,
+    },
+    PLATINUM: {
+      ai: 300,
+      productListings: 100,
+      promoSlotsPerMonth: 15,
+      homeFeedPostsPerMonth: 75,
+      flashSalesPerMonth: 4,
+      adInHomeFeed: true,
+      featuredInVendorDirectory: true,
+      analyticsLevel: 'ADVANCED',
+      canBroadcastToAll: false,
+      sokasokoAccountSlot: 'PRIORITY',
+      reachScope: 'NATIONAL',
+      featuredPlacement: true,
+    },
+    ENTERPRISE: {
+      ai: null,
+      aiFairUsePerHour: 30,
+      aiFairUsePerDay: 300,
+      productListings: null,
+      promoSlotsPerMonth: null,
+      homeFeedPostsPerMonth: null,
+      flashSalesPerMonth: null,
+      adInHomeFeed: true,
+      featuredInVendorDirectory: true,
+      analyticsLevel: 'ADVANCED_EXPORT',
+      canBroadcastToAll: true,
+      sokasokoAccountSlot: 'GUARANTEED',
+      reachScope: 'NATIONAL',
+      featuredPlacement: true,
+    },
+  },
   // SCHOOL: not subscription-eligible, but a fixed budget of delegated
   // sports-teacher seats is bundled with every school by fiat. Each of
   // those seats runs at COACH GOLD tier (see resolveDelegatedTier).
@@ -511,6 +599,7 @@ const COACH_TRIAL_DAYS = 30;
 const ACADEMY_TRIAL_DAYS = 30;
 const CLUB_TRIAL_DAYS = 30;
 const AGENT_TRIAL_DAYS = 30;
+const VENDOR_TRIAL_DAYS = 30;
 
 // Free promotion video slots per month per user type (legacy VENDOR feature).
 const FREE_PROMO_SLOTS = {
@@ -695,6 +784,7 @@ SubscriptionSchema.statics.getEffectiveTier = async function (userId, userType) 
     ACADEMY: ACADEMY_TRIAL_DAYS,
     CLUB:    CLUB_TRIAL_DAYS,
     AGENT:   AGENT_TRIAL_DAYS,
+    VENDOR:  VENDOR_TRIAL_DAYS,
   };
   if (trialTypes[userType]) {
     try {
@@ -726,6 +816,33 @@ SubscriptionSchema.statics.canPerformOfficialScouting = async function (userId) 
     return tier === 'GOLD' || tier === 'PLATINUM';
   }
   return false;
+};
+
+// Vendor eligibility snapshot — subscribed=true when on any paid tier
+// (Standard is paid too for VENDOR).
+SubscriptionSchema.statics.getVendorEligibility = async function (userId) {
+  const User = mongoose.model('User');
+  const [user, sub, tier] = await Promise.all([
+    User.findById(userId).select('createdAt').lean(),
+    this.getActiveSubscription(userId),
+    this.getEffectiveTier(userId, 'VENDOR'),
+  ]);
+  const subscribed = !!sub && ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE'].includes(sub.tier);
+  let trialActive = false;
+  let trialEndsAt = null;
+  if (!subscribed && user?.createdAt) {
+    trialEndsAt = new Date(new Date(user.createdAt).getTime()
+      + VENDOR_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    trialActive = trialEndsAt > new Date();
+  }
+  return {
+    tier,
+    subscribed,
+    subscription: sub || null,
+    trialActive,
+    trialEndsAt,
+    trialDays: VENDOR_TRIAL_DAYS,
+  };
 };
 
 // Agent eligibility snapshot — subscribed=true only for GOLD or ENTERPRISE.
@@ -1012,4 +1129,5 @@ module.exports = {
   ACADEMY_TRIAL_DAYS,
   CLUB_TRIAL_DAYS,
   AGENT_TRIAL_DAYS,
+  VENDOR_TRIAL_DAYS,
 };
