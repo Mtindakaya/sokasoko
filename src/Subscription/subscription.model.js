@@ -31,10 +31,10 @@ const STATUS = ['ACTIVE', 'GRACE', 'EXPIRED', 'PENDING', 'CANCELLED'];
 // User types subject to subscription tiers.
 const SUBSCRIPTION_ELIGIBLE_TYPES = [
   'PLAYER', 'COACH', 'ACADEMY', 'CLUB', 'AGENT',
-  'REFEREE', 'SCOUT', 'VENDOR', 'FIELD_OWNER',
+  'REFEREE', 'SCOUT', 'VENDOR',
 ];
 // User types excluded from subscriptions entirely.
-const NON_SUBSCRIPTION_TYPES = ['GUARDIAN', 'SPONSOR', 'SCHOOL'];
+const NON_SUBSCRIPTION_TYPES = ['GUARDIAN', 'SPONSOR', 'SCHOOL', 'FIELD_OWNER'];
 
 // PRICES[userType][tier][plan][currency]. `null` = plan not offered for tier.
 // STANDARD is universally free. Only PLAYER tiers are locked as of 2026-08-09.
@@ -168,7 +168,6 @@ const PRICES = {
       BIANNUAL:  { TZS: null, USD: null },
     },
   },
-  FIELD_OWNER: { STANDARD: { MONTHLY: { TZS: 0, USD: 0 } } },
   // REFEREE: two age-based tiers. Server auto-picks MINOR vs ADULT from
   // user.dob at subscribe time; user does not choose. There is no free
   // STANDARD tier here — free access is granted via the game-count
