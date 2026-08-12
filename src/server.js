@@ -20,6 +20,7 @@ const VenueImportRouter = require('./Venue/venue.import.router');
 const ReservationRouter = require('./Reservation/reservation.http.router');
 const SubscriptionRouter = require('./Subscription/subscription.http.router');
 const OrgStaffRouter = require('./OrgStaff/org_staff.http.router');
+const OneTimePurchaseRouter = require('./OneTimePurchase/one_time_purchase.http.router');
 const MatchRouter = require('./Match/match.http.router');
 const TournamentRouter = require('./Tournament/tournament.http.router');
 const VenueRouter = require('./Venue/venue.http.router');
@@ -156,6 +157,7 @@ connect(MONGODB_URI, (error) => {
   app.use(TournamentRouter);
   app.use(SubscriptionRouter);
   app.use(OrgStaffRouter);
+  app.use(OneTimePurchaseRouter);
   app.use(MatchRouter);
   app.use(ScoutCvRouter);
   app.use(FeedRouter);

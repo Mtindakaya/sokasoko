@@ -6,6 +6,7 @@ const User = require('../User/user.model');
 const ReportRequest = require('./report_request.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
+const OneTimePurchase = require('../OneTimePurchase/one_time_purchase.model');
 
 // npm install pdfkit
 const PDFDocument = require('pdfkit');
@@ -57,9 +58,12 @@ router.post(BASE, async (req, res) => {
     }
 
     // COACH / ACADEMY tier gating (same rules for both).
-    // Standard  : cannot generate any reports.
+    // Standard  : cannot generate any reports on subscription — one-time
+    //             purchase available for Standard COACH/ACADEMY/CLUB/AGENT.
     // Gold      : PLAYER reports only (10/month cap on generation).
     // Platinum  : PLAYER + TEAM + MARKET reports, unlimited.
+    let viaPurchase = false;
+    let purchaseId = null;
     if (['COACH', 'ACADEMY', 'CLUB', 'AGENT'].includes(user.type) && !isSelfReport) {
       const utype = user.type;
       const tier = await Subscription.getEffectiveTier(requestedBy, utype);
@@ -84,26 +88,62 @@ router.post(BASE, async (req, res) => {
           allowed = tier === 'PLATINUM';
         }
       }
+      // Map reportType → one-time actionType for the soft-paywall path.
+      const oneTimeActionType = {
+        PLAYER: 'REPORT_PLAYER', TEAM: 'REPORT_TEAM',
+        MARKET: 'REPORT_MARKET', CUSTOM: 'REPORT_CUSTOM',
+      }[reportType];
+      if (!allowed && oneTimeActionType) {
+        // A PAID unconsumed purchase covers this report type.
+        const purchase = await OneTimePurchase.findConsumable(
+          requestedBy, oneTimeActionType);
+        if (purchase) {
+          viaPurchase = true;
+          purchaseId = purchase._id;
+          allowed = true;
+        }
+      }
       if (!allowed) {
-        return res.status(403).json({
-          error: `Kifurushi chako cha ${tier} hakiruhusu ripoti ya ${reportType}. Boresha kifurushi.`,
+        const eligibleTypes = oneTimeActionType
+          ? (OneTimePurchase.ELIGIBLE_TYPES[oneTimeActionType] || [])
+          : [];
+        const canOfferOneTime = !!oneTimeActionType
+          && tier === 'STANDARD'
+          && eligibleTypes.includes(utype);
+        const priceAmount = canOfferOneTime
+          ? OneTimePurchase.PRICES[oneTimeActionType]?.TZS : null;
+        const httpStatus = canOfferOneTime ? 402 : 403;
+        const suffix = canOfferOneTime
+          ? ' Chagua kuboresha kifurushi au kulipa TSh '
+            + priceAmount.toLocaleString('en-US') + ' kwa mara moja.'
+          : ' Boresha kifurushi.';
+        return res.status(httpStatus).json({
+          error: `Kifurushi chako cha ${tier} hakiruhusu ripoti ya ${reportType}.${suffix}`,
           reason: `${utype}_REPORT_TYPE_BLOCKED`,
           tier,
+          userType: utype,
+          canOfferOneTime,
+          oneTimePrice: canOfferOneTime
+            ? { amount: priceAmount, currency: 'TZS', actionType: oneTimeActionType }
+            : null,
         });
       }
-      // Meter monthly generation against the tier's cap.
-      const check = await SubscriptionUsage.consume({
-        user: requestedBy, userType: utype, feature: 'reportsGenerated',
-      });
-      if (!check.allowed) {
-        return res.status(429).json({
-          error: `Umefikia kikomo cha ${check.cap} ripoti kwa mwezi. Boresha hadi Platinum kwa matumizi bila kikomo.`,
-          reason: check.reason,
-          cap: check.cap,
-          tier: check.tier,
+      if (!viaPurchase) {
+        // Meter monthly generation against the tier's cap. One-time
+        // purchases bypass the monthly cap — they're per-action.
+        const check = await SubscriptionUsage.consume({
+          user: requestedBy, userType: utype, feature: 'reportsGenerated',
         });
+        if (!check.allowed) {
+          return res.status(429).json({
+            error: `Umefikia kikomo cha ${check.cap} ripoti kwa mwezi. Boresha hadi Platinum kwa matumizi bila kikomo.`,
+            reason: check.reason,
+            cap: check.cap,
+            tier: check.tier,
+          });
+        }
       }
-      price = 0; // subscribed callers don't pay per-report on top of tier.
+      price = 0; // subscribed / one-time callers don't pay per-report on top.
     }
 
     const reportRequest = await ReportRequest.create({
@@ -116,6 +156,16 @@ router.post(BASE, async (req, res) => {
       isSelfReport,
       price,
     });
+
+    // Consume the one-time purchase now that the report request exists.
+    if (viaPurchase && purchaseId) {
+      try {
+        await OneTimePurchase.consume(purchaseId, reportRequest._id);
+      } catch (e) {
+        console.log('[report-request] failed to consume purchase',
+          purchaseId, e.message);
+      }
+    }
 
     return res.status(201).json({ data: reportRequest });
   } catch (err) {

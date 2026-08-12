@@ -14,6 +14,7 @@ const TrialRegistration = require('./trial_registration.model');
 const User = require('../User/user.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 const { uploadFor } = require('../Utils/uploader');
+const OneTimePurchase = require('../OneTimePurchase/one_time_purchase.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -21,7 +22,9 @@ const BASE = `/v${API_VERSION.split('.')[0]}/clinics`;
 
 // Simple helper: is this user (or their delegated org context) allowed to
 // post clinics? Reuses the same context resolver that already handles
-// delegation for other org-scoped gates.
+// delegation for other org-scoped gates. Returns:
+//   { ok: true, tier, userType }
+//   { ok: false, reason, tier, userType, canOfferOneTime, oneTimePrice }
 async function canPostClinics(userId) {
   if (!userId) return { ok: false, reason: 'MISSING_ORGANIZER' };
   const ctx = await Subscription.getEffectiveContext(userId);
@@ -30,10 +33,28 @@ async function canPostClinics(userId) {
   if (caps.canPostClinics === true) {
     return { ok: true, tier: ctx.tier, userType: ctx.userType };
   }
+  // Check for a PAID one-time purchase that would unlock this action.
+  const purchase = await OneTimePurchase.findConsumable(userId, 'POST_CLINIC');
+  if (purchase) {
+    return {
+      ok: true, tier: ctx.tier, userType: ctx.userType,
+      viaPurchase: true, purchaseId: purchase._id,
+    };
+  }
+  // No sub, no purchase — is this user even eligible to buy?
+  const eligibleTypes = OneTimePurchase.ELIGIBLE_TYPES.POST_CLINIC || [];
+  const canOfferOneTime = ctx.tier === 'STANDARD'
+    && eligibleTypes.includes(ctx.userType);
   return {
     ok: false,
     reason: `${ctx.actualUserType || ctx.userType}_CLINIC_CREATION_BLOCKED`,
     tier: ctx.tier,
+    userType: ctx.userType,
+    canOfferOneTime,
+    oneTimePrice: canOfferOneTime
+      ? { amount: OneTimePurchase.PRICES.POST_CLINIC.TZS,
+          currency: 'TZS', actionType: 'POST_CLINIC' }
+      : null,
   };
 }
 
@@ -98,10 +119,20 @@ router.post(BASE, async (req, res) => {
     // Tier gate — enforce canPostClinics on the effective context.
     const gate = await canPostClinics(organizer);
     if (!gate.ok) {
-      return res.status(403).json({
-        error: `Kifurushi cha ${gate.tier || 'sasa'} hakiruhusu kuchapisha clinics. Boresha kifurushi.`,
+      // 402 Payment Required when a one-time purchase can unlock this.
+      // Otherwise fall back to a hard 403 upgrade wall.
+      const httpStatus = gate.canOfferOneTime ? 402 : 403;
+      const suffix = gate.canOfferOneTime
+        ? ' Chagua kuboresha kifurushi au kulipa TSh '
+          + gate.oneTimePrice.amount.toLocaleString('en-US') + ' kwa mara moja.'
+        : ' Boresha kifurushi.';
+      return res.status(httpStatus).json({
+        error: `Kifurushi cha ${gate.tier || 'sasa'} hakiruhusu kuchapisha clinics.${suffix}`,
         reason: gate.reason,
         tier: gate.tier,
+        userType: gate.userType,
+        canOfferOneTime: gate.canOfferOneTime,
+        oneTimePrice: gate.oneTimePrice,
       });
     }
 
@@ -119,6 +150,17 @@ router.post(BASE, async (req, res) => {
     }
 
     const clinic = await Trial.create(body);
+
+    // Consume the one-time purchase now that the resource exists.
+    if (gate.viaPurchase && gate.purchaseId) {
+      try {
+        await OneTimePurchase.consume(gate.purchaseId, clinic._id);
+      } catch (e) {
+        console.log('[clinic] failed to consume purchase',
+          gate.purchaseId, e.message);
+      }
+    }
+
     const populated = await Trial.findById(clinic._id)
       .populate('organizer', 'firstName lastName type academy_name profileImage accountNumber')
       .populate('leadCoach', 'firstName lastName type accountNumber profileImage');

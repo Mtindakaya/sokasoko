@@ -5,6 +5,7 @@ const TrialRegistration = require('./trial_registration.model');
 const { uploadFor } = require('../Utils/uploader');
 const User = require('../User/user.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
+const OneTimePurchase = require('../OneTimePurchase/one_time_purchase.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -14,6 +15,49 @@ function groupMaxAge(group) {
   if (!group || group.toUpperCase() === 'OPEN') return Infinity;
   const m = group.match(/\d+/);
   return m ? parseInt(m[0]) : Infinity;
+}
+
+// Mirror of clinic router's canPostClinics — returns caps + one-time
+// eligibility so the POST handler can respond with either 402
+// (soft: upgrade OR pay once) or 403 (hard: upgrade only).
+async function canPostTrials(userId) {
+  if (!userId) return { ok: false, reason: 'MISSING_ORGANIZER' };
+  const org = await User.findById(userId).select('type').lean();
+  const orgType = org?.type;
+  const ctx = await Subscription.getEffectiveContext(userId);
+  if (!ctx) return { ok: false, reason: 'USER_NOT_FOUND' };
+  // Bare guardian (no delegation) — hard block, not eligible for one-time.
+  if (orgType === 'GUARDIAN' && !ctx.delegated) {
+    return { ok: false, reason: 'GUARDIAN_TRIAL_CREATION_BLOCKED',
+      tier: ctx.tier, userType: 'GUARDIAN' };
+  }
+  const caps = ctx.caps || {};
+  if (caps.canPostTrials === true || caps.canCreateTrials === true) {
+    return { ok: true, tier: ctx.tier, userType: ctx.userType, caps };
+  }
+  // PAID unconsumed purchase covers this action.
+  const purchase = await OneTimePurchase.findConsumable(userId, 'POST_TRIAL');
+  if (purchase) {
+    return {
+      ok: true, tier: ctx.tier, userType: ctx.userType, caps,
+      viaPurchase: true, purchaseId: purchase._id,
+    };
+  }
+  const eligibleTypes = OneTimePurchase.ELIGIBLE_TYPES.POST_TRIAL || [];
+  const canOfferOneTime = ctx.tier === 'STANDARD'
+    && eligibleTypes.includes(ctx.userType);
+  return {
+    ok: false,
+    reason: `${ctx.userType}_TRIAL_CREATION_BLOCKED`,
+    tier: ctx.tier,
+    userType: ctx.userType,
+    caps,
+    canOfferOneTime,
+    oneTimePrice: canOfferOneTime
+      ? { amount: OneTimePurchase.PRICES.POST_TRIAL.TZS,
+          currency: 'TZS', actionType: 'POST_TRIAL' }
+      : null,
+  };
 }
 
 // Convert scouts array from plain IDs to {scout, status} objects
@@ -126,58 +170,59 @@ router.post(BASE, async (req, res) => {
       return res.status(400).json({ error: 'title, organizer, startDate, location and gender are required' });
     }
 
-    // Tier gate for COACH / ACADEMY / CLUB / AGENT organizers. Also
-    // GUARDIAN callers who are delegated org staff — they inherit the
-    // org tier via getEffectiveContext.
-    try {
-      // A GUARDIAN posting a trial routes through delegation: their
-      // effective context might be the org they staff. Otherwise the
-      // organizer field itself is the org user.
-      const org = await User.findById(organizer).select('type').lean();
-      let orgType = org?.type;
-      let ctx = null;
-      if (orgType === 'GUARDIAN') {
-        ctx = await Subscription.getEffectiveContext(organizer);
-        if (ctx?.delegated) {
-          orgType = ctx.userType;
-        } else {
-          // Bare guardian — GUARDIAN.FREE caps block trial creation.
-          return res.status(403).json({
-            error: 'Walezi hawaruhusiwi kuchapisha trials.',
-            reason: 'GUARDIAN_TRIAL_CREATION_BLOCKED',
-          });
-        }
+    // Tier gate — canPostTrials on the effective (possibly delegated)
+    // context. Standard-tier COACH/ACADEMY/CLUB/AGENT get a 402 with a
+    // one-time price; everyone else who can't post gets a hard 403.
+    const gate = await canPostTrials(organizer);
+    if (!gate.ok) {
+      if (gate.reason === 'GUARDIAN_TRIAL_CREATION_BLOCKED') {
+        return res.status(403).json({
+          error: 'Walezi hawaruhusiwi kuchapisha trials.',
+          reason: gate.reason,
+        });
       }
-      if (['COACH', 'ACADEMY', 'CLUB', 'AGENT'].includes(orgType)) {
-        const tier = ctx?.delegated ? ctx.tier
-          : await Subscription.getEffectiveTier(organizer, orgType);
-        const caps = ctx?.delegated ? ctx.caps
-          : (FEATURE_CAPS[orgType]?.[tier] || {});
-        if (caps.canPostTrials !== true && caps.canCreateTrials !== true) {
-          return res.status(403).json({
-            error: `Kifurushi cha ${tier} hakiruhusu kuchapisha trials. Boresha hadi Gold.`,
-            reason: `${orgType}_TRIAL_CREATION_BLOCKED`,
-            tier,
-          });
-        }
-        const teamBased = req.body.trialFor === 'Academies' || req.body.trialFor === 'Both';
-        if (teamBased && (orgType === 'ACADEMY' || orgType === 'CLUB')) {
-          const capTeams = caps.maxTeamBasedTrialTeams;
-          if (capTeams != null && (req.body.maxParticipants || 0) > capTeams) {
-            return res.status(403).json({
-              error: `Kifurushi cha ${tier} kinaruhusu timu hadi ${capTeams} tu kwenye trial ya team-based. Boresha hadi Platinum.`,
-              reason: `${orgType}_TRIAL_TEAM_LIMIT`,
-              tier,
-              maxTeamBasedTrialTeams: capTeams,
-            });
-          }
-        }
+      const httpStatus = gate.canOfferOneTime ? 402 : 403;
+      const suffix = gate.canOfferOneTime
+        ? ' Chagua kuboresha kifurushi au kulipa TSh '
+          + gate.oneTimePrice.amount.toLocaleString('en-US') + ' kwa mara moja.'
+        : ' Boresha hadi Gold.';
+      return res.status(httpStatus).json({
+        error: `Kifurushi cha ${gate.tier || 'sasa'} hakiruhusu kuchapisha trials.${suffix}`,
+        reason: gate.reason,
+        tier: gate.tier,
+        userType: gate.userType,
+        canOfferOneTime: gate.canOfferOneTime,
+        oneTimePrice: gate.oneTimePrice,
+      });
+    }
+    // Team-based trial cap still applies even after the base gate passes.
+    const teamBased = req.body.trialFor === 'Academies' || req.body.trialFor === 'Both';
+    if (teamBased && (gate.userType === 'ACADEMY' || gate.userType === 'CLUB')) {
+      const capTeams = gate.caps?.maxTeamBasedTrialTeams;
+      if (capTeams != null && (req.body.maxParticipants || 0) > capTeams) {
+        return res.status(403).json({
+          error: `Kifurushi cha ${gate.tier} kinaruhusu timu hadi ${capTeams} tu kwenye trial ya team-based. Boresha hadi Platinum.`,
+          reason: `${gate.userType}_TRIAL_TEAM_LIMIT`,
+          tier: gate.tier,
+          maxTeamBasedTrialTeams: capTeams,
+        });
       }
-    } catch (_) { /* fall through — don't block on org lookup failures */ }
+    }
 
     const body = { ...req.body };
     if (body.scouts) body.scouts = normalizeScouts(body.scouts);
     const trial = await Trial.create(body);
+
+    // Consume the one-time purchase now that the resource exists.
+    if (gate.viaPurchase && gate.purchaseId) {
+      try {
+        await OneTimePurchase.consume(gate.purchaseId, trial._id);
+      } catch (e) {
+        console.log('[trial] failed to consume purchase',
+          gate.purchaseId, e.message);
+      }
+    }
+
     const populated = await Trial.findById(trial._id)
       .populate('organizer', 'firstName lastName type academyName profileImage accountNumber')
       .populate('scouts.scout', 'firstName lastName type academyName accountNumber profileImage');
