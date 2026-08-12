@@ -13,6 +13,7 @@ const Trial = require('./trial.model');
 const TrialRegistration = require('./trial_registration.model');
 const User = require('../User/user.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
+const { uploadFor } = require('../Utils/uploader');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -203,19 +204,33 @@ router.post(`${BASE}/:id/staff/:coachId/respond`, async (req, res) => {
   }
 });
 
-// POST /v1/clinics/:id/enrol — enrol a player. Enforces guardian consent
-// + medical declaration for minors when the clinic requires them.
-router.post(`${BASE}/:id/enrol`, async (req, res) => {
+// POST /v1/clinics/:id/enrol — enrol a player. Accepts multipart so the
+// caller can upload dobDocument, passportPhoto, and medicalDeclaration
+// files inline; uploadFor() replaces each file field with a URL string
+// on req.body before we read the fields. Also accepts JSON with URL
+// strings directly (already-uploaded docs). Enforces guardian consent +
+// mandatory doc set when the clinic requires them.
+router.post(`${BASE}/:id/enrol`, uploadFor(), async (req, res) => {
   try {
     const clinic = await Trial.findOne({ _id: req.params.id, eventType: 'CLINIC' });
     if (!clinic) return res.status(404).json({ error: 'Clinic not found' });
 
+    // guardianConsent + emergencyContact may arrive as JSON strings when
+    // submitted via multipart — parse defensively.
+    for (const k of ['guardianConsent', 'emergencyContact']) {
+      if (typeof req.body[k] === 'string') {
+        try { req.body[k] = JSON.parse(req.body[k]); } catch (_) {}
+      }
+    }
     const {
       playerId, academyId, registrantType = 'PLAYER', selectedAgeGroup,
-      dobDocument, passportPhoto, medicalDeclarationUrl,
+      dobDocument, passportPhoto, medicalDeclaration, medicalDeclarationUrl,
       guardianConsent = {}, emergencyContact = {}, medicalNotes,
       hasMedicalCondition,
     } = req.body;
+    // `medicalDeclaration` is the multipart file field; the middleware
+    // stashes its URL there. Fall back to explicit URL field for JSON callers.
+    const medicalUrl = medicalDeclaration || medicalDeclarationUrl;
 
     if (registrantType === 'PLAYER' && !playerId) {
       return res.status(400).json({ error: 'playerId is required for player registration' });
@@ -231,7 +246,7 @@ router.post(`${BASE}/:id/enrol`, async (req, res) => {
         reason: 'GUARDIAN_CONSENT_REQUIRED',
       });
     }
-    if (clinic.requiresMedicalDeclaration && !medicalDeclarationUrl) {
+    if (clinic.requiresMedicalDeclaration && !medicalUrl) {
       return res.status(400).json({
         error: 'Tamko la kimatibabu linahitajika kwa clinic hii.',
         reason: 'MEDICAL_DECLARATION_REQUIRED',
@@ -244,18 +259,23 @@ router.post(`${BASE}/:id/enrol`, async (req, res) => {
       });
     }
 
+    const consentGiven = guardianConsent.given === true
+      || guardianConsent.given === 'true';
     const reg = await TrialRegistration.create({
       eventType: 'CLINIC',
       trialId: clinic._id,
       playerId, academyId, registrantType, selectedAgeGroup,
-      dobDocument, passportPhoto, medicalDeclarationUrl,
+      dobDocument, passportPhoto,
+      medicalDeclarationUrl: medicalUrl,
       guardianConsent: {
         ...guardianConsent,
-        givenAt: guardianConsent.given ? new Date() : null,
+        given: consentGiven,
+        givenAt: consentGiven ? new Date() : null,
       },
       emergencyContact,
       medicalNotes,
-      hasMedicalCondition: !!hasMedicalCondition,
+      hasMedicalCondition: hasMedicalCondition === true
+        || hasMedicalCondition === 'true',
       status: 'pending',
     });
     return res.status(201).json({ data: reg });
