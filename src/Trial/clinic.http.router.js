@@ -281,26 +281,10 @@ router.post(`${BASE}/:id/enrol`, uploadFor(), async (req, res) => {
       return res.status(400).json({ error: 'academyId is required for academy registration' });
     }
 
-    // Safeguarding — enforce mandatory upload of the docs the clinic requires.
-    if (clinic.requiresGuardianConsent && !guardianConsent.given) {
-      return res.status(400).json({
-        error: 'Kibali cha mlezi kinahitajika kwa clinic hii.',
-        reason: 'GUARDIAN_CONSENT_REQUIRED',
-      });
-    }
-    if (clinic.requiresMedicalDeclaration && !medicalUrl) {
-      return res.status(400).json({
-        error: 'Tamko la kimatibabu linahitajika kwa clinic hii.',
-        reason: 'MEDICAL_DECLARATION_REQUIRED',
-      });
-    }
-    if (!dobDocument || !passportPhoto) {
-      return res.status(400).json({
-        error: 'DOB certificate na passport photo zinahitajika.',
-        reason: 'IDENTITY_DOCS_REQUIRED',
-      });
-    }
-
+    // Safeguarding is ADVISORY — the organizer publishes what they want
+    // attendees to bring; we store whatever gets uploaded but do not
+    // hard-block registration on missing docs. Verification (Usahili/
+    // Uhakiki) is a separate paid service that is not enforced here.
     const consentGiven = guardianConsent.given === true
       || guardianConsent.given === 'true';
     const reg = await TrialRegistration.create({

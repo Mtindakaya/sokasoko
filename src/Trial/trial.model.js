@@ -113,9 +113,18 @@ const TrialSchema = new Schema({
   currency:        { type: String, enum: ['TZS', 'KES', 'UGX', 'RWF'], default: 'TZS' },
   allowInstalments:{ type: Boolean, default: false },
 
-  // Safeguarding — mandatory for CLINIC, honoured but optional for TRIAL
+  // Safeguarding — ADVISORY ONLY. The bool flags are surfaced to
+  // registrants as hints; the enrol handler does not hard-block on
+  // missing docs. SokaSoko-run verification (Usahili/Uhakiki) is a
+  // separate paid service and is not enforced from these fields.
   requiresGuardianConsent:    { type: Boolean, default: true },
   requiresMedicalDeclaration: { type: Boolean, default: true },
+  // Free-text safeguarding notes the organizer wants public
+  // (e.g. "Bring parent contact number, kit, water").
+  safeguardingNotes: { type: String, trim: true, default: '' },
+  // Extra documents the organizer expects attendees to bring on the
+  // day. Displayed publicly; upload during enrol is optional.
+  requiredDocuments: [{ type: String, trim: true }],
 }, { timestamps: true });
 
 TrialSchema.index({ startDate: 1 });
