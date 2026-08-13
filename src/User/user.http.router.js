@@ -258,27 +258,77 @@ router.get(PATH_LIST, async (req, res) => {
   }
 });
 
+// Type keyword lookup. Lets a plain-text search like "vendor" or "coaches"
+// return every user of that type, not just names that happen to contain the
+// word. Add singular + plural + common Kiswahili synonyms per row.
+const TYPE_KEYWORDS = {
+  PLAYER:      ['player', 'players', 'mchezaji', 'wachezaji'],
+  COACH:       ['coach', 'coaches', 'mkocha', 'makocha'],
+  ACADEMY:     ['academy', 'academies', 'akademia'],
+  SCHOOL:      ['school', 'schools', 'shule'],
+  CLUB:        ['club', 'clubs', 'timu'],
+  VENDOR:      ['vendor', 'vendors', 'muuzaji', 'wauzaji'],
+  GUARDIAN:    ['guardian', 'guardians', 'mzazi', 'wazazi'],
+  REFEREE:     ['referee', 'referees', 'ref', 'refs', 'mwamuzi', 'waamuzi'],
+  AGENT:       ['agent', 'agents', 'wakala', 'mawakala'],
+  SPONSOR:     ['sponsor', 'sponsors', 'mfadhili', 'wafadhili'],
+  SCOUT:       ['scout', 'scouts', 'skauti'],
+  FIELD_OWNER: ['field owner', 'field_owner', 'ground owner'],
+  OTHERS:      ['other', 'others'],
+};
+
+function typeFromKeyword(text) {
+  const q = String(text || '').trim().toLowerCase();
+  if (!q) return null;
+  for (const [type, aliases] of Object.entries(TYPE_KEYWORDS)) {
+    if (aliases.includes(q)) return type;
+  }
+  return null;
+}
+
 router.get(PATH_SEARCH, async (request, response) => {
   const { mquery } = request;
-  const query = _.get(mquery, 'filter.text', '') || _.get(request, 'query.filter.text', '');
+  // The Flutter client sends `?query[text]=…` (via Dio's nested map
+  // serializer). express-mquery only parses filter/select/etc., so
+  // mquery.filter.text is empty in that case — fall back to the raw
+  // request.query.query.text. Keep filter.text lookups too for older
+  // callers that use `?filter[text]=…`.
+  const query = _.get(mquery, 'filter.text', '')
+    || _.get(request, 'query.filter.text', '')
+    || _.get(request, 'query.query.text', '')
+    || _.get(request, 'query.q', '');
   const requestingUserId = _.get(request, 'query.viewerId');
   const limit = Math.min(parseInt(_.get(request, 'query.limit', '50')), 100);
-  const typeFilter = request.query.type ? { type: request.query.type } : {};
+  // Explicit ?type= wins; otherwise infer a type from the query keyword
+  // (e.g. "vendors" → VENDOR) so typing a role name lists every user of
+  // that role. Falls back to the regex name/entity match when no keyword
+  // hits.
+  const explicitType = request.query.type;
+  const inferredType = explicitType ? null : typeFromKeyword(query);
+  const typeFilter = explicitType
+    ? { type: explicitType }
+    : (inferredType ? { type: inferredType } : {});
 
   try {
-    const data = await User.find({
-      $or: [
-        { firstName: { $regex: query, $options: 'i' } },
-        { lastName: { $regex: query, $options: 'i' } },
-        { accountNumber: { $regex: query, $options: 'i' } },
-        { academy_name: { $regex: query, $options: 'i' } },
-        { company_name: { $regex: query, $options: 'i' } },
-        { entity_name: { $regex: query, $options: 'i' } },
-      ],
+    const baseFilter = {
       suspend: { $ne: true },
       isSystemAgent: { $ne: true },
       ...typeFilter,
-    })
+    };
+    const finalFilter = inferredType
+      ? baseFilter
+      : {
+          ...baseFilter,
+          $or: [
+            { firstName: { $regex: query, $options: 'i' } },
+            { lastName: { $regex: query, $options: 'i' } },
+            { accountNumber: { $regex: query, $options: 'i' } },
+            { academy_name: { $regex: query, $options: 'i' } },
+            { company_name: { $regex: query, $options: 'i' } },
+            { entity_name: { $regex: query, $options: 'i' } },
+          ],
+        };
+    const data = await User.find(finalFilter)
       .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor')
       .limit(limit)
       .lean();
