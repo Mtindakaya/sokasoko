@@ -229,9 +229,52 @@ router.post(CurrentAdvertTimer, postFor({
   },
 }));
 
-router.patch(PATH_SINGLE, uploadFor(), patchFor({
-  patch: (body, done) => Advert.patch(body, done),
-}));
+// PATCH /v1/adverts/:id — owner-only. Same ownership rule as DELETE:
+// pass ?advertiser=<userId> so we can verify without session state.
+// House ads (no advertiser stored) are treated as CMS-editable and any
+// caller may patch them.
+router.patch(PATH_SINGLE, uploadFor(), async (req, res) => {
+  try {
+    const advertiserId = req.query.advertiser || req.body.advertiser;
+    const existing = await Advert.findById(req.params.id).lean();
+    if (!existing) return res.status(404).json({ error: 'advert not found' });
+    if (existing.advertiser
+        && advertiserId
+        && String(existing.advertiser) !== String(advertiserId)) {
+      return res.status(403).json({ error: 'not your advert' });
+    }
+
+    const body = req.body || {};
+    // Only allow these fields to be changed via edit — advertiser +
+    // advertiserTier are pinned at create time.
+    const editable = [
+      'title', 'description', 'link', 'adType', 'videoUrl',
+      'advertiserName', 'targetAudience', 'startDate', 'endDate',
+    ];
+    const update = {};
+    for (const k of editable) {
+      if (body[k] !== undefined) update[k] = body[k];
+    }
+    // Multipart photo swap.
+    if (req.file && req.file.path) update.photo = req.file.path;
+    // Same string→array coercion the POST path uses.
+    if (typeof update.targetAudience === 'string') {
+      try {
+        const parsed = JSON.parse(update.targetAudience);
+        update.targetAudience = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        update.targetAudience = [];
+      }
+    }
+
+    const patched = await Advert.findByIdAndUpdate(
+      req.params.id, { $set: update }, { new: true }
+    );
+    return res.status(200).json({ data: patched });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 router.put(PATH_SINGLE, uploadFor(), putFor({
   put: (body, done) => Advert.put(body, done),
