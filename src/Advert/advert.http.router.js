@@ -197,6 +197,18 @@ router.post(PATH_LIST, uploadFor(), async (req, res) => {
     body.advertiser = advertiserId;
     body.advertiserTier = tier;
 
+    // Multipart form fields arrive as strings. Mongoose would cast the
+    // JSON string into a one-element [String] array before the pre-save
+    // hook can normalise it — so parse here first.
+    if (typeof body.targetAudience === 'string') {
+      try {
+        const parsed = JSON.parse(body.targetAudience);
+        body.targetAudience = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        body.targetAudience = [];
+      }
+    }
+
     const created = await Advert.create(body);
     return res.status(201).json(created);
   } catch (err) {
