@@ -26,6 +26,11 @@ const MediaSchema = new Schema(
       required: false,
       autopopulate: true,
     },
+    // Feed-boost window. When set and in the future, the /v1/feed
+    // sampler surfaces this post ahead of the non-boosted rotation.
+    // Consumes one Subscription.promoSlotsUsed on write (see POST
+    // /v1/medias/:id/boost). Cleared naturally on expiry — no cron.
+    boostedUntil: { type: Date, default: null, index: true },
   },
   {
     id: false,

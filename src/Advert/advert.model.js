@@ -11,13 +11,23 @@ const AdvertSchema = new Schema({
   adType: { type: String, enum: ['IMAGE', 'VIDEO'], default: 'IMAGE' },
   videoUrl: { type: String },
   link: { type: String },
+  // Owner of the advert. VENDOR-only for now — tier gate is enforced in
+  // the POST handler against the vendor's concurrent-adverts cap.
+  advertiser: { type: Schema.Types.ObjectId, ref: 'User', index: true },
   advertiserName: { type: String },
+  // Cached at write time so we can weight feed selection without a
+  // per-request Subscription lookup. Snapshot only — the source of truth
+  // stays on the Subscription record.
+  advertiserTier: {
+    type: String,
+    enum: ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE'],
+  },
   startDate: { type: Date },
   endDate: { type: Date },
   targetAudience: { type: [String], default: [] },
   impressionCount: { type: Number, default: 0 },
   clickCount: { type: Number, default: 0 },
-});
+}, { timestamps: true });
 
 AdvertSchema.pre('save', function preValidate(done) {
   return this.preValidate(done);

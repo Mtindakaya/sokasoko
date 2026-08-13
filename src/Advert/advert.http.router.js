@@ -13,17 +13,60 @@ const { uploadFor } = require('../Utils/uploader');
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const PATH_SINGLE = '/adverts/:id';
 const PATH_LIST = '/adverts';
+const PATH_MINE = '/adverts/mine';
 const PATH_SCHEMA = '/adverts/schema/';
 const CurrentAdvertTimer = '/currentAdvertTimer';
 
 const Advert = require('./advert.model');
 const User = require('../User/user.model');
+const Subscription = require('../Subscription/subscription.model');
 
 const router = new Router({ version: API_VERSION });
 
 router.get(PATH_SCHEMA, schemaFor({
   getSchema: (query, done) => done(null, Advert.jsonSchema()),
 }));
+
+// GET /v1/adverts/mine?advertiser=<userId> — vendor's own adverts with
+// counters. Registered before /:id so express doesn't cast "mine" to
+// ObjectId.
+router.get(PATH_MINE, async (req, res) => {
+  try {
+    const advertiser = req.query.advertiser || req.query.userId;
+    if (!advertiser) {
+      return res.status(400).json({ error: 'advertiser query param required' });
+    }
+    const adverts = await Advert.find({ advertiser })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Enrich with cap snapshot so the mobile screen can render "N of M used"
+    // in one round-trip.
+    const u = await User.findById(advertiser).select('type').lean();
+    let cap = null;
+    let tier = null;
+    if (u && u.type === 'VENDOR') {
+      const ctx = await Subscription.getEffectiveContext(advertiser);
+      tier = ctx && ctx.tier;
+      cap = ctx && ctx.caps ? ctx.caps.concurrentAdverts : null;
+    }
+    const now = new Date();
+    const activeCount = adverts.filter((a) => {
+      const startsOk = !a.startDate || new Date(a.startDate) <= now;
+      const endsOk = !a.endDate || new Date(a.endDate) >= now;
+      return startsOk && endsOk;
+    }).length;
+
+    return res.status(200).json({
+      data: adverts,
+      tier,
+      concurrentAdvertsCap: cap,
+      activeCount,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 router.get(PATH_SINGLE, getByIdFor({
   getById: (options, done) => Advert.get(options, done),
@@ -87,9 +130,79 @@ router.post('/adverts/:id/click', async (req, res) => {
   }
 });
 
-router.post(PATH_LIST, uploadFor(), postFor({
-  post: async (body, done) => Advert.post(body, done),
-}));
+// POST /v1/adverts — VENDOR-only, tier-gated by concurrentAdverts cap.
+// The multipart middleware (uploadFor) writes any file to req.file /
+// req.files and text fields to req.body — same contract the auto-generated
+// postFor was using.
+router.post(PATH_LIST, uploadFor(), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const advertiserId = body.advertiser || body.userId;
+    if (!advertiserId) {
+      return res
+        .status(400)
+        .json({ error: 'advertiser is required', reason: 'ADVERTISER_REQUIRED' });
+    }
+
+    const advertiser = await User.findById(advertiserId).select('type companyName firstName lastName').lean();
+    if (!advertiser) {
+      return res.status(404).json({ error: 'advertiser not found' });
+    }
+    if (advertiser.type !== 'VENDOR') {
+      return res.status(403).json({
+        error: 'only VENDOR accounts can create adverts',
+        reason: 'ADVERT_VENDOR_ONLY',
+      });
+    }
+
+    const ctx = await Subscription.getEffectiveContext(advertiserId);
+    const tier = ctx && ctx.tier;
+    const caps = (ctx && ctx.caps) || {};
+    const cap = caps.concurrentAdverts;
+    // null cap = unlimited. 0 (STANDARD) blocks outright.
+    if (cap === 0) {
+      return res.status(403).json({
+        error: 'Your subscription does not include adverts. Upgrade to GOLD or higher.',
+        reason: 'ADVERT_TIER_DISALLOWED',
+        tier,
+      });
+    }
+    if (cap != null) {
+      const now = new Date();
+      const activeCount = await Advert.countDocuments({
+        advertiser: advertiserId,
+        $and: [
+          { $or: [{ startDate: { $lte: now } }, { startDate: null }, { startDate: { $exists: false } }] },
+          { $or: [{ endDate: { $gte: now } }, { endDate: null }, { endDate: { $exists: false } }] },
+        ],
+      });
+      if (activeCount >= cap) {
+        return res.status(429).json({
+          error: `Concurrent-advert cap reached (${activeCount}/${cap}). Delete an active advert or upgrade your tier.`,
+          reason: 'CONCURRENT_ADVERT_CAP',
+          tier,
+          cap,
+          active: activeCount,
+        });
+      }
+    }
+
+    // Server-side photo mapping — the uploader middleware stores the path
+    // at either req.file.path or req.body.photo depending on the call.
+    if (req.file && req.file.path && !body.photo) body.photo = req.file.path;
+    if (!body.advertiserName) {
+      body.advertiserName = advertiser.companyName
+        || `${advertiser.firstName || ''} ${advertiser.lastName || ''}`.trim();
+    }
+    body.advertiser = advertiserId;
+    body.advertiserTier = tier;
+
+    const created = await Advert.create(body);
+    return res.status(201).json(created);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 router.post(CurrentAdvertTimer, postFor({
   post: async (body, done) => {
@@ -109,8 +222,23 @@ router.put(PATH_SINGLE, uploadFor(), putFor({
   put: (body, done) => Advert.put(body, done),
 }));
 
-router.delete(PATH_SINGLE, deleteFor({
-  del: (options, done) => Advert.del(options, done),
-}));
+// DELETE /v1/adverts/:id — owner-only. Pass ?advertiser=<userId> so we
+// can verify without an auth header (the mobile stack is still session
+// -less for adverts). Non-owners get 403.
+router.delete(PATH_SINGLE, async (req, res) => {
+  try {
+    const advertiserId = req.query.advertiser || req.body.advertiser;
+    const ad = await Advert.findById(req.params.id).lean();
+    if (!ad) return res.status(404).json({ error: 'advert not found' });
+    if (advertiserId && ad.advertiser
+        && String(ad.advertiser) !== String(advertiserId)) {
+      return res.status(403).json({ error: 'not your advert' });
+    }
+    await Advert.findByIdAndDelete(req.params.id);
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;

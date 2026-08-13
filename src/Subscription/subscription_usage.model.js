@@ -17,6 +17,7 @@ const FEATURE_CAP_FIELDS = {
   homeFeedPosts:       'homeFeedPostsPerMonth',               // ACADEMY: outbound posts
   evaluationsReceived: 'evaluationsReceivedPerMonth',
   evaluationRequests:  'evaluationRequestsInitiatedPerMonth',
+  promoSlots:          'promoSlotsPerMonth',                  // VENDOR: post-boosts + flash-sale spend
 };
 
 const FEATURES = Object.keys(FEATURE_CAP_FIELDS);
@@ -45,6 +46,7 @@ const SubscriptionUsageSchema = new Schema(
     homeFeedPosts:       { type: Number, default: 0 },
     evaluationsReceived: { type: Number, default: 0 },
     evaluationRequests:  { type: Number, default: 0 },
+    promoSlots:          { type: Number, default: 0 },
     // Auto-cleanup for short-lived DAY/HOUR docs.
     expiresAt: { type: Date, default: null, index: { expires: 0 } },
   },

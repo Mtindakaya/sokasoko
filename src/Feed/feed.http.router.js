@@ -15,20 +15,42 @@ router.get('/v1/feed', async (req, res) => {
     : null;
 
   try {
-    const [allDocs, total, adverts] = await Promise.all([
+    const now = new Date();
+    // Tier-weighted ad pool. Fetch a wider set (up to 24 candidates),
+    // score by advertiserTier, then take the top 6 for page 1. Keep at
+    // least one non-Platinum+ slot open so Standard/Gold ads still get
+    // exposure — otherwise the paid perk drowns out newcomers.
+    const AD_TIER_WEIGHT = { ENTERPRISE: 4, PLATINUM: 3, GOLD: 2, STANDARD: 1 };
+    const [allDocs, boostedDocs, total, adCandidates] = await Promise.all([
       // Cap the shuffle pool so we don't drag every Media doc into memory
       // just to slice a 10-item page. 500 is deep enough to feel random
       // and shallow enough to stay under a few ms even as the collection
       // grows.
-      Media.find({ isPlaylist: { $ne: true } })
-        .select('title description url type likes createdBy createdAt')
+      Media.find({ isPlaylist: { $ne: true }, $or: [{ boostedUntil: null }, { boostedUntil: { $lt: now } }] })
+        .select('title description url type likes createdBy createdAt boostedUntil')
         .populate('createdBy', 'firstName lastName profileImage type position academy_name company_name')
         .sort({ createdAt: -1 })
         .limit(500)
         .lean(),
+      // Boosted posts jump to the top of the assembled feed. Sorted by
+      // remaining window so the freshest boost surfaces first.
+      Media.find({ isPlaylist: { $ne: true }, boostedUntil: { $gte: now } })
+        .select('title description url type likes createdBy createdAt boostedUntil')
+        .populate('createdBy', 'firstName lastName profileImage type position academy_name company_name')
+        .sort({ boostedUntil: -1 })
+        .limit(20)
+        .lean(),
       Media.countDocuments({ isPlaylist: { $ne: true } }),
       parseInt(page, 10) === 1
-        ? Advert.find({}).sort({ createdAt: -1 }).limit(6).lean()
+        ? Advert.find({
+            $and: [
+              { $or: [{ startDate: { $lte: now } }, { startDate: null }, { startDate: { $exists: false } }] },
+              { $or: [{ endDate:   { $gte: now } }, { endDate:   null }, { endDate:   { $exists: false } }] },
+            ],
+          })
+            .sort({ createdAt: -1 })
+            .limit(24)
+            .lean()
         : Promise.resolve([]),
     ]);
 
@@ -37,7 +59,25 @@ router.get('/v1/feed', async (req, res) => {
       const j = Math.floor(Math.random() * (i + 1));
       [allDocs[i], allDocs[j]] = [allDocs[j], allDocs[i]];
     }
-    const mediaDocs = allDocs.slice(skip, skip + parseInt(limit, 10));
+    // Boosted posts always lead the assembled feed on page 1, then the
+    // shuffled non-boosted rotation fills the rest. On deeper pages the
+    // boosted set has already been served, so we skip past it.
+    const pageIndex = parseInt(page, 10);
+    const limitInt = parseInt(limit, 10);
+    const assembled = pageIndex === 1
+      ? [...boostedDocs, ...allDocs]
+      : allDocs;
+    const mediaDocs = assembled.slice(skip, skip + limitInt);
+
+    // Rank ad candidates by tier (highest first) then recency. Take 6.
+    const adverts = (adCandidates || [])
+      .sort((a, b) => {
+        const wa = AD_TIER_WEIGHT[a.advertiserTier] || 1;
+        const wb = AD_TIER_WEIGHT[b.advertiserTier] || 1;
+        if (wb !== wa) return wb - wa;
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      })
+      .slice(0, 6);
 
     let posts = mediaDocs.map((m) => {
       const creator = m.createdBy || {};

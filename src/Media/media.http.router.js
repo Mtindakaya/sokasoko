@@ -140,6 +140,60 @@ router.get(
   })
 );
 
+// POST /v1/medias/:id/boost — VENDOR promo-slot spend. Extends the
+// post's boostedUntil window; feed sampler surfaces boosted posts at
+// the top of the rotation. Consumes one `promoSlots` unit for the
+// month (tracked by SubscriptionUsage; cap = tier.promoSlotsPerMonth).
+router.post('/medias/:id/boost', async (req, res) => {
+  try {
+    const { userId, days } = req.body || {};
+    const boostDays = Math.min(Math.max(parseInt(days || '7', 10), 1), 30);
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    const media = await Media.findById(req.params.id).select('createdBy').lean();
+    if (!media) return res.status(404).json({ error: 'Media not found' });
+    if (String(media.createdBy) !== String(userId)) {
+      return res.status(403).json({ error: 'Not the post owner' });
+    }
+
+    const owner = await User.findById(userId).select('type').lean();
+    if (!owner) return res.status(404).json({ error: 'User not found' });
+    if (owner.type !== 'VENDOR') {
+      return res.status(403).json({
+        error: 'Only VENDOR accounts can boost posts',
+        reason: 'BOOST_VENDOR_ONLY',
+      });
+    }
+
+    const result = await SubscriptionUsage.consume({
+      user: userId, userType: 'VENDOR', feature: 'promoSlots',
+    });
+    if (!result.allowed) {
+      return res.status(429).json({
+        error: result.reason === 'TIER_DISALLOWED'
+          ? 'Your tier does not include post boosts.'
+          : `Monthly boost cap reached (${result.cap}). Upgrade or wait for next cycle.`,
+        reason: result.reason,
+        cap: result.cap,
+        tier: result.tier,
+      });
+    }
+
+    const until = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
+    await Media.findByIdAndUpdate(req.params.id, { $set: { boostedUntil: until } });
+
+    return res.status(200).json({
+      ok: true,
+      boostedUntil: until,
+      remaining: result.remaining,
+      cap: result.cap,
+      tier: result.tier,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get(PATH_SEARCH, (request, response) => {
   const { mquery } = request;
   const query = _.get(mquery, 'filter.text', '');

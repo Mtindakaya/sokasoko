@@ -514,6 +514,7 @@ const FEATURE_CAPS = {
       homeFeedPostsPerMonth: 5,
       flashSalesPerMonth: 0,
       adInHomeFeed: false,
+      concurrentAdverts: 0,          // active adverts a vendor can run at once
       featuredInVendorDirectory: false,
       analyticsLevel: 'BASIC',       // BASIC | ADVANCED | ADVANCED_EXPORT
       canBroadcastToAll: false,
@@ -528,6 +529,7 @@ const FEATURE_CAPS = {
       homeFeedPostsPerMonth: 25,
       flashSalesPerMonth: 1,
       adInHomeFeed: true,
+      concurrentAdverts: 2,
       featuredInVendorDirectory: false,
       analyticsLevel: 'BASIC',
       canBroadcastToAll: false,
@@ -542,6 +544,7 @@ const FEATURE_CAPS = {
       homeFeedPostsPerMonth: 75,
       flashSalesPerMonth: 4,
       adInHomeFeed: true,
+      concurrentAdverts: 6,
       featuredInVendorDirectory: true,
       analyticsLevel: 'ADVANCED',
       canBroadcastToAll: false,
@@ -559,6 +562,7 @@ const FEATURE_CAPS = {
       homeFeedPostsPerMonth: null,
       flashSalesPerMonth: null,
       adInHomeFeed: true,
+      concurrentAdverts: null,       // unlimited
       featuredInVendorDirectory: true,
       analyticsLevel: 'ADVANCED_EXPORT',
       canBroadcastToAll: true,
