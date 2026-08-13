@@ -138,64 +138,67 @@ router.post(PATH_LIST, uploadFor(), async (req, res) => {
   try {
     const body = req.body || {};
     const advertiserId = body.advertiser || body.userId;
-    if (!advertiserId) {
-      return res
-        .status(400)
-        .json({ error: 'advertiser is required', reason: 'ADVERTISER_REQUIRED' });
-    }
 
-    const advertiser = await User.findById(advertiserId).select('type companyName firstName lastName').lean();
-    if (!advertiser) {
-      return res.status(404).json({ error: 'advertiser not found' });
-    }
-    if (advertiser.type !== 'VENDOR') {
-      return res.status(403).json({
-        error: 'only VENDOR accounts can create adverts',
-        reason: 'ADVERT_VENDOR_ONLY',
-      });
-    }
-
-    const ctx = await Subscription.getEffectiveContext(advertiserId);
-    const tier = ctx && ctx.tier;
-    const caps = (ctx && ctx.caps) || {};
-    const cap = caps.concurrentAdverts;
-    // null cap = unlimited. 0 (STANDARD) blocks outright.
-    if (cap === 0) {
-      return res.status(403).json({
-        error: 'Your subscription does not include adverts. Upgrade to GOLD or higher.',
-        reason: 'ADVERT_TIER_DISALLOWED',
-        tier,
-      });
-    }
-    if (cap != null) {
-      const now = new Date();
-      const activeCount = await Advert.countDocuments({
-        advertiser: advertiserId,
-        $and: [
-          { $or: [{ startDate: { $lte: now } }, { startDate: null }, { startDate: { $exists: false } }] },
-          { $or: [{ endDate: { $gte: now } }, { endDate: null }, { endDate: { $exists: false } }] },
-        ],
-      });
-      if (activeCount >= cap) {
-        return res.status(429).json({
-          error: `Concurrent-advert cap reached (${activeCount}/${cap}). Delete an active advert or upgrade your tier.`,
-          reason: 'CONCURRENT_ADVERT_CAP',
-          tier,
-          cap,
-          active: activeCount,
+    // Vendor path — requires ownership, VENDOR type, and honours the
+    // per-tier concurrentAdverts cap.
+    // House-ad path — no advertiser supplied (CMS admin create). Skips
+    // the tier gate entirely; the ad is treated as an official SokaSoko
+    // placement and shows to every targeted audience.
+    if (advertiserId) {
+      const advertiser = await User.findById(advertiserId).select('type companyName firstName lastName').lean();
+      if (!advertiser) {
+        return res.status(404).json({ error: 'advertiser not found' });
+      }
+      if (advertiser.type !== 'VENDOR') {
+        return res.status(403).json({
+          error: 'only VENDOR accounts can create adverts',
+          reason: 'ADVERT_VENDOR_ONLY',
         });
       }
+
+      const ctx = await Subscription.getEffectiveContext(advertiserId);
+      const tier = ctx && ctx.tier;
+      const caps = (ctx && ctx.caps) || {};
+      const cap = caps.concurrentAdverts;
+      // null cap = unlimited. 0 (STANDARD) blocks outright.
+      if (cap === 0) {
+        return res.status(403).json({
+          error: 'Your subscription does not include adverts. Upgrade to GOLD or higher.',
+          reason: 'ADVERT_TIER_DISALLOWED',
+          tier,
+        });
+      }
+      if (cap != null) {
+        const now = new Date();
+        const activeCount = await Advert.countDocuments({
+          advertiser: advertiserId,
+          $and: [
+            { $or: [{ startDate: { $lte: now } }, { startDate: null }, { startDate: { $exists: false } }] },
+            { $or: [{ endDate: { $gte: now } }, { endDate: null }, { endDate: { $exists: false } }] },
+          ],
+        });
+        if (activeCount >= cap) {
+          return res.status(429).json({
+            error: `Concurrent-advert cap reached (${activeCount}/${cap}). Delete an active advert or upgrade your tier.`,
+            reason: 'CONCURRENT_ADVERT_CAP',
+            tier,
+            cap,
+            active: activeCount,
+          });
+        }
+      }
+
+      if (!body.advertiserName) {
+        body.advertiserName = advertiser.companyName
+          || `${advertiser.firstName || ''} ${advertiser.lastName || ''}`.trim();
+      }
+      body.advertiser = advertiserId;
+      body.advertiserTier = tier;
     }
 
     // Server-side photo mapping — the uploader middleware stores the path
     // at either req.file.path or req.body.photo depending on the call.
     if (req.file && req.file.path && !body.photo) body.photo = req.file.path;
-    if (!body.advertiserName) {
-      body.advertiserName = advertiser.companyName
-        || `${advertiser.firstName || ''} ${advertiser.lastName || ''}`.trim();
-    }
-    body.advertiser = advertiserId;
-    body.advertiserTier = tier;
 
     // Multipart form fields arrive as strings. Mongoose would cast the
     // JSON string into a one-element [String] array before the pre-save
