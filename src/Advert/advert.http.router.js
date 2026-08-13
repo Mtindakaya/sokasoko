@@ -19,7 +19,7 @@ const CurrentAdvertTimer = '/currentAdvertTimer';
 
 const Advert = require('./advert.model');
 const User = require('../User/user.model');
-const Subscription = require('../Subscription/subscription.model');
+const { Subscription } = require('../Subscription/subscription.model');
 
 const router = new Router({ version: API_VERSION });
 
