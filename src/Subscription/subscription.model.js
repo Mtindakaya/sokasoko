@@ -715,8 +715,13 @@ SubscriptionSchema.pre('save', function (next) {
   next();
 });
 
-// Activate a subscription: set dates based on plan.
-SubscriptionSchema.methods.activate = function (adminUserId) {
+// Activate a subscription: set dates based on plan. Fires a PAYMENT
+// notification on the first successful activation (skipped for STANDARD).
+// Idempotent — calling on an already-ACTIVE row is a no-op so a client
+// that re-hits /activate after AUTO_APPROVE doesn't double-charge time.
+SubscriptionSchema.methods.activate = async function (adminUserId) {
+  if (this.status === 'ACTIVE') return this;
+
   const now = new Date();
   this.status = 'ACTIVE';
   this.startDate = now;
@@ -733,7 +738,33 @@ SubscriptionSchema.methods.activate = function (adminUserId) {
   this.endDate = end;
   this.gracePeriodEndsAt = new Date(end.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
 
-  return this.save();
+  await this.save();
+
+  if (this.tier !== 'STANDARD') {
+    try {
+      const Notification = require('../Notification/notification.model');
+      await Notification.create({
+        userId: this.user,
+        type: 'PAYMENT',
+        title: 'Malipo Yamekamilika · Payment Received',
+        body:
+          `Malipo yako yamekamilika. Umepandishwa kwenye tier ya ${this.tier}. ` +
+          `Payment received — you're now on the ${this.tier} tier.`,
+        metadata: {
+          subscriptionId: this._id,
+          tier: this.tier,
+          plan: this.plan,
+          amount: this.amount,
+          currency: this.currency,
+          endDate: this.endDate,
+        },
+      });
+    } catch (err) {
+      console.error('[subscription.activate] notification failed:', err.message);
+    }
+  }
+
+  return this;
 };
 
 // True if the subscription is currently ACTIVE or within grace period.

@@ -230,6 +230,17 @@ router.post(BASE, async (req, res) => {
       await subscription.activate(null);
     }
 
+    // Pre-launch test mode: pretend the payment gateway approved.
+    // Auto-activate paid tiers and tag transactionId so cleanup can find
+    // these rows before the real payment rail lands.
+    const autoApprove =
+      getString('AUTO_APPROVE_PAYMENTS', 'false').toLowerCase() === 'true';
+    if (autoApprove && tier !== 'STANDARD') {
+      subscription.transactionId = `AUTO-APPROVED-${Date.now()}`;
+      subscription.paymentMethod = 'MANUAL';
+      await subscription.activate(null);
+    }
+
     return res.status(201).json({ data: subscription });
   } catch (err) {
     return res.status(500).json({ error: err.message });
