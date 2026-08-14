@@ -7,6 +7,7 @@ const ReportRequest = require('./report_request.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 const OneTimePurchase = require('../OneTimePurchase/one_time_purchase.model');
+const Notification = require('../Notification/notification.model');
 
 // npm install pdfkit
 const PDFDocument = require('pdfkit');
@@ -165,6 +166,22 @@ router.post(BASE, async (req, res) => {
         console.log('[report-request] failed to consume purchase',
           purchaseId, e.message);
       }
+    }
+
+    // Confirmation notification (guardian fan-out picks this up when the
+    // requester is a minor).
+    try {
+      await Notification.create({
+        userId: requestedBy,
+        type: 'SYSTEM',
+        title: 'Ombi la Ripoti · Report Request',
+        body:
+          `Ombi lako la ripoti ya ${reportType} limepokelewa. Utapata taarifa mara ripoti itakapokuwa tayari. ` +
+          `Your ${reportType} report request has been received. You'll be notified when it's ready.`,
+        metadata: { reportRequestId: reportRequest._id, reportType },
+      });
+    } catch (notifyErr) {
+      console.log('[report-request] notification error:', notifyErr.message);
     }
 
     return res.status(201).json({ data: reportRequest });

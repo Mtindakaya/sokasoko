@@ -5,6 +5,7 @@ const Match = require('./match.model');
 const TournamentRegistration = require('../TournamentRegistration/tournament_registration.model');
 const User = require('../User/user.model');
 const ChatMessage = require('../Chat/chat.model');
+const Notification = require('../Notification/notification.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 const { Subscription } = require('../Subscription/subscription.model');
 
@@ -596,9 +597,9 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
 
     // Chat notification from requester → scout so it shows up in the scout's
     // Messages inbox alongside the standard match-scout heads-up.
+    const requesterName = `${requester.firstName || ''} ${requester.lastName || ''}`.trim() || 'A user';
+    const roleLabel = isPlayerOnTeam ? 'player' : 'team';
     try {
-      const requesterName = `${requester.firstName || ''} ${requester.lastName || ''}`.trim() || 'A user';
-      const roleLabel = isPlayerOnTeam ? 'player' : 'team';
       await ChatMessage.create({
         sender: requester._id,
         receiver: scout._id,
@@ -606,8 +607,33 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
         read: false,
       });
     } catch (chatErr) {
-      // Notification is best-effort; don't fail the whole request.
       console.log('request-scout chat notify error:', chatErr.message);
+    }
+
+    // In-app notifications on both sides (guardian fan-out picks these up
+    // automatically when the target is a minor).
+    try {
+      await Notification.create({
+        userId: scout._id,
+        type: 'SYSTEM',
+        title: 'Ombi la Scout · Scout Request',
+        body:
+          `${requesterName} amekuomba u-scout mechi yao. ` +
+          `${requesterName} has requested you as scout for their match. ` +
+          `Open Scout Hub to accept or decline.`,
+        metadata: { matchId: match._id, requesterId: requester._id },
+      });
+      await Notification.create({
+        userId: requester._id,
+        type: 'SYSTEM',
+        title: 'Ombi la Scout Limetumwa · Scout Request Sent',
+        body:
+          `Umemuomba ${scout.firstName || 'scout'} kuja kufanya scout mechi yako. ` +
+          `You've requested ${scout.firstName || 'a scout'} for your upcoming match.`,
+        metadata: { matchId: match._id, scoutId: scout._id },
+      });
+    } catch (notifyErr) {
+      console.log('request-scout notification error:', notifyErr.message);
     }
 
     return res.status(200).json({ data: match });

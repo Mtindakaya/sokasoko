@@ -1,6 +1,7 @@
 const express = require('express');
 const { getString } = require('@lykmapipo/env');
 const Report = require('./report.model');
+const Notification = require('../Notification/notification.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -104,6 +105,32 @@ router.post(`${BASE}/:id/status`, async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).json({ error: 'Report not found' });
+
+    // Only tell the reported user when a moderator has taken action on
+    // them. OPEN / REVIEWED / DISMISSED stay silent so we don't leak
+    // that every complaint reached them.
+    if (status === 'ACTIONED') {
+      try {
+        await Notification.create({
+          userId: doc.reported,
+          type: 'SYSTEM',
+          title: 'Onyo la Msimamizi · Moderation Action',
+          body:
+            'Msimamizi wa SokaSoko amechukua hatua dhidi ya maudhui yako. ' +
+            'Wasiliana na msimamizi kwa maelezo zaidi. ' +
+            'A SokaSoko moderator has actioned your content. Contact support for details.',
+          metadata: {
+            reportId: doc._id,
+            reason: doc.reason,
+            entityType: doc.entityType,
+            entityId: doc.entityId,
+          },
+        });
+      } catch (notifyErr) {
+        console.log('[report.status] notification error:', notifyErr.message);
+      }
+    }
+
     return res.status(200).json({ data: doc });
   } catch (err) {
     return res.status(500).json({ error: err.message });

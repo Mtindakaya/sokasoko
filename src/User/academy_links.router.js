@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('./user.model');
 const Academy = require('../Academy/academy.model');
+const Notification = require('../Notification/notification.model');
 
 const router = express.Router();
 
@@ -76,6 +77,21 @@ router.delete('/v1/users/:id/unlink-school', async (req, res) => {
       console.log(`[LEAVE-SCHOOL] player=${req.params.id} school=${player.school} reason="${reason}"`);
     }
 
+    try {
+      await Notification.create({
+        userId: req.params.id,
+        type: 'SYSTEM',
+        title: 'Umeondoka Shuleni · Left School',
+        body:
+          'Umejitoa kutoka shule yako iliyosajiliwa SokaSoko. ' +
+          "You've left your registered school on SokaSoko." +
+          (reason ? ` Sababu · Reason: ${reason}` : ''),
+        metadata: { previousSchoolId: player.school, reason: reason || null },
+      });
+    } catch (notifyErr) {
+      console.log('[LEAVE-SCHOOL] notification error:', notifyErr.message);
+    }
+
     return res.status(200).json(updated);
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -102,6 +118,21 @@ router.post('/v1/users/:id/leave-academy', async (req, res) => {
 
     if (reason) {
       console.log(`[LEAVE-ACADEMY] player=${req.params.id} academy=${academyId} reason="${reason}"`);
+    }
+
+    try {
+      await Notification.create({
+        userId: req.params.id,
+        type: 'SYSTEM',
+        title: 'Umeondoka Chuo cha Mpira · Left Academy',
+        body:
+          'Umejitoa kutoka chuo chako cha mpira SokaSoko. ' +
+          "You've left your academy on SokaSoko." +
+          (reason ? ` Sababu · Reason: ${reason}` : ''),
+        metadata: { previousAcademyId: academyId, reason: reason || null },
+      });
+    } catch (notifyErr) {
+      console.log('[LEAVE-ACADEMY] notification error:', notifyErr.message);
     }
 
     return res.status(200).json(updated);
