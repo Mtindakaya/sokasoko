@@ -3,7 +3,9 @@ const actions = require('mongoose-rest-actions');
 
 const { Schema, model } = mongoose;
 
-const levels = ['U20', 'U17', 'U15', 'U13', 'U11', 'U9'];
+// '21+' is the CLUB senior-team level. Older Academy rows never used
+// it — safe to add to the enum without a migration.
+const levels = ['21+', 'U20', 'U17', 'U15', 'U13', 'U11', 'U9'];
 
 const AcademySchema = new Schema(
   {
