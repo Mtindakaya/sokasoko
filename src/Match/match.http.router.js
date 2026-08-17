@@ -293,9 +293,52 @@ router.post(BASE, async (req, res) => {
     const match = await Match.create({
       homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee,
       assistantReferee1, assistantReferee2,
+      // Every assigned ref slot starts PENDING — the ref must accept
+      // or decline from the Verifications screen.
+      refereeStatus: referee ? 'PENDING' : null,
+      assistantReferee1Status: assistantReferee1 ? 'PENDING' : null,
+      assistantReferee2Status: assistantReferee2 ? 'PENDING' : null,
       scout: normalizedScouts.length ? normalizedScouts[0].scout : null,
       scouts: normalizedScouts,
     });
+
+    // Notify each assigned referee. Guardian fan-out picks up minors.
+    const refSlots = [
+      { id: referee, role: 'Main Referee', slot: 'main' },
+      { id: assistantReferee1, role: 'Assistant Referee 1', slot: 'ar1' },
+      { id: assistantReferee2, role: 'Assistant Referee 2', slot: 'ar2' },
+    ].filter(s => s.id);
+    if (refSlots.length) {
+      try {
+        const [home, away] = await Promise.all([
+          User.findById(homeTeam).select('academy_name firstName lastName').lean(),
+          User.findById(awayTeam).select('academy_name firstName lastName').lean(),
+        ]);
+        const teamLabel = (u) => (u?.academy_name || `${u?.firstName || ''} ${u?.lastName || ''}`.trim()) || 'a team';
+        const matchLabel = `${teamLabel(home)} vs ${teamLabel(away)}`;
+        for (const s of refSlots) {
+          await Notification.create({
+            userId: s.id,
+            type: 'SYSTEM',
+            title: 'Umeombwa Kuwaamua Mechi · Officiating Request',
+            body:
+              `Umeombwa kama ${s.role} kwa mechi: ${matchLabel}. ` +
+              `Fungua Verifications kukubali au kukataa. ` +
+              `You've been requested as ${s.role} for match: ${matchLabel}. ` +
+              `Open Verifications to accept or decline.`,
+            metadata: {
+              kind: 'REFEREE_ASSIGNMENT',
+              matchId: match._id,
+              slot: s.slot,
+              role: s.role,
+            },
+          });
+        }
+      } catch (nErr) {
+        console.log('[MATCH POST] referee notification failed:', nErr.message);
+      }
+    }
+
     return res.status(201).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -500,6 +543,118 @@ router.post(`${BASE}/:id/scout/respond`, async (req, res) => {
       .populate('scout', 'firstName lastName accountNumber type profileImage')
       .populate('scouts.scout', 'firstName lastName accountNumber type profileImage');
     if (!match) return res.status(404).json({ error: 'Match not found' });
+    return res.status(200).json({ data: match });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/matches/pending-referee/:refereeId — matches where the user
+// occupies one of the 3 ref slots and status is PENDING. Populates
+// teams so the client can render "You've been requested for TeamA vs
+// TeamB on DATE".
+router.get(`${BASE}/pending-referee/:refereeId`, async (req, res) => {
+  try {
+    const rid = req.params.refereeId;
+    const rows = await Match.find({
+      $or: [
+        { referee: rid, refereeStatus: 'PENDING' },
+        { assistantReferee1: rid, assistantReferee1Status: 'PENDING' },
+        { assistantReferee2: rid, assistantReferee2Status: 'PENDING' },
+      ],
+    })
+      .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .sort({ scheduledDate: 1 })
+      .lean();
+    // Attach a slot label so client knows which of the 3 seats the
+    // caller occupies without having to re-derive.
+    const shaped = rows.map(m => {
+      let slot = null;
+      let role = null;
+      if (String(m.referee) === String(rid)) { slot = 'main'; role = 'Main Referee'; }
+      else if (String(m.assistantReferee1) === String(rid)) { slot = 'ar1'; role = 'Assistant Referee 1'; }
+      else if (String(m.assistantReferee2) === String(rid)) { slot = 'ar2'; role = 'Assistant Referee 2'; }
+      return { ...m, slot, role };
+    });
+    return res.status(200).json({ data: shaped });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/matches/:id/referee-response — referee accepts or declines
+// Body: { slot: 'main'|'ar1'|'ar2', action: 'accept'|'decline' }
+router.post(`${BASE}/:id/referee-response`, async (req, res) => {
+  try {
+    const { slot, action } = req.body || {};
+    if (!['main', 'ar1', 'ar2'].includes(slot)) {
+      return res.status(400).json({ error: 'slot must be main | ar1 | ar2' });
+    }
+    if (!['accept', 'decline'].includes(action)) {
+      return res.status(400).json({ error: 'action must be accept or decline' });
+    }
+    const match = await Match.findById(req.params.id);
+    if (!match) return res.status(404).json({ error: 'Match not found' });
+
+    const slotField = slot === 'main'
+      ? 'referee'
+      : slot === 'ar1' ? 'assistantReferee1' : 'assistantReferee2';
+    const statusField = `${slotField}Status`;
+    const respondedAtField = `${slotField}ResponseAt`;
+
+    const currentRef = match[slotField];
+    const currentStatus = match[statusField];
+    if (!currentRef) {
+      return res.status(400).json({ error: `${slot} slot is empty` });
+    }
+    if (currentStatus === 'ACCEPTED' || currentStatus === 'DECLINED') {
+      return res.status(400).json({ error: `${slot} slot already ${currentStatus.toLowerCase()}` });
+    }
+
+    if (action === 'accept') {
+      match[statusField] = 'ACCEPTED';
+    } else {
+      match[statusField] = 'DECLINED';
+      match[slotField] = null; // free the slot so scheduler can reassign
+    }
+    match[respondedAtField] = new Date();
+    await match.save();
+
+    // Notify the scheduler so they don't have to poll.
+    try {
+      const [home, away, ref] = await Promise.all([
+        User.findById(match.homeTeam).select('academy_name firstName lastName').lean(),
+        User.findById(match.awayTeam).select('academy_name firstName lastName').lean(),
+        User.findById(currentRef).select('firstName lastName').lean(),
+      ]);
+      const teamLabel = (u) => (u?.academy_name || `${u?.firstName || ''} ${u?.lastName || ''}`.trim()) || 'a team';
+      const matchLabel = `${teamLabel(home)} vs ${teamLabel(away)}`;
+      const refName = ref ? `${ref.firstName || ''} ${ref.lastName || ''}`.trim() : 'A referee';
+      const roleLabel = slot === 'main' ? 'Main Referee' : slot === 'ar1' ? 'Assistant Referee 1' : 'Assistant Referee 2';
+      const accepted = action === 'accept';
+      if (match.scheduledBy) {
+        await Notification.create({
+          userId: match.scheduledBy,
+          type: 'SYSTEM',
+          title: accepted
+            ? 'Mwamuzi Amekubali · Referee Accepted'
+            : 'Mwamuzi Amekataa · Referee Declined',
+          body:
+            `${refName} ${accepted ? 'amekubali' : 'amekataa'} ombi la kuwa ${roleLabel} kwa mechi ${matchLabel}. ` +
+            `${refName} has ${accepted ? 'accepted' : 'declined'} the ${roleLabel} request for ${matchLabel}.`,
+          metadata: {
+            kind: accepted ? 'REFEREE_ACCEPTED' : 'REFEREE_DECLINED',
+            matchId: match._id,
+            slot,
+            refereeId: currentRef,
+          },
+        });
+      }
+    } catch (nErr) {
+      console.log('[REFEREE RESPONSE] notification failed:', nErr.message);
+    }
+
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });

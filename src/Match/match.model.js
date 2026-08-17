@@ -130,16 +130,38 @@ const MatchSchema = new Schema(
       ref: 'User',
       default: null,
     },
+    // PENDING = ref assigned but hasn't answered yet
+    // ACCEPTED = ref confirmed the officiating role
+    // DECLINED = ref refused; the referee slot itself is cleared but
+    //           the status stays for audit
+    refereeStatus: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED', 'DECLINED', null],
+      default: null,
+    },
+    refereeResponseAt: { type: Date, default: null },
     assistantReferee1: {
       type: Schema.Types.ObjectId,
       ref: 'User',
       default: null,
     },
+    assistantReferee1Status: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED', 'DECLINED', null],
+      default: null,
+    },
+    assistantReferee1ResponseAt: { type: Date, default: null },
     assistantReferee2: {
       type: Schema.Types.ObjectId,
       ref: 'User',
       default: null,
     },
+    assistantReferee2Status: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED', 'DECLINED', null],
+      default: null,
+    },
+    assistantReferee2ResponseAt: { type: Date, default: null },
     homeCoach: {
       type: Schema.Types.ObjectId,
       ref: 'User',
