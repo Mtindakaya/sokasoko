@@ -18,11 +18,22 @@ const PATH_SCHEMA = '/academys/schema/';
 
 const Academy = require('./academy.model');
 const User = require('../User/user.model');
+const Notification = require('../Notification/notification.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 
 const router = new Router({
   version: API_VERSION,
 });
+
+// Helper: label an org (ACADEMY or CLUB) with its readable name.
+async function orgName(orgId) {
+  if (!orgId) return 'Chuo';
+  const u = await User.findById(orgId).select('academy_name firstName lastName').lean();
+  if (!u) return 'Chuo';
+  return (u.academy_name && u.academy_name.trim())
+    || `${u.firstName || ''} ${u.lastName || ''}`.trim()
+    || 'Chuo';
+}
 
 router.get(
   PATH_SCHEMA,
@@ -65,15 +76,17 @@ router.post(
         if (!player) return done(new Error('Player not found'), null);
 
         // ACADEMY tier gate — roster composition (age levels + gender).
-        // Standard: 1 age level + 1 gender only.
-        // Gold:     up to 3 age levels + mixed gender.
-        // Platinum: unlimited age levels + mixed gender.
+        // Only VERIFIED rows count toward the cap — a PENDING invite the
+        // player hasn't answered yet should not consume the roster slot.
         try {
           const acad = addedBy ? await User.findById(addedBy).select('type').lean() : null;
           if (acad?.type === 'ACADEMY') {
             const tier = await Subscription.getEffectiveTier(addedBy, 'ACADEMY');
             const caps = FEATURE_CAPS.ACADEMY?.[tier] || {};
-            const existingRows = await Academy.find({ addedBy })
+            const existingRows = await Academy.find({
+              addedBy,
+              verificationStatus: 'VERIFIED',
+            })
               .populate('player', 'gender')
               .lean();
             const currentLevels = new Set(
@@ -99,22 +112,63 @@ router.post(
           console.log('[ACADEMY POST] tier check error:', e.message);
         }
 
-        // Check for a live enrollment (not a dangling ObjectId from a crashed request)
+        // Reject if the player is already VERIFIED into an academy.
         if (player.academy) {
           const existing = await Academy.findById(player.academy).lean();
-          if (existing) {
+          if (existing && existing.verificationStatus === 'VERIFIED') {
             return done(new Error('Player is already enrolled in an academy'), null);
           }
-          // Dangling reference — clear it so we can re-enroll
-          await User.findByIdAndUpdate(playerId, { $set: { academy: null } });
+          // Dangling / non-verified reference — clear so a fresh invite lands.
+          if (!existing) {
+            await User.findByIdAndUpdate(playerId, { $set: { academy: null } });
+          }
         }
 
-        // Remove any orphaned enrollment row (unique key guard)
-        await Academy.findOneAndDelete({ player: playerId });
+        // Reject if a PENDING invite from the SAME academy already exists.
+        const dup = await Academy.findOne({
+          player: playerId,
+          addedBy,
+          verificationStatus: 'PENDING',
+        }).lean();
+        if (dup) {
+          return done(new Error(
+            'Ombi lako la awali linasubiri majibu ya mchezaji. Please wait — the previous invitation is still pending.'
+          ), null);
+        }
 
-        const data = await Academy.create({ player: playerId, addedBy, level });
-        await User.findByIdAndUpdate(playerId, { $set: { academy: data._id } });
-        console.log('[ACADEMY POST] success enrollment=%s', data._id);
+        // Create invite in PENDING state. User.academy stays null until
+        // the player verifies. Notification to the player triggers the
+        // guardian fan-out hook automatically.
+        const data = await Academy.create({
+          player: playerId,
+          addedBy,
+          level,
+          verificationStatus: 'PENDING',
+        });
+        console.log('[ACADEMY POST] invite created id=%s status=PENDING', data._id);
+
+        try {
+          const orgLabel = await orgName(addedBy);
+          await Notification.create({
+            userId: playerId,
+            type: 'SYSTEM',
+            title: 'Ombi la Kujiunga · Academy Invitation',
+            body:
+              `${orgLabel} amekuomba ujiunge nao (umri: ${level}). ` +
+              `Fungua Verifications kwenye profile yako kuthibitisha au kukataa. ` +
+              `${orgLabel} has invited you to join (level: ${level}). ` +
+              `Open Verifications in your profile to accept or decline.`,
+            metadata: {
+              kind: 'ACADEMY_INVITE',
+              academyEnrollmentId: data._id,
+              addedBy,
+              level,
+            },
+          });
+        } catch (nErr) {
+          console.log('[ACADEMY POST] notification failed:', nErr.message);
+        }
+
         return done(null, data);
       } catch (err) {
         console.error('[ACADEMY POST] error:', err.message);
@@ -123,6 +177,127 @@ router.post(
     },
   })
 );
+
+// GET /v1/academys/pending/:playerId — invitations awaiting the player's
+// verification. Populates addedBy for the client to show "X invited you".
+router.get('/academys/pending/:playerId', async (req, res) => {
+  try {
+    const rows = await Academy.find({
+      player: req.params.playerId,
+      verificationStatus: 'PENDING',
+    })
+      .populate('addedBy', 'firstName lastName academy_name type accountNumber profileImage')
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/academys/:id/verify — player accepts the invitation. Sets
+// User.academy and flips the row to VERIFIED. Fires confirmation
+// notification which the guardian fan-out picks up.
+router.post('/academys/:id/verify', async (req, res) => {
+  try {
+    const row = await Academy.findById(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Invitation not found' });
+    if (row.verificationStatus === 'VERIFIED') {
+      return res.status(200).json({ data: row });
+    }
+    if (row.verificationStatus === 'REJECTED') {
+      return res.status(400).json({ error: 'Invitation was previously declined' });
+    }
+
+    row.verificationStatus = 'VERIFIED';
+    row.verifiedAt = new Date();
+    await row.save();
+    await User.findByIdAndUpdate(row.player, { $set: { academy: row._id } });
+
+    try {
+      const orgLabel = await orgName(row.addedBy);
+      await Notification.create({
+        userId: row.player,
+        type: 'SYSTEM',
+        title: 'Umejiunga na Chuo · Enrollment Confirmed',
+        body:
+          `Umejiunga rasmi na ${orgLabel} (umri: ${row.level}). ` +
+          `You have officially joined ${orgLabel} at level ${row.level}.`,
+        metadata: {
+          kind: 'ACADEMY_VERIFIED',
+          academyEnrollmentId: row._id,
+        },
+      });
+      // Also let the academy know their invite was accepted.
+      await Notification.create({
+        userId: row.addedBy,
+        type: 'SYSTEM',
+        title: 'Ombi Limekubaliwa · Player Accepted',
+        body:
+          `Mchezaji amekubali ombi lako la kujiunga (umri: ${row.level}). ` +
+          `A player has accepted your invitation (level: ${row.level}).`,
+        metadata: {
+          kind: 'ACADEMY_ACCEPTED_BY_PLAYER',
+          academyEnrollmentId: row._id,
+          playerId: row.player,
+        },
+      });
+    } catch (nErr) {
+      console.log('[ACADEMY VERIFY] notification failed:', nErr.message);
+    }
+
+    return res.status(200).json({ data: row });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/academys/:id/reject — player declines the invitation. Row is
+// kept for audit (status REJECTED), no User.academy linkage.
+router.post('/academys/:id/reject', async (req, res) => {
+  try {
+    const reason = (req.body && req.body.reason ? String(req.body.reason) : '').slice(0, 300);
+    const row = await Academy.findById(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Invitation not found' });
+    if (row.verificationStatus === 'REJECTED') {
+      return res.status(200).json({ data: row });
+    }
+    if (row.verificationStatus === 'VERIFIED') {
+      return res.status(400).json({
+        error: 'Already verified — use leave-academy to remove.',
+      });
+    }
+    row.verificationStatus = 'REJECTED';
+    row.rejectedAt = new Date();
+    await row.save();
+
+    try {
+      const orgLabel = await orgName(row.addedBy);
+      await Notification.create({
+        userId: row.addedBy,
+        type: 'SYSTEM',
+        title: 'Ombi Limekataliwa · Invitation Declined',
+        body:
+          `Mchezaji amekataa ombi lako la kujiunga na ${orgLabel}` +
+          (reason ? ` (sababu: ${reason})` : '') + '. ' +
+          `A player has declined your invitation to ${orgLabel}` +
+          (reason ? ` (reason: ${reason})` : '') + '.',
+        metadata: {
+          kind: 'ACADEMY_DECLINED_BY_PLAYER',
+          academyEnrollmentId: row._id,
+          playerId: row.player,
+          reason: reason || null,
+        },
+      });
+    } catch (nErr) {
+      console.log('[ACADEMY REJECT] notification failed:', nErr.message);
+    }
+
+    return res.status(200).json({ data: row });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 router.patch(
   PATH_SINGLE,
