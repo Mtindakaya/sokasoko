@@ -201,6 +201,15 @@ const UserSchema = new Schema(
     vendor_type: { type: String, trim: true },
     company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
+    // CLUB-specific fields. academy_name / academy_registration /
+    // academy_description double as club_name / TFF-reg / club-description
+    // (labels change in the mobile UI); these two are club-only.
+    club_division: {
+      type: String,
+      enum: ['PREMIER_LEAGUE', 'CHAMPIONSHIP', 'LEAGUE_ONE', 'LIGI_YA_MKOA', 'NONE', ''],
+      default: '',
+    },
+    club_membership: { type: Boolean, default: false },
     coach_registration: { type: String, trim: true },
     coach_license: { type: String, trim: true },
     linkedAcademy: {
