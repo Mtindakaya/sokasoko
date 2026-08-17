@@ -40,6 +40,7 @@ const TournamentRegistrationRouter = require('./TournamentRegistration/tournamen
 const OpenTournamentRouter = require('./OpenTournament/open_tournament.http.router');
 const ReportRequestRouter = require('./ReportRequest/report_request.http.router');
 const NotificationRouter = require('./Notification/notification.http.router');
+const InvitationRouter = require('./Invitation/invitation.http.router');
 const AiAdvisorRouter = require('./AiAdvisor/ai_advisor.http.router');
 const TrialRouter = require('./Trial/trial.http.router');
 const ClinicRouter = require('./Trial/clinic.http.router');
@@ -165,6 +166,7 @@ connect(MONGODB_URI, (error) => {
   app.use(OpenTournamentRouter);
   app.use(ReportRequestRouter);
   app.use(NotificationRouter);
+  app.use(InvitationRouter);
   app.use(AiAdvisorRouter);
   app.use(TrialRouter);
   app.use(ClinicRouter);
