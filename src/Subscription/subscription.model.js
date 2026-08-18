@@ -193,7 +193,10 @@ const FEATURE_CAPS = {
     STANDARD: {
       ai: 0,
       reportsPerMonth: 1,
-      evaluationsReceivedPerMonth: 1,
+      // TEMPORARY: bumped from 1 → 3 for beta testing (2026-08-18).
+      // Revert to 1 before public launch — see
+      // project_temporary_standard_cap.md in memory.
+      evaluationsReceivedPerMonth: 3,
       evaluationsShareWithPlayer: false,
       evaluationRequestsInitiatedPerMonth: 0,
       canJoinChallenges: false,
