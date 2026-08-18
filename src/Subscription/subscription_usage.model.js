@@ -83,9 +83,18 @@ async function rollback(Model, docId, feature) {
 // Try to consume 1 unit of `feature` for `user`. Enforces monthly cap from
 // FEATURE_CAPS, plus hourly/daily fair-use for Platinum AI.
 // Returns { allowed, cap, remaining, reason?, tier }.
+//
+// Test-mode bypass: setting USAGE_CAPS_DISABLED=true on the backend
+// skips ALL cap checks and always returns allowed. Pairs with
+// AUTO_APPROVE_PAYMENTS so testers can iterate against every gated
+// feature without churning subscriptions or waiting for month reset.
+// MUST be off in production.
 SubscriptionUsageSchema.statics.consume = async function ({ user, userType, feature }) {
   if (!FEATURE_CAP_FIELDS[feature]) {
     throw new Error(`Unknown metered feature: ${feature}`);
+  }
+  if (String(process.env.USAGE_CAPS_DISABLED || '').toLowerCase() === 'true') {
+    return { allowed: true, cap: null, remaining: null, tier: 'TEST_BYPASS' };
   }
   const tier = await Subscription.getEffectiveTier(user, userType);
   if (tier === 'FREE') {
