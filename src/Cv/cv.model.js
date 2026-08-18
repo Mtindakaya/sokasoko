@@ -39,6 +39,17 @@ const CvSchema = new Schema(
     coach_role_other: { type: String, trim: true, default: '' },
     age_levels: [{ type: String, enum: AGE_LEVELS }],
     achievements: { type: String, trim: true, default: '' },
+    // Team location. Auto-filled when the coach picks the team from
+    // the org autocomplete; free-text when they type a custom name for
+    // an org that isn't (yet) on SokaSoko. team_ref links back to the
+    // User row when a known org was selected — null for typed names.
+    region: { type: String, trim: true, default: '' },
+    district: { type: String, trim: true, default: '' },
+    team_ref: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     start_date: {
       type: Date,
       required: true,
