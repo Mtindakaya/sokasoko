@@ -404,7 +404,11 @@ router.get(PATH_SINGLE, getByIdFor({
   getById: async (options, done) => {
     const id = _.get(options, 'id');
     const requestingUserId = _.get(options, 'query.viewerId');
-    User.findById(id, async (err, user) => {
+    // populate('academy') — without this the profile vCard renders
+    // every player as "Free Agent" because Flutter's User.fromJson
+    // only recognises the field when it comes back as a nested doc,
+    // not as the bare ObjectId that findById() returns by default.
+    User.findById(id).populate('academy').exec(async (err, user) => {
       if (err) return done(err, null);
       if (!user) return done(null, null);
       const canView = await canViewFullProfile(requestingUserId, user);
