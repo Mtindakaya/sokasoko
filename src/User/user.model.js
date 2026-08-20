@@ -194,6 +194,11 @@ const UserSchema = new Schema(
     license_level: { type: String, trim: true },
     education_level: { type: String, trim: true },
     sponsor_type: { type: String, trim: true },
+    // Sponsor-only privacy toggle. When true, public reads (GET /users/:id,
+    // list, search) surface name/photo/socials/location as "Anonymous" /
+    // stripped. The record itself is unchanged — admins and the sponsor
+    // themselves still see everything. Reversible any time.
+    isAnonymous: { type: Boolean, default: false },
     academy_name: { type: String, trim: true },
     entity_name: { type: String, trim: true },
     company_name: { type: String, trim: true },

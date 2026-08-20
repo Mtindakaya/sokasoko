@@ -76,6 +76,41 @@ const stripRestrictedFields = (user) => {
   return obj;
 };
 
+// If the target user is a SPONSOR with isAnonymous=true and the requester
+// is not the sponsor themselves, mask identity fields in the outgoing
+// payload. Backend data is untouched — we only rewrite what leaves the
+// API. Admins can hit the record directly via admin routes.
+const anonymizeSponsor = (user, requestingUserId) => {
+  if (!user) return user;
+  const obj = _.isFunction(user.toObject) ? user.toObject() : user;
+  if (obj.type !== 'SPONSOR' || !obj.isAnonymous) return obj;
+  if (requestingUserId && String(requestingUserId) === String(obj._id)) return obj;
+  return _.assign({}, obj, {
+    firstName: 'Anonymous',
+    lastName: '',
+    middleName: '',
+    entity_name: 'Anonymous',
+    company_name: 'Anonymous',
+    company_title: '',
+    company_description: '',
+    profileImage: 'https://sokasoko.s3.us-west-2.amazonaws.com/avatar.png',
+    region: '',
+    district: '',
+    ward: '',
+    street: '',
+    phone: '',
+    email: '',
+    contact_number: '',
+    contact_email: '',
+    facebook: '',
+    instagram: '',
+    twitter: '',
+    youtube: '',
+    linkedin: '',
+    website: '',
+  });
+};
+
 const canViewFullProfile = async (requestingUserId, targetUser) => {
   if (_.get(targetUser, 'type') !== 'PLAYER') return true;
   if (!requestingUserId) return false;
@@ -207,13 +242,21 @@ router.get(PATH_LIST, async (req, res) => {
 
     const [data, total] = await Promise.all([
       User.find(filter)
-        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number dob themeColor')
+        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number dob themeColor isAnonymous')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
         .lean(),
       User.countDocuments(filter),
     ]);
+
+    // Apply sponsor anonymization before we surface the list. Uses the
+    // caller's viewerId — the sponsor themselves still sees their real
+    // name in their own results.
+    const requestingUserId = req.query.viewerId;
+    for (let i = 0; i < data.length; i++) {
+      data[i] = anonymizeSponsor(data[i], requestingUserId);
+    }
 
     await attachPrimaryVideoUrls(data);
 
@@ -329,9 +372,13 @@ router.get(PATH_SEARCH, async (request, response) => {
           ],
         };
     const data = await User.find(finalFilter)
-      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor')
+      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor isAnonymous')
       .limit(limit)
       .lean();
+
+    for (let i = 0; i < data.length; i++) {
+      data[i] = anonymizeSponsor(data[i], requestingUserId);
+    }
 
     await attachPrimaryVideoUrls(data);
 
@@ -421,7 +468,7 @@ router.get(PATH_SINGLE, getByIdFor({
         }).catch(() => {});
       }
       if (!canView) return done(null, stripRestrictedFields(user));
-      return done(null, user);
+      return done(null, anonymizeSponsor(user, requestingUserId));
     });
   },
 }));
