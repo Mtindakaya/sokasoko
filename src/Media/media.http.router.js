@@ -38,6 +38,7 @@ async function refuseOrphanedPlayerUpload(req, res, next) {
     if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
       return res.status(403).json({
         error: 'Huwezi kupakia video bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya.',
+        errorKey: 'gate.err.no_guardian_upload',
       });
     }
     return next();
@@ -282,6 +283,7 @@ router.post('/medias/playlist', async (req, res) => {
       if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
         return res.status(403).json({
           error: 'Huwezi kupakia video bila mlezi.',
+          errorKey: 'gate.err.no_guardian_upload_short',
         });
       }
     }

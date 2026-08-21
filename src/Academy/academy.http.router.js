@@ -156,6 +156,9 @@ router.post(
             body:
               `${orgLabel} amekuomba ujiunge nao (umri: ${level}). ` +
               `Fungua Uhakiki kwenye wasifu wako kuthibitisha au kukataa.`,
+            titleKey: 'notif.academy.invite.title',
+            bodyKey: 'notif.academy.invite.body',
+            params: { org: orgLabel, level },
             metadata: {
               kind: 'ACADEMY_INVITE',
               academyEnrollmentId: data._id,
@@ -220,6 +223,9 @@ router.post('/academys/:id/verify', async (req, res) => {
         title: 'Umejiunga na Kituo',
         body:
           `Umejiunga rasmi na ${orgLabel} (umri: ${row.level}).`,
+        titleKey: 'notif.academy.verified.title',
+        bodyKey: 'notif.academy.verified.body',
+        params: { org: orgLabel, level: row.level },
         metadata: {
           kind: 'ACADEMY_VERIFIED',
           academyEnrollmentId: row._id,
@@ -232,6 +238,9 @@ router.post('/academys/:id/verify', async (req, res) => {
         title: 'Ombi Limekubaliwa',
         body:
           `Mchezaji amekubali ombi lako la kujiunga (umri: ${row.level}).`,
+        titleKey: 'notif.academy.player_accepted.title',
+        bodyKey: 'notif.academy.player_accepted.body',
+        params: { level: row.level },
         metadata: {
           kind: 'ACADEMY_ACCEPTED_BY_PLAYER',
           academyEnrollmentId: row._id,
@@ -276,6 +285,11 @@ router.post('/academys/:id/reject', async (req, res) => {
         body:
           `Mchezaji amekataa ombi lako la kujiunga na ${orgLabel}` +
           (reason ? ` (sababu: ${reason})` : '') + '.',
+        titleKey: 'notif.academy.player_declined.title',
+        bodyKey: reason
+          ? 'notif.academy.player_declined.body_with_reason'
+          : 'notif.academy.player_declined.body',
+        params: reason ? { org: orgLabel, reason } : { org: orgLabel },
         metadata: {
           kind: 'ACADEMY_DECLINED_BY_PLAYER',
           academyEnrollmentId: row._id,

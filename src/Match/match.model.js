@@ -245,18 +245,27 @@ MatchSchema.post('save', async function () {
       if (isSubbed) continue; // no pushing subscribed refs
       let title = null;
       let body = null;
+      let titleKey = null;
+      let bodyKey = null;
+      let params = null;
       if (count === REFEREE_WARN_AT_GAMES) {
         const left = REFEREE_FREE_GAME_THRESHOLD - REFEREE_WARN_AT_GAMES;
         title = 'Karibu utahitajika kujisajili';
         body = `Umeongoza mechi ${count}. Umebaki na mechi ${left} kabla ya kudaiwa uandikishaji ili uendelee kupewa mechi.`;
+        titleKey = 'notif.ref.warn.title';
+        bodyKey = 'notif.ref.warn.body';
+        params = { count, left };
       } else if (count === REFEREE_FREE_GAME_THRESHOLD) {
         title = 'Uandikishaji unahitajika';
         body = `Umeongoza mechi ${count}. Jisajili sasa ili uendelee kupewa mechi.`;
+        titleKey = 'notif.sub.referee_required.title';
+        bodyKey = 'notif.sub.referee_required.body';
+        params = { count };
       }
       if (title) {
         try {
           await Notification.create({
-            userId: refId, title, body,
+            userId: refId, title, body, titleKey, bodyKey, params,
             type: 'SUBSCRIPTION',
             metadata: { role: 'REFEREE', gamesOfficiated: count },
           });

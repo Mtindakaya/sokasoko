@@ -117,7 +117,10 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
         userId: guardianId,
         title: 'Ombi la kuwa mfanyakazi',
         body: `${orgName} amekualika ujiunge kama ${role}. Kubali kutoka Uandikishaji wako.`,
-        type: 'STAFF_INVITE',
+        titleKey: 'notif.staff.invite.title',
+        bodyKey: 'notif.staff.invite.body',
+        params: { org: orgName, role },
+        type: 'SYSTEM',
         metadata: { linkId: link._id.toString(), orgId, role },
       });
     } catch (_) { /* best-effort */ }
@@ -161,7 +164,10 @@ router.post(`${BASE}/users/:orgId/staff/:linkId/remove`, async (req, res) => {
         userId: link.staff,
         title: 'Umeondolewa kwenye timu ya wafanyakazi',
         body: 'Taasisi imekuondoa. Wasiliana nao kwa maelezo zaidi.',
-        type: 'STAFF_REMOVED',
+        titleKey: 'notif.staff.removed.title',
+        bodyKey: 'notif.staff.removed.body',
+        params: {},
+        type: 'SYSTEM',
         metadata: { linkId: link._id.toString(), orgId: link.org.toString() },
       });
     } catch (_) {}

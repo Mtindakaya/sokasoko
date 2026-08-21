@@ -35,6 +35,9 @@ const runSubscriptionLapseSweep = async () => {
           userId: s.user,
           title: 'Kumbusho la kurejesha uandikishaji',
           body: `Uandikishaji wako wa ${s.tier} umekwisha. Una siku 5 kurejesha kabla akaunti yako haijashuka kwenda Standard.`,
+          titleKey: 'notif.sub.renewal_reminder.title',
+          bodyKey: 'notif.sub.renewal_reminder.body',
+          params: { tier: s.tier },
           type: 'SUBSCRIPTION',
           metadata: { tier: s.tier, phase: 'GRACE' },
         });
@@ -52,6 +55,9 @@ const runSubscriptionLapseSweep = async () => {
           userId: s.user,
           title: 'Uandikishaji umekwisha',
           body: `Uandikishaji wako wa ${s.tier} umekwisha muda. Akaunti yako sasa iko kwenye Standard — boresha wakati wowote kurudisha vipengele vyote.`,
+          titleKey: 'notif.sub.expired.title',
+          bodyKey: 'notif.sub.expired.body',
+          params: { tier: s.tier },
           type: 'SUBSCRIPTION',
           metadata: { tier: s.tier, phase: 'EXPIRED' },
         });
@@ -130,6 +136,11 @@ const runMonthlyProgressReports = async () => {
       const filledFields = profileFields.filter((f) => player[f] && player[f].toString().trim() !== '');
       const completeness = Math.round((filledFields.length / profileFields.length) * 100);
 
+      // Progress report body is composed of conditional bullet lines. We
+      // send a single 'notif.progress.summary' bodyKey with all the params
+      // AND still write the raw Kiswahili body so legacy clients render
+      // correctly. The client rebuilds the localized bullet list on read
+      // using the params (see L10n.tNotifBody / progress-specific helper).
       let bodyLines = [`Habari ${player.firstName}, hii ni muhtasari wako wa mwezi wa SokaSoko:`];
       bodyLines.push(`• Ukamilifu wa wasifu: ${completeness}%`);
       bodyLines.push(`• Umeonekana na skauti mara: ${scoutCvCount}`);
@@ -141,6 +152,17 @@ const runMonthlyProgressReports = async () => {
         userId: player._id,
         title: 'Ripoti Yako ya Mwezi',
         body: bodyLines.join('\n'),
+        titleKey: 'notif.progress.title',
+        // No single bodyKey — the client stitches bullets from params.
+        bodyKey: 'notif.progress.summary',
+        params: {
+          name: player.firstName,
+          completeness,
+          scoutViews: scoutCvCount,
+          verifiedCount,
+          showTipComplete: completeness < 80,
+          showTipNoScout: scoutCvCount === 0,
+        },
         type: 'PROGRESS_REPORT',
         metadata: { scoutCvCount, verifiedCount, profileCompleteness: completeness },
       });
@@ -193,7 +215,15 @@ const runStaffQuotaSweep = async () => {
             userId: orgId,
             title: 'Umezidi kikomo cha wafanyakazi',
             body: `Una wafanyakazi ${activeCount} lakini kifurushi chako kinaruhusu ${cap}. Ondoa ${activeCount - cap} ndani ya siku ${STAFF_OVERQUOTA_GRACE_DAYS} au wote watazuiliwa.`,
-            type: 'STAFF_OVER_QUOTA',
+            titleKey: 'notif.staff.over_quota.title',
+            bodyKey: 'notif.staff.over_quota.body',
+            params: {
+              active: activeCount,
+              cap,
+              excess: activeCount - cap,
+              days: STAFF_OVERQUOTA_GRACE_DAYS,
+            },
+            type: 'SYSTEM',
             metadata: { current: activeCount, cap },
           });
         } catch (_) {}
@@ -213,7 +243,10 @@ const runStaffQuotaSweep = async () => {
                 userId: link.staff,
                 title: 'Ushirikiano wa mfanyakazi umezuiliwa',
                 body: 'Taasisi imezidi kikomo cha wafanyakazi. Wasiliana nao.',
-                type: 'STAFF_DISABLED',
+                titleKey: 'notif.staff.link_disabled.title',
+                bodyKey: 'notif.staff.link_disabled.body',
+                params: {},
+                type: 'SYSTEM',
                 metadata: { linkId: link._id.toString() },
               });
             } catch (_) {}

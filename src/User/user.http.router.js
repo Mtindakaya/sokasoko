@@ -938,7 +938,18 @@ router.post('/users/:id/link-secretary', async (req, res) => {
 //   4. Guardian accepts / declines. Accept links + notifies previous
 //      guardian (if any).
 
-async function sendChatNotice(senderId, receiverId, content, title = 'Sasisho la Ulezi') {
+// Option A localization: callers can pass a `keys` object with
+// { titleKey, bodyKey, params } so the notification is delivered with
+// the localizable payload alongside the Kiswahili fallback strings.
+// Legacy 4-arg calls (senderId, receiverId, content, title) still work
+// and just don't populate the key fields.
+async function sendChatNotice(
+  senderId,
+  receiverId,
+  content,
+  title = 'Sasisho la Ulezi',
+  keys = null,
+) {
   if (!senderId || !receiverId) return;
   try {
     // In-chat message — visible in the guardian/minor conversation thread.
@@ -958,6 +969,9 @@ async function sendChatNotice(senderId, receiverId, content, title = 'Sasisho la
       userId: receiverId,
       title,
       body: content,
+      titleKey: keys?.titleKey || '',
+      bodyKey: keys?.bodyKey || '',
+      params: keys?.params || {},
       type: 'SYSTEM',
     });
   } catch (e) {
@@ -980,8 +994,17 @@ router.post('/users/:minorId/guardian/remove', async (req, res) => {
     await minor.save();
     // Non-blocking chat notice to the removed guardian
     const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'A player';
-    sendChatNotice(minor._id, oldGuardianId,
-      `${minorName} amejiondoa kwenye ulezi wako.`);
+    sendChatNotice(
+      minor._id,
+      oldGuardianId,
+      `${minorName} amejiondoa kwenye ulezi wako.`,
+      'Sasisho la Ulezi',
+      {
+        titleKey: 'notice.guardian.default_title',
+        bodyKey: 'notice.guardian.minor_removed_self',
+        params: { minorName },
+      },
+    );
     return res.status(200).json({ data: minor });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1004,8 +1027,17 @@ router.post('/users/:guardianId/ward/remove', async (req, res) => {
     minor.guardianOrphaned = true;
     await minor.save();
     const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'The player';
-    sendChatNotice(req.params.guardianId, minor._id,
-      `Mlezi wako amekuondoa. Tafuta mlezi mwingine kupitia SokaSoko.`);
+    sendChatNotice(
+      req.params.guardianId,
+      minor._id,
+      `Mlezi wako amekuondoa. Tafuta mlezi mwingine kupitia SokaSoko.`,
+      'Sasisho la Ulezi',
+      {
+        titleKey: 'notice.guardian.default_title',
+        bodyKey: 'notice.guardian.guardian_removed_ward',
+        params: {},
+      },
+    );
     return res.status(200).json({ data: minor });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1056,6 +1088,11 @@ router.post('/users/:minorId/guardian/request', async (req, res) => {
           prior.guardian,
           `${minorName} ameghairi ombi la ulezi kwako.`,
           'Ombi Limeghairiwa',
+          {
+            titleKey: 'notice.guardian.request_withdrawn.title',
+            bodyKey: 'notice.guardian.request_withdrawn.body',
+            params: { minorName },
+          },
         );
       }
     }
@@ -1070,6 +1107,11 @@ router.post('/users/:minorId/guardian/request', async (req, res) => {
       guardianId,
       `${minorName} ameomba uwe mlezi wake. Fungua Maombi ya Ulezi kwenye SokaSoko kukubali au kukataa.`,
       'Ombi Jipya la Ulezi',
+      {
+        titleKey: 'notice.guardian.request_new.title',
+        bodyKey: 'notice.guardian.request_new.body',
+        params: { minorName },
+      },
     );
     return res.status(201).json({ data: doc });
   } catch (err) {
@@ -1110,13 +1152,31 @@ router.post('/guardian-requests/:id/accept', async (req, res) => {
       ]);
       const minorName = `${minorFresh.firstName || ''} ${minorFresh.lastName || ''}`.trim() || 'The minor';
       const newGuardianName = `${newGuardian.firstName || ''} ${newGuardian.lastName || ''}`.trim() || 'a new guardian';
-      sendChatNotice(guardianId, previousGuardian,
-        `${minorName} sasa amewekwa chini ya mlezi ${newGuardianName}.`);
+      sendChatNotice(
+        guardianId,
+        previousGuardian,
+        `${minorName} sasa amewekwa chini ya mlezi ${newGuardianName}.`,
+        'Sasisho la Ulezi',
+        {
+          titleKey: 'notice.guardian.default_title',
+          bodyKey: 'notice.guardian.handoff',
+          params: { minorName, newGuardianName },
+        },
+      );
     }
 
     // Notify minor
-    sendChatNotice(guardianId, minor._id,
-      `Ombi lako la ulezi limekubaliwa. Karibu tena kwenye SokaSoko.`);
+    sendChatNotice(
+      guardianId,
+      minor._id,
+      `Ombi lako la ulezi limekubaliwa. Karibu tena kwenye SokaSoko.`,
+      'Sasisho la Ulezi',
+      {
+        titleKey: 'notice.guardian.default_title',
+        bodyKey: 'notice.guardian.request_accepted',
+        params: {},
+      },
+    );
 
     return res.status(200).json({ data: doc });
   } catch (err) {
@@ -1139,8 +1199,17 @@ router.post('/guardian-requests/:id/decline', async (req, res) => {
     doc.status = 'DECLINED';
     doc.respondedAt = new Date();
     await doc.save();
-    sendChatNotice(guardianId, doc.minor,
-      `Ombi lako la ulezi halikubaliwa. Unaweza kujaribu mlezi mwingine.`);
+    sendChatNotice(
+      guardianId,
+      doc.minor,
+      `Ombi lako la ulezi halikubaliwa. Unaweza kujaribu mlezi mwingine.`,
+      'Sasisho la Ulezi',
+      {
+        titleKey: 'notice.guardian.default_title',
+        bodyKey: 'notice.guardian.request_declined',
+        params: {},
+      },
+    );
     return res.status(200).json({ data: doc });
   } catch (err) {
     return res.status(500).json({ error: err.message });

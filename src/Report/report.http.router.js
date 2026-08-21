@@ -118,6 +118,9 @@ router.post(`${BASE}/:id/status`, async (req, res) => {
           body:
             'Msimamizi wa SokaSoko amechukua hatua dhidi ya maudhui yako. ' +
             'Wasiliana na msimamizi kwa maelezo zaidi.',
+          titleKey: 'notif.mod_action.title',
+          bodyKey: 'notif.mod_action.body',
+          params: {},
           metadata: {
             reportId: doc._id,
             reason: doc.reason,

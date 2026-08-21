@@ -177,6 +177,7 @@ module.exports = function createChatRouter(io) {
           return res.status(403).json({
             error: 'Huwezi kutuma ujumbe bila mlezi.',
             message: 'Huwezi kutuma ujumbe bila mlezi.',
+            errorKey: 'gate.err.no_guardian_message',
           });
         }
         if (receiver && receiver.friendsOnly) {

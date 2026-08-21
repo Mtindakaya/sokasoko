@@ -344,6 +344,7 @@ router.post(`${BASE}/:id/register`, async (req, res) => {
       if (player && ['PLAYER', 'REFEREE'].includes(player.type) && player.guardianOrphaned) {
         return res.status(403).json({
           error: 'Huwezi kujiunga na trial bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya.',
+          errorKey: 'gate.err.no_guardian_trial',
         });
       }
     }

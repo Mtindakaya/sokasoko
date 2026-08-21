@@ -26,6 +26,7 @@ async function orphanedPlayerBlock(userId) {
     if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
       return {
         error: 'Huwezi kutuma ombi bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya.',
+        errorKey: 'gate.err.no_guardian_match_request',
       };
     }
   } catch (_) {}
@@ -324,6 +325,9 @@ router.post(BASE, async (req, res) => {
             body:
               `Umeombwa kama ${s.role} kwa mechi: ${matchLabel}. ` +
               `Fungua Uhakiki kukubali au kukataa.`,
+            titleKey: 'notif.match.referee_request.title',
+            bodyKey: 'notif.match.referee_request.body',
+            params: { role: s.role, match: matchLabel },
             metadata: {
               kind: 'REFEREE_ASSIGNMENT',
               matchId: match._id,
@@ -640,6 +644,13 @@ router.post(`${BASE}/:id/referee-response`, async (req, res) => {
             : 'Mwamuzi Amekataa',
           body:
             `${refName} ${accepted ? 'amekubali' : 'amekataa'} ombi la kuwa ${roleLabel} kwa mechi ${matchLabel}.`,
+          titleKey: accepted
+            ? 'notif.match.referee_accepted.title'
+            : 'notif.match.referee_declined.title',
+          bodyKey: accepted
+            ? 'notif.match.referee_accepted.body'
+            : 'notif.match.referee_declined.body',
+          params: { name: refName, role: roleLabel, match: matchLabel },
           metadata: {
             kind: accepted ? 'REFEREE_ACCEPTED' : 'REFEREE_DECLINED',
             matchId: match._id,
@@ -772,6 +783,9 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
         body:
           `${requesterName} amekuomba u-scout mechi yao. ` +
           `Fungua Scout Hub kukubali au kukataa.`,
+        titleKey: 'notif.match.scout_request.title',
+        bodyKey: 'notif.match.scout_request.body',
+        params: { requester: requesterName },
         metadata: { matchId: match._id, requesterId: requester._id },
       });
       await Notification.create({
@@ -780,6 +794,9 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
         title: 'Ombi la Scout Limetumwa',
         body:
           `Umemuomba ${scout.firstName || 'skauti'} kuja kufanya scout mechi yako.`,
+        titleKey: 'notif.match.scout_request_sent.title',
+        bodyKey: 'notif.match.scout_request_sent.body',
+        params: { scout: scout.firstName || 'skauti' },
         metadata: { matchId: match._id, scoutId: scout._id },
       });
     } catch (notifyErr) {

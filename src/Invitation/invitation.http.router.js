@@ -86,6 +86,9 @@ router.post(BASE, async (req, res) => {
         body:
           `${label} amekuomba kama ${kindLabel(kind)}. ` +
           `Fungua Uhakiki kwenye wasifu wako kuthibitisha au kukataa.`,
+        titleKey: 'notif.invitation.received.title',
+        bodyKey: 'notif.invitation.received.body',
+        params: { kind: kindLabel(kind), label },
         metadata: {
           kind: `${kind}_INVITE`,
           invitationId: inv._id,
@@ -152,6 +155,9 @@ router.post(`${BASE}/:id/verify`, async (req, res) => {
         title: `${kindLabel(inv.kind)} Imethibitishwa`,
         body:
           `Umeikubali ${label} kama ${kindLabel(inv.kind)}.`,
+        titleKey: 'notif.invitation.confirmed.title',
+        bodyKey: 'notif.invitation.confirmed.body',
+        params: { kind: kindLabel(inv.kind), label },
         metadata: {
           kind: `${inv.kind}_VERIFIED`,
           invitationId: inv._id,
@@ -163,6 +169,9 @@ router.post(`${BASE}/:id/verify`, async (req, res) => {
         title: 'Ombi Limekubaliwa',
         body:
           `Mchezaji amekubali ombi lako la ${kindLabel(inv.kind)}.`,
+        titleKey: 'notif.invitation.accepted.title',
+        bodyKey: 'notif.invitation.accepted.body',
+        params: { kind: kindLabel(inv.kind) },
         metadata: {
           kind: `${inv.kind}_ACCEPTED_BY_PLAYER`,
           invitationId: inv._id,
@@ -206,6 +215,13 @@ router.post(`${BASE}/:id/reject`, async (req, res) => {
         body:
           `Mchezaji amekataa ombi lako la ${kindLabel(inv.kind)}` +
           (reason ? ` (sababu: ${reason})` : '') + '.',
+        titleKey: 'notif.invitation.declined.title',
+        bodyKey: reason
+          ? 'notif.invitation.declined.body_with_reason'
+          : 'notif.invitation.declined.body',
+        params: reason
+          ? { kind: kindLabel(inv.kind), reason }
+          : { kind: kindLabel(inv.kind) },
         metadata: {
           kind: `${inv.kind}_DECLINED_BY_PLAYER`,
           invitationId: inv._id,

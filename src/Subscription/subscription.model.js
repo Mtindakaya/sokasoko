@@ -752,6 +752,9 @@ SubscriptionSchema.methods.activate = async function (adminUserId) {
         title: 'Malipo Yamekamilika',
         body:
           `Malipo yako yamekamilika. Umepandishwa kwenye kifurushi cha ${this.tier}.`,
+        titleKey: 'notif.sub.payment_received.title',
+        bodyKey: 'notif.sub.payment_received.body',
+        params: { tier: this.tier },
         metadata: {
           subscriptionId: this._id,
           tier: this.tier,

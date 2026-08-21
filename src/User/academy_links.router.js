@@ -85,6 +85,9 @@ router.delete('/v1/users/:id/unlink-school', async (req, res) => {
         body:
           'Umejitoa kutoka shule yako iliyosajiliwa SokaSoko.' +
           (reason ? ` Sababu: ${reason}` : ''),
+        titleKey: 'notif.left_school.title',
+        bodyKey: reason ? 'notif.left_school.body_with_reason' : 'notif.left_school.body',
+        params: reason ? { reason } : {},
         metadata: { previousSchoolId: player.school, reason: reason || null },
       });
     } catch (notifyErr) {
@@ -127,6 +130,9 @@ router.post('/v1/users/:id/leave-academy', async (req, res) => {
         body:
           'Umejitoa kutoka kituo chako cha mpira SokaSoko.' +
           (reason ? ` Sababu: ${reason}` : ''),
+        titleKey: 'notif.left_academy.title',
+        bodyKey: reason ? 'notif.left_academy.body_with_reason' : 'notif.left_academy.body',
+        params: reason ? { reason } : {},
         metadata: { previousAcademyId: academyId, reason: reason || null },
       });
     } catch (notifyErr) {

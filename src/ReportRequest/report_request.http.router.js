@@ -177,6 +177,9 @@ router.post(BASE, async (req, res) => {
         title: 'Ombi la Ripoti',
         body:
           `Ombi lako la ripoti ya ${reportType} limepokelewa. Utapata taarifa mara ripoti itakapokuwa tayari.`,
+        titleKey: 'notif.report_request.title',
+        bodyKey: 'notif.report_request.body',
+        params: { reportType },
         metadata: { reportRequestId: reportRequest._id, reportType },
       });
     } catch (notifyErr) {
