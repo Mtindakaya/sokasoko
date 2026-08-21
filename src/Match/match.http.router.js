@@ -182,10 +182,16 @@ router.post(BASE, async (req, res) => {
   try {
     const { homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee } = req.body;
     if (!homeTeam || !awayTeam || !scheduledDate) {
-      return res.status(400).json({ error: 'homeTeam, awayTeam and scheduledDate are required' });
+      return res.status(400).json({
+        error: 'Tafadhali chagua timu mbili na tarehe ya mechi.',
+        errorKey: 'matches.error.missing_fields',
+      });
     }
     if (homeTeam === awayTeam) {
-      return res.status(400).json({ error: 'Home and away team cannot be the same' });
+      return res.status(400).json({
+        error: 'Timu ya nyumbani na ya ugenini haiwezi kuwa moja.',
+        errorKey: 'matches.error.same_team',
+      });
     }
     const blocked = await orphanedPlayerBlock(scheduledBy);
     if (blocked) return res.status(403).json(blocked);
