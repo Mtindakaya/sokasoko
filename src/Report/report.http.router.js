@@ -114,11 +114,10 @@ router.post(`${BASE}/:id/status`, async (req, res) => {
         await Notification.create({
           userId: doc.reported,
           type: 'SYSTEM',
-          title: 'Onyo la Msimamizi · Moderation Action',
+          title: 'Onyo la Msimamizi',
           body:
             'Msimamizi wa SokaSoko amechukua hatua dhidi ya maudhui yako. ' +
-            'Wasiliana na msimamizi kwa maelezo zaidi. ' +
-            'A SokaSoko moderator has actioned your content. Contact support for details.',
+            'Wasiliana na msimamizi kwa maelezo zaidi.',
           metadata: {
             reportId: doc._id,
             reason: doc.reason,

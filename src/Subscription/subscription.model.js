@@ -749,10 +749,9 @@ SubscriptionSchema.methods.activate = async function (adminUserId) {
       await Notification.create({
         userId: this.user,
         type: 'PAYMENT',
-        title: 'Malipo Yamekamilika · Payment Received',
+        title: 'Malipo Yamekamilika',
         body:
-          `Malipo yako yamekamilika. Umepandishwa kwenye tier ya ${this.tier}. ` +
-          `Payment received — you're now on the ${this.tier} tier.`,
+          `Malipo yako yamekamilika. Umepandishwa kwenye kifurushi cha ${this.tier}.`,
         metadata: {
           subscriptionId: this._id,
           tier: this.tier,

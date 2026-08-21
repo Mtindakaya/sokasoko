@@ -81,11 +81,10 @@ router.delete('/v1/users/:id/unlink-school', async (req, res) => {
       await Notification.create({
         userId: req.params.id,
         type: 'SYSTEM',
-        title: 'Umeondoka Shuleni · Left School',
+        title: 'Umeondoka Shuleni',
         body:
-          'Umejitoa kutoka shule yako iliyosajiliwa SokaSoko. ' +
-          "You've left your registered school on SokaSoko." +
-          (reason ? ` Sababu · Reason: ${reason}` : ''),
+          'Umejitoa kutoka shule yako iliyosajiliwa SokaSoko.' +
+          (reason ? ` Sababu: ${reason}` : ''),
         metadata: { previousSchoolId: player.school, reason: reason || null },
       });
     } catch (notifyErr) {
@@ -124,11 +123,10 @@ router.post('/v1/users/:id/leave-academy', async (req, res) => {
       await Notification.create({
         userId: req.params.id,
         type: 'SYSTEM',
-        title: 'Umeondoka Chuo cha Mpira · Left Academy',
+        title: 'Umeondoka Kituo cha Mpira',
         body:
-          'Umejitoa kutoka chuo chako cha mpira SokaSoko. ' +
-          "You've left your academy on SokaSoko." +
-          (reason ? ` Sababu · Reason: ${reason}` : ''),
+          'Umejitoa kutoka kituo chako cha mpira SokaSoko.' +
+          (reason ? ` Sababu: ${reason}` : ''),
         metadata: { previousAcademyId: academyId, reason: reason || null },
       });
     } catch (notifyErr) {

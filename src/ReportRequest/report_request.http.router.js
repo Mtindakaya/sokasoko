@@ -174,10 +174,9 @@ router.post(BASE, async (req, res) => {
       await Notification.create({
         userId: requestedBy,
         type: 'SYSTEM',
-        title: 'Ombi la Ripoti · Report Request',
+        title: 'Ombi la Ripoti',
         body:
-          `Ombi lako la ripoti ya ${reportType} limepokelewa. Utapata taarifa mara ripoti itakapokuwa tayari. ` +
-          `Your ${reportType} report request has been received. You'll be notified when it's ready.`,
+          `Ombi lako la ripoti ya ${reportType} limepokelewa. Utapata taarifa mara ripoti itakapokuwa tayari.`,
         metadata: { reportRequestId: reportRequest._id, reportType },
       });
     } catch (notifyErr) {

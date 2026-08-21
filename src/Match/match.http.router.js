@@ -25,7 +25,7 @@ async function orphanedPlayerBlock(userId) {
       .lean();
     if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
       return {
-        error: 'Huwezi kutuma ombi bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · This action is restricted for players without an active guardian. Open Mlezi Wangu to attach a guardian.',
+        error: 'Huwezi kutuma ombi bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya.',
       };
     }
   } catch (_) {}
@@ -320,12 +320,10 @@ router.post(BASE, async (req, res) => {
           await Notification.create({
             userId: s.id,
             type: 'SYSTEM',
-            title: 'Umeombwa Kuwaamua Mechi · Officiating Request',
+            title: 'Umeombwa Kuwaamua Mechi',
             body:
               `Umeombwa kama ${s.role} kwa mechi: ${matchLabel}. ` +
-              `Fungua Verifications kukubali au kukataa. ` +
-              `You've been requested as ${s.role} for match: ${matchLabel}. ` +
-              `Open Verifications to accept or decline.`,
+              `Fungua Uhakiki kukubali au kukataa.`,
             metadata: {
               kind: 'REFEREE_ASSIGNMENT',
               matchId: match._id,
@@ -631,18 +629,17 @@ router.post(`${BASE}/:id/referee-response`, async (req, res) => {
       const teamLabel = (u) => (u?.academy_name || `${u?.firstName || ''} ${u?.lastName || ''}`.trim()) || 'a team';
       const matchLabel = `${teamLabel(home)} vs ${teamLabel(away)}`;
       const refName = ref ? `${ref.firstName || ''} ${ref.lastName || ''}`.trim() : 'A referee';
-      const roleLabel = slot === 'main' ? 'Main Referee' : slot === 'ar1' ? 'Assistant Referee 1' : 'Assistant Referee 2';
+      const roleLabel = slot === 'main' ? 'Mwamuzi Mkuu' : slot === 'ar1' ? 'Msaidizi 1' : 'Msaidizi 2';
       const accepted = action === 'accept';
       if (match.scheduledBy) {
         await Notification.create({
           userId: match.scheduledBy,
           type: 'SYSTEM',
           title: accepted
-            ? 'Mwamuzi Amekubali · Referee Accepted'
-            : 'Mwamuzi Amekataa · Referee Declined',
+            ? 'Mwamuzi Amekubali'
+            : 'Mwamuzi Amekataa',
           body:
-            `${refName} ${accepted ? 'amekubali' : 'amekataa'} ombi la kuwa ${roleLabel} kwa mechi ${matchLabel}. ` +
-            `${refName} has ${accepted ? 'accepted' : 'declined'} the ${roleLabel} request for ${matchLabel}.`,
+            `${refName} ${accepted ? 'amekubali' : 'amekataa'} ombi la kuwa ${roleLabel} kwa mechi ${matchLabel}.`,
           metadata: {
             kind: accepted ? 'REFEREE_ACCEPTED' : 'REFEREE_DECLINED',
             matchId: match._id,
@@ -771,20 +768,18 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
       await Notification.create({
         userId: scout._id,
         type: 'SYSTEM',
-        title: 'Ombi la Scout · Scout Request',
+        title: 'Ombi la Scout',
         body:
           `${requesterName} amekuomba u-scout mechi yao. ` +
-          `${requesterName} has requested you as scout for their match. ` +
-          `Open Scout Hub to accept or decline.`,
+          `Fungua Scout Hub kukubali au kukataa.`,
         metadata: { matchId: match._id, requesterId: requester._id },
       });
       await Notification.create({
         userId: requester._id,
         type: 'SYSTEM',
-        title: 'Ombi la Scout Limetumwa · Scout Request Sent',
+        title: 'Ombi la Scout Limetumwa',
         body:
-          `Umemuomba ${scout.firstName || 'scout'} kuja kufanya scout mechi yako. ` +
-          `You've requested ${scout.firstName || 'a scout'} for your upcoming match.`,
+          `Umemuomba ${scout.firstName || 'skauti'} kuja kufanya scout mechi yako.`,
         metadata: { matchId: match._id, scoutId: scout._id },
       });
     } catch (notifyErr) {

@@ -175,8 +175,8 @@ module.exports = function createChatRouter(io) {
         const receiverOrphaned = receiver && ['PLAYER', 'REFEREE'].includes(receiver.type) && receiver.guardianOrphaned === true;
         if (senderOrphaned || receiverOrphaned) {
           return res.status(403).json({
-            error: 'Huwezi kutuma ujumbe bila mlezi. · Message not delivered — this account is not currently linked to a guardian.',
-            message: 'Huwezi kutuma ujumbe bila mlezi. · Message not delivered — this account is not currently linked to a guardian.',
+            error: 'Huwezi kutuma ujumbe bila mlezi.',
+            message: 'Huwezi kutuma ujumbe bila mlezi.',
           });
         }
         if (receiver && receiver.friendsOnly) {

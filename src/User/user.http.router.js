@@ -938,7 +938,7 @@ router.post('/users/:id/link-secretary', async (req, res) => {
 //   4. Guardian accepts / declines. Accept links + notifies previous
 //      guardian (if any).
 
-async function sendChatNotice(senderId, receiverId, content, title = 'Sasisho la Ulezi · Guardian Update') {
+async function sendChatNotice(senderId, receiverId, content, title = 'Sasisho la Ulezi') {
   if (!senderId || !receiverId) return;
   try {
     // In-chat message — visible in the guardian/minor conversation thread.
@@ -981,7 +981,7 @@ router.post('/users/:minorId/guardian/remove', async (req, res) => {
     // Non-blocking chat notice to the removed guardian
     const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'A player';
     sendChatNotice(minor._id, oldGuardianId,
-      `${minorName} amejiondoa kwenye ulezi wako. · ${minorName} has removed themselves from your guardianship.`);
+      `${minorName} amejiondoa kwenye ulezi wako.`);
     return res.status(200).json({ data: minor });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1005,7 +1005,7 @@ router.post('/users/:guardianId/ward/remove', async (req, res) => {
     await minor.save();
     const minorName = `${minor.firstName || ''} ${minor.lastName || ''}`.trim() || 'The player';
     sendChatNotice(req.params.guardianId, minor._id,
-      `Mlezi wako amekuondoa. Tafuta mlezi mwingine kupitia SokaSoko. · Your guardian has removed you. Search for a new guardian in SokaSoko.`);
+      `Mlezi wako amekuondoa. Tafuta mlezi mwingine kupitia SokaSoko.`);
     return res.status(200).json({ data: minor });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1054,8 +1054,8 @@ router.post('/users/:minorId/guardian/request', async (req, res) => {
         sendChatNotice(
           minor._id,
           prior.guardian,
-          `${minorName} ameghairi ombi la ulezi kwako. · ${minorName} withdrew their guardian request.`,
-          'Ombi Limeghairiwa · Request Withdrawn',
+          `${minorName} ameghairi ombi la ulezi kwako.`,
+          'Ombi Limeghairiwa',
         );
       }
     }
@@ -1068,8 +1068,8 @@ router.post('/users/:minorId/guardian/request', async (req, res) => {
     sendChatNotice(
       minor._id,
       guardianId,
-      `${minorName} ameomba uwe mlezi wake. Fungua Marafiki / Wards Requests kwenye SokaSoko kukubali au kukataa. · ${minorName} has requested you as their guardian. Open Guardian Requests to accept or decline.`,
-      'Ombi Jipya la Ulezi · New Guardian Request',
+      `${minorName} ameomba uwe mlezi wake. Fungua Maombi ya Ulezi kwenye SokaSoko kukubali au kukataa.`,
+      'Ombi Jipya la Ulezi',
     );
     return res.status(201).json({ data: doc });
   } catch (err) {
@@ -1111,12 +1111,12 @@ router.post('/guardian-requests/:id/accept', async (req, res) => {
       const minorName = `${minorFresh.firstName || ''} ${minorFresh.lastName || ''}`.trim() || 'The minor';
       const newGuardianName = `${newGuardian.firstName || ''} ${newGuardian.lastName || ''}`.trim() || 'a new guardian';
       sendChatNotice(guardianId, previousGuardian,
-        `${minorName} sasa amewekwa chini ya mlezi ${newGuardianName}. · ${minorName} is now under the guardianship of ${newGuardianName}.`);
+        `${minorName} sasa amewekwa chini ya mlezi ${newGuardianName}.`);
     }
 
     // Notify minor
     sendChatNotice(guardianId, minor._id,
-      `Ombi lako la ulezi limekubaliwa. Karibu tena kwenye SokaSoko. · Your guardian request has been accepted. Welcome back to SokaSoko.`);
+      `Ombi lako la ulezi limekubaliwa. Karibu tena kwenye SokaSoko.`);
 
     return res.status(200).json({ data: doc });
   } catch (err) {
@@ -1140,7 +1140,7 @@ router.post('/guardian-requests/:id/decline', async (req, res) => {
     doc.respondedAt = new Date();
     await doc.save();
     sendChatNotice(guardianId, doc.minor,
-      `Ombi lako la ulezi halikubaliwa. Unaweza kujaribu mlezi mwingine. · Your guardian request was declined. You can try another guardian.`);
+      `Ombi lako la ulezi halikubaliwa. Unaweza kujaribu mlezi mwingine.`);
     return res.status(200).json({ data: doc });
   } catch (err) {
     return res.status(500).json({ error: err.message });

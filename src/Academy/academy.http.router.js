@@ -152,12 +152,10 @@ router.post(
           await Notification.create({
             userId: playerId,
             type: 'SYSTEM',
-            title: 'Ombi la Kujiunga · Academy Invitation',
+            title: 'Ombi la Kujiunga',
             body:
               `${orgLabel} amekuomba ujiunge nao (umri: ${level}). ` +
-              `Fungua Verifications kwenye profile yako kuthibitisha au kukataa. ` +
-              `${orgLabel} has invited you to join (level: ${level}). ` +
-              `Open Verifications in your profile to accept or decline.`,
+              `Fungua Uhakiki kwenye wasifu wako kuthibitisha au kukataa.`,
             metadata: {
               kind: 'ACADEMY_INVITE',
               academyEnrollmentId: data._id,
@@ -219,10 +217,9 @@ router.post('/academys/:id/verify', async (req, res) => {
       await Notification.create({
         userId: row.player,
         type: 'SYSTEM',
-        title: 'Umejiunga na Chuo · Enrollment Confirmed',
+        title: 'Umejiunga na Kituo',
         body:
-          `Umejiunga rasmi na ${orgLabel} (umri: ${row.level}). ` +
-          `You have officially joined ${orgLabel} at level ${row.level}.`,
+          `Umejiunga rasmi na ${orgLabel} (umri: ${row.level}).`,
         metadata: {
           kind: 'ACADEMY_VERIFIED',
           academyEnrollmentId: row._id,
@@ -232,10 +229,9 @@ router.post('/academys/:id/verify', async (req, res) => {
       await Notification.create({
         userId: row.addedBy,
         type: 'SYSTEM',
-        title: 'Ombi Limekubaliwa · Player Accepted',
+        title: 'Ombi Limekubaliwa',
         body:
-          `Mchezaji amekubali ombi lako la kujiunga (umri: ${row.level}). ` +
-          `A player has accepted your invitation (level: ${row.level}).`,
+          `Mchezaji amekubali ombi lako la kujiunga (umri: ${row.level}).`,
         metadata: {
           kind: 'ACADEMY_ACCEPTED_BY_PLAYER',
           academyEnrollmentId: row._id,
@@ -276,12 +272,10 @@ router.post('/academys/:id/reject', async (req, res) => {
       await Notification.create({
         userId: row.addedBy,
         type: 'SYSTEM',
-        title: 'Ombi Limekataliwa · Invitation Declined',
+        title: 'Ombi Limekataliwa',
         body:
           `Mchezaji amekataa ombi lako la kujiunga na ${orgLabel}` +
-          (reason ? ` (sababu: ${reason})` : '') + '. ' +
-          `A player has declined your invitation to ${orgLabel}` +
-          (reason ? ` (reason: ${reason})` : '') + '.',
+          (reason ? ` (sababu: ${reason})` : '') + '.',
         metadata: {
           kind: 'ACADEMY_DECLINED_BY_PLAYER',
           academyEnrollmentId: row._id,

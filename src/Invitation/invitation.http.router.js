@@ -82,12 +82,10 @@ router.post(BASE, async (req, res) => {
       await Notification.create({
         userId: invitee,
         type: 'SYSTEM',
-        title: `Ombi la ${kindLabel(kind)} · ${kindLabel(kind)} Invitation`,
+        title: `Ombi la ${kindLabel(kind)}`,
         body:
           `${label} amekuomba kama ${kindLabel(kind)}. ` +
-          `Fungua Verifications kwenye profile yako kuthibitisha au kukataa. ` +
-          `${label} has invited you as ${kindLabel(kind)}. ` +
-          `Open Verifications in your profile to accept or decline.`,
+          `Fungua Uhakiki kwenye wasifu wako kuthibitisha au kukataa.`,
         metadata: {
           kind: `${kind}_INVITE`,
           invitationId: inv._id,
@@ -151,10 +149,9 @@ router.post(`${BASE}/:id/verify`, async (req, res) => {
       await Notification.create({
         userId: inv.invitee,
         type: 'SYSTEM',
-        title: `${kindLabel(inv.kind)} Imethibitishwa · ${kindLabel(inv.kind)} Confirmed`,
+        title: `${kindLabel(inv.kind)} Imethibitishwa`,
         body:
-          `Umeikubali ${label} kama ${kindLabel(inv.kind)}. ` +
-          `You have confirmed ${label} as your ${kindLabel(inv.kind)}.`,
+          `Umeikubali ${label} kama ${kindLabel(inv.kind)}.`,
         metadata: {
           kind: `${inv.kind}_VERIFIED`,
           invitationId: inv._id,
@@ -163,10 +160,9 @@ router.post(`${BASE}/:id/verify`, async (req, res) => {
       await Notification.create({
         userId: inv.inviter,
         type: 'SYSTEM',
-        title: 'Ombi Limekubaliwa · Player Accepted',
+        title: 'Ombi Limekubaliwa',
         body:
-          `Mchezaji amekubali ombi lako la ${kindLabel(inv.kind)}. ` +
-          `A player has accepted your ${kindLabel(inv.kind)} invitation.`,
+          `Mchezaji amekubali ombi lako la ${kindLabel(inv.kind)}.`,
         metadata: {
           kind: `${inv.kind}_ACCEPTED_BY_PLAYER`,
           invitationId: inv._id,
@@ -206,12 +202,10 @@ router.post(`${BASE}/:id/reject`, async (req, res) => {
       await Notification.create({
         userId: inv.inviter,
         type: 'SYSTEM',
-        title: 'Ombi Limekataliwa · Invitation Declined',
+        title: 'Ombi Limekataliwa',
         body:
           `Mchezaji amekataa ombi lako la ${kindLabel(inv.kind)}` +
-          (reason ? ` (sababu: ${reason})` : '') + '. ' +
-          `A player has declined your ${kindLabel(inv.kind)} invitation from ${label}` +
-          (reason ? ` (reason: ${reason})` : '') + '.',
+          (reason ? ` (sababu: ${reason})` : '') + '.',
         metadata: {
           kind: `${inv.kind}_DECLINED_BY_PLAYER`,
           invitationId: inv._id,

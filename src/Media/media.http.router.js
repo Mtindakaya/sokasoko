@@ -37,7 +37,7 @@ async function refuseOrphanedPlayerUpload(req, res, next) {
       .lean();
     if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
       return res.status(403).json({
-        error: 'Huwezi kupakia video bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya. · Uploads are restricted for minors without an active guardian. Open Mlezi Wangu to attach a guardian.',
+        error: 'Huwezi kupakia video bila mlezi. Nenda "Mlezi Wangu" upate mlezi mpya.',
       });
     }
     return next();
@@ -281,7 +281,7 @@ router.post('/medias/playlist', async (req, res) => {
         .lean();
       if (u && ['PLAYER', 'REFEREE'].includes(u.type) && u.guardianOrphaned) {
         return res.status(403).json({
-          error: 'Huwezi kupakia video bila mlezi. · Uploads restricted for minors without an active guardian.',
+          error: 'Huwezi kupakia video bila mlezi.',
         });
       }
     }
@@ -352,7 +352,7 @@ router.delete(PATH_SINGLE, async (req, res) => {
       {
         $set: {
           sharedMedia: null,
-          content: '[Chapisho limefutwa · Post deleted]',
+          content: '[Chapisho limefutwa]',
         },
       },
     );

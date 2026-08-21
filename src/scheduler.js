@@ -33,8 +33,8 @@ const runSubscriptionLapseSweep = async () => {
       try {
         await Notification.create({
           userId: s.user,
-          title: 'Subscription renewal reminder',
-          body: `Your ${s.tier} subscription has ended. You have 5 days to renew before your account falls back to Standard.`,
+          title: 'Kumbusho la kurejesha uandikishaji',
+          body: `Uandikishaji wako wa ${s.tier} umekwisha. Una siku 5 kurejesha kabla akaunti yako haijashuka kwenda Standard.`,
           type: 'SUBSCRIPTION',
           metadata: { tier: s.tier, phase: 'GRACE' },
         });
@@ -50,8 +50,8 @@ const runSubscriptionLapseSweep = async () => {
       try {
         await Notification.create({
           userId: s.user,
-          title: 'Subscription expired',
-          body: `Your ${s.tier} subscription has expired. Your account is now on the Standard tier — upgrade any time to restore full features.`,
+          title: 'Uandikishaji umekwisha',
+          body: `Uandikishaji wako wa ${s.tier} umekwisha muda. Akaunti yako sasa iko kwenye Standard — boresha wakati wowote kurudisha vipengele vyote.`,
           type: 'SUBSCRIPTION',
           metadata: { tier: s.tier, phase: 'EXPIRED' },
         });
@@ -130,16 +130,16 @@ const runMonthlyProgressReports = async () => {
       const filledFields = profileFields.filter((f) => player[f] && player[f].toString().trim() !== '');
       const completeness = Math.round((filledFields.length / profileFields.length) * 100);
 
-      let bodyLines = [`Hi ${player.firstName}, here is your monthly SokaSoko progress summary:`];
-      bodyLines.push(`• Profile completeness: ${completeness}%`);
-      bodyLines.push(`• Times identified by scouts: ${scoutCvCount}`);
-      if (verifiedCount > 0) bodyLines.push(`• Verified scout identifications: ${verifiedCount}`);
-      if (completeness < 80) bodyLines.push('• Tip: Complete your profile to attract more scouts!');
-      if (scoutCvCount === 0) bodyLines.push('• No scout activity yet — keep updating your profile and videos.');
+      let bodyLines = [`Habari ${player.firstName}, hii ni muhtasari wako wa mwezi wa SokaSoko:`];
+      bodyLines.push(`• Ukamilifu wa wasifu: ${completeness}%`);
+      bodyLines.push(`• Umeonekana na skauti mara: ${scoutCvCount}`);
+      if (verifiedCount > 0) bodyLines.push(`• Utambulisho uliohakikiwa na skauti: ${verifiedCount}`);
+      if (completeness < 80) bodyLines.push('• Ushauri: Kamilisha wasifu wako ili kuvutia skauti zaidi!');
+      if (scoutCvCount === 0) bodyLines.push('• Hakuna shughuli ya skauti bado — endelea kusasisha wasifu wako na video.');
 
       await Notification.create({
         userId: player._id,
-        title: 'Your Monthly Progress Report',
+        title: 'Ripoti Yako ya Mwezi',
         body: bodyLines.join('\n'),
         type: 'PROGRESS_REPORT',
         metadata: { scoutCvCount, verifiedCount, profileCompleteness: completeness },
