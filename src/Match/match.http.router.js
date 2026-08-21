@@ -792,7 +792,11 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
         titleKey: 'notif.match.scout_request.title',
         bodyKey: 'notif.match.scout_request.body',
         params: { requester: requesterName },
-        metadata: { matchId: match._id, requesterId: requester._id },
+        metadata: {
+          kind: 'SCOUT_REQUEST',
+          matchId: match._id,
+          requesterId: requester._id,
+        },
       });
       await Notification.create({
         userId: requester._id,
