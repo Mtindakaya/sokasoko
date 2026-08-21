@@ -408,6 +408,12 @@ router.post(BASE, async (req, res) => {
               matchId: match._id,
               slot: s.slot,
               role: s.role,
+              // scheduledDate lets the client sort upcoming referee
+              // assignments chronologically in the inbox (so "next
+              // Saturday" appears at the top) and show the match date
+              // as a subtitle without a separate lookup.
+              scheduledDate: match.scheduledDate,
+              teamsLabel: matchLabel,
             },
           });
         }
@@ -697,6 +703,31 @@ router.post(`${BASE}/:id/referee-response`, async (req, res) => {
     }
     match[respondedAtField] = new Date();
     await match.save();
+
+    // Stamp responseStatus onto the original REFEREE_ASSIGNMENT
+    // notification so the inbox tile can render an "✓ Umekubali" /
+    // "✗ Umekataa" badge and route the tap to a read-only detail sheet
+    // instead of back to Verifications (where the pending row is now
+    // gone). Best-effort — never fail the response if this update misses.
+    try {
+      await Notification.updateOne(
+        {
+          userId: currentRef,
+          'metadata.kind': 'REFEREE_ASSIGNMENT',
+          'metadata.matchId': match._id,
+          'metadata.slot': slot,
+        },
+        {
+          $set: {
+            'metadata.responseStatus':
+              action === 'accept' ? 'ACCEPTED' : 'DECLINED',
+            'metadata.respondedAt': new Date(),
+          },
+        },
+      );
+    } catch (nErr) {
+      console.log('[REFEREE RESPONSE] notification stamp failed:', nErr.message);
+    }
 
     // Notify the scheduler so they don't have to poll.
     try {
