@@ -8,6 +8,7 @@ const ChatMessage = require('../Chat/chat.model');
 const Notification = require('../Notification/notification.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 const { Subscription } = require('../Subscription/subscription.model');
+const { busyUserIds, venueBusy, busyTeamIds } = require('./conflict.helper');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -294,6 +295,74 @@ router.post(BASE, async (req, res) => {
           error: `Scout ${ineligible.join(', ')} hana uandikishaji hai. Hawezi kuchaguliwa kwa kazi rasmi ya scouting.`,
           reason: 'SCOUT_SUBSCRIPTION_REQUIRED',
         });
+      }
+    }
+
+    // Time-conflict guardrails. Refs/scouts/venues use a symmetric ±2h
+    // window; teams use -2h/+3h (a team that just finished a match needs
+    // more recovery time before the next kickoff).
+    {
+      const refIds = refCandidates.filter(Boolean);
+      if (refIds.length) {
+        const busy = await busyUserIds(refIds, scheduledDate);
+        if (busy.size) {
+          const users = await User.find({ _id: { $in: [...busy] } })
+            .select('firstName lastName').lean();
+          const names = users
+            .map((u) => `${u.firstName || ''} ${u.lastName || ''}`.trim())
+            .filter(Boolean)
+            .join(', ');
+          return res.status(409).json({
+            error: `Mwamuzi ${names} tayari ana mechi nyingine muda huo huo. Chagua muda mwingine au mwamuzi mwingine.`,
+            errorKey: 'matches.error.referee_busy',
+            reason: 'REFEREE_TIME_CONFLICT',
+          });
+        }
+      }
+      const scoutIdsAll = scoutCandidates.filter(Boolean);
+      if (scoutIdsAll.length) {
+        const busy = await busyUserIds(scoutIdsAll, scheduledDate);
+        if (busy.size) {
+          const users = await User.find({ _id: { $in: [...busy] } })
+            .select('firstName lastName').lean();
+          const names = users
+            .map((u) => `${u.firstName || ''} ${u.lastName || ''}`.trim())
+            .filter(Boolean)
+            .join(', ');
+          return res.status(409).json({
+            error: `Scout ${names} tayari ana mechi nyingine muda huo huo. Chagua muda mwingine au scout mwingine.`,
+            errorKey: 'matches.error.scout_busy',
+            reason: 'SCOUT_TIME_CONFLICT',
+          });
+        }
+      }
+      if (venue) {
+        const busy = await venueBusy(venue, scheduledDate);
+        if (busy) {
+          return res.status(409).json({
+            error: 'Uwanja tayari umepangwa kwa mechi nyingine muda huo huo. Chagua uwanja mwingine au muda mwingine.',
+            errorKey: 'matches.error.venue_busy',
+            reason: 'VENUE_TIME_CONFLICT',
+          });
+        }
+      }
+      const teamIds = [homeTeam, awayTeam].filter(Boolean);
+      if (teamIds.length) {
+        const busy = await busyTeamIds(teamIds, scheduledDate);
+        if (busy.size) {
+          const users = await User.find({ _id: { $in: [...busy] } })
+            .select('firstName lastName academy_name').lean();
+          const names = users
+            .map((u) => (u.academy_name && u.academy_name.trim())
+              || `${u.firstName || ''} ${u.lastName || ''}`.trim())
+            .filter(Boolean)
+            .join(', ');
+          return res.status(409).json({
+            error: `Timu ${names} tayari ina mechi nyingine ndani ya masaa 2 kabla au 3 baada ya muda huo. Chagua muda mwingine.`,
+            errorKey: 'matches.error.team_busy',
+            reason: 'TEAM_TIME_CONFLICT',
+          });
+        }
       }
     }
 

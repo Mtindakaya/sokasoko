@@ -16,10 +16,25 @@ router.get(BASE, async (req, res) => {
     if (status) filter.status = status;
     else filter.status = 'ACTIVE';
 
-    const venues = await Venue.find(filter)
+    let venues = await Venue.find(filter)
       .sort({ name: 1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
+
+    // Time-conflict filter. Pass ?scheduledDate=<iso> (optionally
+    // ?excludeMatchId=<id>) and any venue already booked within the ±2h
+    // match window is dropped from the list — matches the same window
+    // used by POST /matches rejection so what the picker shows is what
+    // the server will accept.
+    if (req.query.scheduledDate && venues.length) {
+      const { venueBusy } = require('../Match/conflict.helper');
+      const excludeMatchId = req.query.excludeMatchId || null;
+      const busyFlags = await Promise.all(
+        venues.map((v) => venueBusy(v._id, req.query.scheduledDate,
+          { excludeMatchId })),
+      );
+      venues = venues.filter((_, i) => !busyFlags[i]);
+    }
 
     const total = await Venue.countDocuments(filter);
 

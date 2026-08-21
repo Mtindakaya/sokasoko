@@ -295,6 +295,52 @@ router.get(PATH_LIST, async (req, res) => {
       }
     }
 
+    // Referee-eligibility filter. When onlyEligible=1 is set, drop refs
+    // who cannot officiate right now (free-game threshold + no active
+    // subscription). Used by the schedule-match picker so ineligible
+    // refs never even appear in the dropdown.
+    if (
+      req.query.type === 'REFEREE' &&
+      data.length &&
+      (req.query.onlyEligible === '1' || req.query.onlyEligible === 'true')
+    ) {
+      const { Subscription } = require('../Subscription/subscription.model');
+      const eligibility = await Promise.all(
+        data.map(u => Subscription.getRefereeEligibility(u._id))
+      );
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (!eligibility[i]?.eligible) data.splice(i, 1);
+      }
+    }
+
+    // Time-conflict filter. Pass ?scheduledDate=<iso> (and optionally
+    // ?excludeMatchId=<id> when rescheduling) and any user already
+    // booked in the relevant window is dropped:
+    //   REFEREE / SCOUT → ±2h assignment window
+    //   ACADEMY / CLUB / SCHOOL / COACH → team window (-2h / +3h)
+    if (req.query.scheduledDate && data.length) {
+      const { busyUserIds, busyTeamIds } =
+        require('../Match/conflict.helper');
+      const ids = data.map(u => u._id);
+      const excludeMatchId = req.query.excludeMatchId || null;
+      const teamTypes = ['ACADEMY', 'CLUB', 'SCHOOL', 'COACH'];
+      let busy;
+      if (['REFEREE', 'SCOUT'].includes(req.query.type)) {
+        busy = await busyUserIds(ids, req.query.scheduledDate,
+          { excludeMatchId });
+      } else if (teamTypes.includes(req.query.type)) {
+        busy = await busyTeamIds(ids, req.query.scheduledDate,
+          { excludeMatchId });
+      } else {
+        busy = new Set();
+      }
+      if (busy.size) {
+        for (let i = data.length - 1; i >= 0; i--) {
+          if (busy.has(String(data[i]._id))) data.splice(i, 1);
+        }
+      }
+    }
+
     return res.status(200).json({ data, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -441,7 +487,30 @@ router.get('/users/eligible-scouts', async (req, res) => {
         u.scoutSubscribed = !!subs[i] && subs[i].tier === 'PRO';
       });
     } catch (_) { /* enrichment is best-effort */ }
-    return res.status(200).json({ data: list });
+
+    let finalList = list;
+    // Drop unsubscribed scouts entirely when the schedule-match picker
+    // asks for onlyEligible=1 — coaches double as scouts once they pay,
+    // so we defer to canPerformOfficialScouting for the final call.
+    if (req.query.onlyEligible === '1' || req.query.onlyEligible === 'true') {
+      const { Subscription } = require('../Subscription/subscription.model');
+      const eligible = await Promise.all(
+        finalList.map((u) => Subscription.canPerformOfficialScouting(u._id))
+      );
+      finalList = finalList.filter((_, i) => eligible[i]);
+    }
+    // Time-conflict filter — same ±2h window as ref/scout POST reject.
+    if (req.query.scheduledDate && finalList.length) {
+      const { busyUserIds } = require('../Match/conflict.helper');
+      const ids = finalList.map((u) => u._id);
+      const excludeMatchId = req.query.excludeMatchId || null;
+      const busy = await busyUserIds(ids, req.query.scheduledDate,
+        { excludeMatchId });
+      if (busy.size) {
+        finalList = finalList.filter((u) => !busy.has(String(u._id)));
+      }
+    }
+    return res.status(200).json({ data: finalList });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
