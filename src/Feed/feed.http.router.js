@@ -28,7 +28,7 @@ router.get('/v1/feed', async (req, res) => {
       // grows.
       Media.find({ isPlaylist: { $ne: true }, $or: [{ boostedUntil: null }, { boostedUntil: { $lt: now } }] })
         .select('title description url type likes createdBy createdAt boostedUntil')
-        .populate('createdBy', 'firstName lastName profileImage type position academy_name company_name')
+        .populate('createdBy', 'firstName lastName profileImage type position academy_name company_name entity_name')
         .sort({ createdAt: -1 })
         .limit(500)
         .lean(),
@@ -36,7 +36,7 @@ router.get('/v1/feed', async (req, res) => {
       // remaining window so the freshest boost surfaces first.
       Media.find({ isPlaylist: { $ne: true }, boostedUntil: { $gte: now } })
         .select('title description url type likes createdBy createdAt boostedUntil')
-        .populate('createdBy', 'firstName lastName profileImage type position academy_name company_name')
+        .populate('createdBy', 'firstName lastName profileImage type position academy_name company_name entity_name')
         .sort({ boostedUntil: -1 })
         .limit(20)
         .lean(),
@@ -100,6 +100,7 @@ router.get('/v1/feed', async (req, res) => {
           position: creator.position || null,
           academy_name: creator.academy_name || null,
           company_name: creator.company_name || null,
+          entity_name: creator.entity_name || null,
         },
       };
     });
