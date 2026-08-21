@@ -354,7 +354,7 @@ router.delete(PATH_SINGLE, async (req, res) => {
       {
         $set: {
           sharedMedia: null,
-          content: '[Chapisho limefutwa]',
+          content: '[Post deleted]',
         },
       },
     );
