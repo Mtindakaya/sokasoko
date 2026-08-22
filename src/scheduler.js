@@ -114,10 +114,14 @@ const runDailyCheck = async () => {
 const runMonthlyProgressReports = async () => {
   console.log('Running monthly player progress reports...');
 
-  // Find all players with an active subscription
+  // Only Gold + Platinum players receive the monthly report — Standard
+  // was previously included by virtue of being an ACTIVE subscription
+  // row, but reports are a paid-tier feature (product decision
+  // 2026-08-22). Standard tier gets nothing until they upgrade.
   const activeSubs = await Subscription.find({
     userType: 'PLAYER',
     status: 'ACTIVE',
+    tier: { $in: ['GOLD', 'PLATINUM'] },
     endDate: { $gt: new Date() },
   }).lean();
 

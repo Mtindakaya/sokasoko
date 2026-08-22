@@ -8,9 +8,16 @@ const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.mod
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 const OneTimePurchase = require('../OneTimePurchase/one_time_purchase.model');
 const Notification = require('../Notification/notification.model');
+const {
+  playerStatsInRange, evaluationSummary, ATTR_LABELS,
+} = require('./report_helpers');
 
 // npm install pdfkit
 const PDFDocument = require('pdfkit');
+
+// Gold's custom-range cap. Requester's dateFrom cannot be older than
+// this many days. Platinum bypass this — full history is their perk.
+const GOLD_CUSTOM_RANGE_DAYS = 90;
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -144,6 +151,23 @@ router.post(BASE, async (req, res) => {
           });
         }
       }
+      // Gold-tier custom-range cap: dateFrom cannot go beyond 90 days
+      // back. Platinum bypasses this (their unlimited history is the
+      // per-tier value story). Bypass also when it's a one-time
+      // purchase (they paid per-report and get the full flexibility of
+      // whichever tier the endpoint would have granted them).
+      if (dateFrom && tier === 'GOLD' && !viaPurchase) {
+        const oldest = new Date();
+        oldest.setDate(oldest.getDate() - GOLD_CUSTOM_RANGE_DAYS);
+        if (new Date(dateFrom) < oldest) {
+          return res.status(400).json({
+            error: `Kifurushi cha Gold kinaruhusu tarehe za mwanzo za siku ${GOLD_CUSTOM_RANGE_DAYS} zilizopita. Boresha hadi Platinum kwa historia yote.`,
+            errorKey: 'report.error.gold_range_cap',
+            reason: 'GOLD_RANGE_CAP',
+            capDays: GOLD_CUSTOM_RANGE_DAYS,
+          });
+        }
+      }
       price = 0; // subscribed / one-time callers don't pay per-report on top.
     }
 
@@ -271,7 +295,22 @@ router.post(`${BASE}/:id/generate`, async (req, res) => {
     reportRequest.status = 'GENERATING';
     await reportRequest.save();
 
-    const { reportType, filters, isSelfReport, requestedBy } = reportRequest;
+    const {
+      reportType, filters, isSelfReport, requestedBy, dateFrom, dateTo,
+    } = reportRequest;
+
+    // Resolve the requester's tier so PDF sections can be gated. Self-
+    // reports get Platinum depth (you're paying for your own report,
+    // no reason to withhold). Non-COACH/ACADEMY/CLUB/AGENT requesters
+    // fall through as GOLD by default (the intake endpoint has already
+    // gated their entitlement).
+    const requester = await User.findById(requestedBy).select('type').lean();
+    let requesterTier = 'PLATINUM';
+    if (!isSelfReport && requester &&
+        ['COACH', 'ACADEMY', 'CLUB', 'AGENT'].includes(requester.type)) {
+      requesterTier = await Subscription.getEffectiveTier(
+        requestedBy, requester.type) || 'GOLD';
+    }
 
     let profiles = [];
 
@@ -305,6 +344,21 @@ router.post(`${BASE}/:id/generate`, async (req, res) => {
       profiles = await User.find(query).lean();
     }
 
+    // Pre-fetch per-player stats + eval summaries in parallel. Only for
+    // PLAYER reports — TEAM / MARKET / VENUE stay on the list format.
+    const range = { from: dateFrom || null, to: dateTo || null };
+    const enrichments = new Map();
+    if (reportType === 'PLAYER' && profiles.length) {
+      const results = await Promise.all(profiles.map(async (p) => {
+        const [stats, evalSummary] = await Promise.all([
+          playerStatsInRange(p._id, range).catch(() => null),
+          evaluationSummary(p._id, range).catch(() => null),
+        ]);
+        return [String(p._id), { stats, evalSummary }];
+      }));
+      for (const [id, e] of results) enrichments.set(id, e);
+    }
+
     const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
@@ -314,80 +368,55 @@ router.post(`${BASE}/:id/generate`, async (req, res) => {
     const filePath = path.join(uploadsDir, fileName);
     const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
 
+    // Tier gating: which sections render.
+    const includeStats = reportType === 'PLAYER';
+    const includeEvalSummary =
+      reportType === 'PLAYER' && ['GOLD', 'PLATINUM'].includes(requesterTier);
+    const includeEvalStandouts =
+      reportType === 'PLAYER' && requesterTier === 'PLATINUM';
+    // Guardian info intentionally never rendered for non-self reports,
+    // regardless of tier — child-privacy hard rule.
+
     await new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
       const writeStream = fs.createWriteStream(filePath);
       doc.pipe(writeStream);
 
       // Header
-      doc
-        .fontSize(22)
-        .font('Helvetica-Bold')
+      doc.fontSize(22).font('Helvetica-Bold')
         .text(`SokaSoko ${reportType} Report`, { align: 'center' });
-
-      doc.moveDown(0.5);
-      doc
-        .fontSize(10)
-        .font('Helvetica')
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica')
         .text(`Generated: ${new Date().toUTCString()}`, { align: 'center' });
-
+      if (dateFrom || dateTo) {
+        const fmt = (d) => d ? new Date(d).toISOString().slice(0, 10) : '…';
+        doc.text(`Stats window: ${fmt(dateFrom)} → ${fmt(dateTo)}`,
+          { align: 'center' });
+      }
+      doc.text(`Tier: ${requesterTier}`, { align: 'center' });
       doc.moveDown(0.5);
-      doc
-        .moveTo(50, doc.y)
-        .lineTo(doc.page.width - 50, doc.y)
-        .strokeColor('#cccccc')
-        .stroke();
+      doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y)
+        .strokeColor('#cccccc').stroke();
       doc.moveDown(1);
 
       if (profiles.length === 0) {
-        doc.fontSize(12).text('No profiles matched the selected filters.', { align: 'center' });
+        doc.fontSize(12).text('No profiles matched the selected filters.',
+          { align: 'center' });
       } else {
-        doc
-          .fontSize(11)
-          .font('Helvetica-Bold')
+        doc.fontSize(11).font('Helvetica-Bold')
           .text(`Total profiles: ${profiles.length}`, { align: 'left' });
         doc.moveDown(1);
 
         profiles.forEach((profile, index) => {
-          const profileUrl = `${BASE_URL}/profile/${profile._id}`;
-          const nameText = `${index + 1}. ${profile.firstName || ''} ${profile.lastName || ''}`.trim();
-
-          // Name as a clickable hyperlink
-          const nameY = doc.y;
-          doc
-            .fontSize(12)
-            .font('Helvetica-Bold')
-            .fillColor('#1B5E20')
-            .text(nameText, { underline: true, continued: false });
-          // Overlay invisible link on the name text area
-          doc.link(50, nameY, doc.page.width - 100, doc.currentLineHeight(true) + 2, profileUrl);
-          doc.fillColor('black');
-
-          doc.fontSize(10).font('Helvetica');
-
-          if (profile.accountNumber) doc.text(`Account #: ${profile.accountNumber}`);
-          if (profile.region) doc.text(`Region: ${profile.region}`);
-          if (profile.district) doc.text(`District: ${profile.district}`);
-          if (profile.position && reportType === 'PLAYER') doc.text(`Position: ${profile.position}`);
-          if (profile.nationality) doc.text(`Nationality: ${profile.nationality}`);
-          if (profile.phone) doc.text(`Phone: ${profile.phone}`);
-
-          // Explicit "View Profile" link line
-          const linkY = doc.y;
-          doc
-            .fontSize(9)
-            .fillColor('#1565C0')
-            .text('View full profile →', { underline: true });
-          doc.link(50, linkY, 120, doc.currentLineHeight(true) + 2, profileUrl);
-          doc.fillColor('black');
-
-          doc.moveDown(0.5);
-          doc
-            .moveTo(50, doc.y)
-            .lineTo(doc.page.width - 50, doc.y)
-            .strokeColor('#eeeeee')
-            .stroke();
-          doc.moveDown(0.5);
+          const enrichment = enrichments.get(String(profile._id)) || {};
+          renderPlayerProfile(doc, profile, index, BASE_URL, {
+            reportType,
+            includeStats,
+            includeEvalSummary,
+            includeEvalStandouts,
+            stats: enrichment.stats,
+            evalSummary: enrichment.evalSummary,
+          });
         });
       }
 
@@ -407,6 +436,122 @@ router.post(`${BASE}/:id/generate`, async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// Renders one player's block. Sections are visible based on tier flags
+// passed by the caller. All sections except identity are optional.
+function renderPlayerProfile(doc, profile, index, BASE_URL, opts) {
+  const {
+    reportType, includeStats, includeEvalSummary, includeEvalStandouts,
+    stats, evalSummary,
+  } = opts;
+  const profileUrl = `${BASE_URL}/profile/${profile._id}`;
+  const nameText = `${index + 1}. ${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+
+  // — Identity
+  const nameY = doc.y;
+  doc.fontSize(13).font('Helvetica-Bold').fillColor('#1B5E20')
+    .text(nameText, { underline: true, continued: false });
+  doc.link(50, nameY, doc.page.width - 100, doc.currentLineHeight(true) + 2, profileUrl);
+  doc.fillColor('black').fontSize(10).font('Helvetica');
+  if (profile.accountNumber) doc.text(`Account #: ${profile.accountNumber}`);
+  if (profile.region) doc.text(`Region: ${profile.region}`);
+  if (profile.district) doc.text(`District: ${profile.district}`);
+  if (profile.position && reportType === 'PLAYER') {
+    doc.text(`Position: ${profile.position}`);
+  }
+  if (profile.nationality) doc.text(`Nationality: ${profile.nationality}`);
+  if (profile.dob) {
+    try { doc.text(`Age: ${calcAge(profile.dob)}`); } catch (_) {}
+  }
+  if (profile.phone) doc.text(`Phone: ${profile.phone}`);
+
+  // — Physical (PLAYER only)
+  if (reportType === 'PLAYER') {
+    const phys = [];
+    if (profile.height) phys.push(`Height: ${profile.height} cm`);
+    if (profile.weight) phys.push(`Weight: ${profile.weight} kg`);
+    if (profile.foot) phys.push(`Preferred foot: ${profile.foot}`);
+    if (phys.length) {
+      doc.moveDown(0.3);
+      doc.font('Helvetica-Bold').text('Physical', { continued: false });
+      doc.font('Helvetica').text(phys.join(' · '));
+    }
+  }
+
+  // — Stats (games) — all tiers on PLAYER
+  if (includeStats && stats) {
+    doc.moveDown(0.4);
+    doc.font('Helvetica-Bold').text('Match statistics');
+    doc.font('Helvetica').fontSize(10)
+      .text(`Appearances ${stats.appearances} · Goals ${stats.goals} · `
+          + `Assists ${stats.assists} · Yellow ${stats.yellowCards} · `
+          + `Red ${stats.redCards} · Minutes ${stats.minutesPlayed}`);
+  }
+
+  // — Scout eval summary — Gold + Platinum only
+  if (includeEvalSummary && evalSummary) {
+    doc.moveDown(0.4);
+    doc.font('Helvetica-Bold').text('Scout evaluation summary');
+    doc.font('Helvetica').fontSize(10)
+      .text(`${evalSummary.count} evaluations · ${evalSummary.verified} verified · ${evalSummary.pending} pending`);
+    if (evalSummary.avgOverall != null) {
+      doc.text(`Average overall rating: ${evalSummary.avgOverall}/10 · Consistency: ${evalSummary.consistency}`);
+    }
+    const vc = evalSummary.verdictCounts;
+    doc.text(`Verdicts: T1 ${vc['Tier 1']} · T2 ${vc['Tier 2']} · T3 ${vc['Tier 3']} · T4 ${vc['Tier 4']}`);
+    if (evalSummary.topStrengths.length) {
+      doc.text('Top strengths:');
+      for (const s of evalSummary.topStrengths) {
+        doc.text(`  • ${ATTR_LABELS[s.attr] || s.attr}: ${s.mean.toFixed(1)}/10 (${s.sample} scouts)`);
+      }
+    }
+    if (evalSummary.bottomWeaknesses.length) {
+      doc.text('Areas to develop:');
+      for (const w of evalSummary.bottomWeaknesses) {
+        doc.text(`  • ${ATTR_LABELS[w.attr] || w.attr}: ${w.mean.toFixed(1)}/10 (${w.sample} scouts)`);
+      }
+    }
+  } else if (evalSummary === null && reportType === 'PLAYER' && includeEvalSummary) {
+    doc.moveDown(0.4);
+    doc.font('Helvetica').fontSize(9).fillColor('#888')
+      .text('No scout evaluations on file yet.');
+    doc.fillColor('black');
+  }
+
+  // — Recurring prose (Platinum-only)
+  if (includeEvalStandouts && evalSummary
+      && (evalSummary.recurringStrengths.length
+          || evalSummary.recurringWeaknesses.length)) {
+    doc.moveDown(0.3);
+    doc.font('Helvetica-Bold').text('Recurring scout observations');
+    doc.font('Helvetica').fontSize(10);
+    if (evalSummary.recurringStrengths.length) {
+      doc.text('Standout traits:');
+      for (const s of evalSummary.recurringStrengths) {
+        doc.text(`  • ${s.display} — noted by ${s.count} scout(s)`);
+      }
+    }
+    if (evalSummary.recurringWeaknesses.length) {
+      doc.text('Common deficiencies:');
+      for (const w of evalSummary.recurringWeaknesses) {
+        doc.text(`  • ${w.display} — noted by ${w.count} scout(s)`);
+      }
+    }
+  }
+
+  // — CTA back to profile / scout hub
+  doc.moveDown(0.5);
+  const linkY = doc.y;
+  doc.fontSize(9).fillColor('#1565C0')
+    .text('View full profile →', { underline: true });
+  doc.link(50, linkY, 120, doc.currentLineHeight(true) + 2, profileUrl);
+  doc.fillColor('black');
+
+  doc.moveDown(0.5);
+  doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y)
+    .strokeColor('#eeeeee').stroke();
+  doc.moveDown(0.5);
+}
 
 // POST /v1/report-requests/:id/cancel
 router.post(`${BASE}/:id/cancel`, async (req, res) => {
