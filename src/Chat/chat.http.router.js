@@ -681,8 +681,19 @@ module.exports = function createChatRouter(io) {
   }
 
   async function findHouseAccount() {
-    return User.findOne({ isHouseAccount: true })
-      .select('_id firstName lastName companyName').lean();
+    // Schema stores the display name under snake_case `company_name`
+    // (see user.model.js). We keep camelCase on the wire for client
+    // parity by projecting the aliased field.
+    const doc = await User.findOne({ isHouseAccount: true })
+      .select('_id firstName lastName company_name entity_name profileImage')
+      .lean();
+    if (!doc) return null;
+    // Surface a stable `companyName` on the wire so the client's
+    // User.fromJson (which handles both) always sees a name.
+    return {
+      ...doc,
+      companyName: doc.company_name || doc.entity_name || 'SokaSoko',
+    };
   }
 
   // GET /v1/chat/sokasoko/inbox?adminId=…&filter=open|resolved|all
