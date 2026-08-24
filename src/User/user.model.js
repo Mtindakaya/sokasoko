@@ -348,6 +348,40 @@ const UserSchema = new Schema(
       index: true,
     },
 
+    // --- SokaSoko house account (customer service portal) ---
+    // Marks the single SokaSoko official-account user row. Any account
+    // with this flag bypasses friendsOnly + orphan-guardian chat gates
+    // (users must always be able to reach support) and is surfaced as
+    // a pinned tile in the mobile app. Exactly one User should carry
+    // this flag; created by scripts/seed-sokasoko-account.js.
+    isHouseAccount: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    // --- Admin (customer service agent) ---
+    // Grants access to the SokaSoko Support Inbox screen + the reply-
+    // as-SokaSoko endpoint. Flip manually in the DB (or via
+    // scripts/grant-admin.js). Distinct from isSystemAgent (that flag
+    // is for AI personas, this one is for human support agents).
+    isAdmin: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    // --- SokaSoko support conversation state ---
+    // Only meaningful on regular user rows (not the house account
+    // itself). Set to a Date when an admin marks the user's support
+    // conversation as resolved; cleared automatically when the user
+    // sends a new message to SokaSoko. Powers the "resolved / open"
+    // filter on the admin inbox.
+    sokasokoSupportResolvedAt: {
+      type: Date,
+      default: null,
+    },
+
     // --- Free Trial ---
     freeTrialEndDate: {
       type: Date,

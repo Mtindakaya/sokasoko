@@ -120,6 +120,62 @@ async function generateAndPostIsmailiReply(io, { userMessageDoc, populatedUser }
   }
 }
 
+// ─── SokaSoko house-account support helpers ───────────────────────────────
+// Per-sender rate limit on DMs INTO the SokaSoko house account.
+// In-memory sliding window; ephemeral is fine — the goal is preventing
+// a single user from flooding support, not perfect accounting across
+// process restarts. 5 msgs / 60 min.
+const SOKASOKO_RATE_WINDOW_MS = 60 * 60 * 1000;
+const SOKASOKO_RATE_MAX = 5;
+const _sokasokoRateHits = new Map(); // senderId → number[] (epoch ms)
+
+async function checkHouseAccountRateLimit(senderId) {
+  const now = Date.now();
+  const arr = (_sokasokoRateHits.get(String(senderId)) || [])
+    .filter((t) => now - t < SOKASOKO_RATE_WINDOW_MS);
+  if (arr.length >= SOKASOKO_RATE_MAX) {
+    return { ok: false, retryAfterMs: SOKASOKO_RATE_WINDOW_MS - (now - arr[0]) };
+  }
+  arr.push(now);
+  _sokasokoRateHits.set(String(senderId), arr);
+  return { ok: true };
+}
+
+// Send the canned greeting from the house account to a first-time
+// support-inbox visitor. Called AFTER the user's first message is
+// persisted; the greeting appears right after their message so the
+// thread starts as user→SokaSoko→SokaSoko.
+async function sendSokasokoGreetingIfFirstContact(io, houseAccountId, userId) {
+  try {
+    const priorFromHouse = await ChatMessage.exists({
+      sender: houseAccountId,
+      receiver: userId,
+    });
+    if (priorFromHouse) return; // already seen the greeting
+    const greeting = 'Karibu SokaSoko Support 👋\n\n'
+      + 'Andika swali lako lolote hapa — timu yetu itakujibu haraka iwezekanavyo. '
+      + 'Wastani wa majibu: masaa 24 wakati wa siku za kazi.\n\n'
+      + 'Welcome to SokaSoko Support — write your question here and our team '
+      + 'will get back to you. Typical response time: 24 hours on business days.';
+    const msg = await ChatMessage.create({
+      sender: houseAccountId,
+      receiver: userId,
+      content: greeting,
+      read: false,
+    });
+    const populated = await ChatMessage.findById(msg._id)
+      .populate('sender', 'firstName lastName companyName photo type')
+      .populate('receiver', 'firstName lastName photo type')
+      .lean();
+    if (io) {
+      io.to(String(userId)).emit('new_message', populated);
+      io.to(String(houseAccountId)).emit('new_message', populated);
+    }
+  } catch (err) {
+    console.log('[sokasoko] greeting failed:', err.message);
+  }
+}
+
 module.exports = function createChatRouter(io) {
   const router = express.Router();
 
@@ -151,13 +207,29 @@ module.exports = function createChatRouter(io) {
 
       // Block + friends-only + orphaned-minor enforcement in one pair of
       // reads. Any of the three checks failing = refuse.
+      let receiverIsHouseAccount = false;
       try {
         const [sender, receiver] = await Promise.all([
           require('../User/user.model').findById(senderId)
             .select('blockedUsers friends type guardianOrphaned').lean(),
           require('../User/user.model').findById(receiverId)
-            .select('blockedUsers friends friendsOnly type guardianOrphaned').lean(),
+            .select('blockedUsers friends friendsOnly type guardianOrphaned isHouseAccount').lean(),
         ]);
+        receiverIsHouseAccount = !!(receiver && receiver.isHouseAccount);
+        // Enforce the SokaSoko-specific per-user rate limit (5 msg/hour)
+        // BEFORE the general block/friends/orphan checks — support has to
+        // be reachable but not floodable.
+        if (receiverIsHouseAccount) {
+          const houseRl = await checkHouseAccountRateLimit(senderId);
+          if (!houseRl.ok) {
+            return res.status(429).json({
+              message: 'Umefikia kikomo cha ujumbe kwa SokaSoko kwa saa. Jaribu tena baadaye.',
+              error: 'Umefikia kikomo cha ujumbe kwa SokaSoko kwa saa. Jaribu tena baadaye.',
+              errorKey: 'chat.err.sokasoko_rate_limit',
+              retryAfterMs: houseRl.retryAfterMs,
+            });
+          }
+        }
         const senderBlocked = (receiver && receiver.blockedUsers || [])
           .some(id => String(id) === String(senderId));
         const receiverBlocked = (sender && sender.blockedUsers || [])
@@ -165,29 +237,30 @@ module.exports = function createChatRouter(io) {
         if (senderBlocked || receiverBlocked) {
           return res.status(403).json({ message: 'Message not delivered — user blocked.' });
         }
-        // Orphaned minor: cannot send or receive normal DMs. Guardian
-        // requests + system notices still go through this endpoint so we
-        // allow those specifically by receiver.type != PLAYER OR sender is
-        // a system agent. Keeping the check simple here: if either party
-        // is an orphaned minor (guardianOrphaned && type === 'PLAYER'),
-        // block.
-        const senderOrphaned = sender && ['PLAYER', 'REFEREE'].includes(sender.type) && sender.guardianOrphaned === true;
-        const receiverOrphaned = receiver && ['PLAYER', 'REFEREE'].includes(receiver.type) && receiver.guardianOrphaned === true;
-        if (senderOrphaned || receiverOrphaned) {
-          return res.status(403).json({
-            error: 'Huwezi kutuma ujumbe bila mlezi.',
-            message: 'Huwezi kutuma ujumbe bila mlezi.',
-            errorKey: 'gate.err.no_guardian_message',
-          });
-        }
-        if (receiver && receiver.friendsOnly) {
-          const isFriend = (receiver.friends || [])
-            .some(id => String(id) === String(senderId));
-          if (!isFriend) {
+        // House account exemption: users must always be able to reach
+        // customer support even if they're an orphaned minor or the
+        // house account is friends-only (which it shouldn't be, but
+        // belt + suspenders). All non-house recipients get the normal
+        // orphan + friends-only enforcement below.
+        if (!receiverIsHouseAccount) {
+          const senderOrphaned = sender && ['PLAYER', 'REFEREE'].includes(sender.type) && sender.guardianOrphaned === true;
+          const receiverOrphaned = receiver && ['PLAYER', 'REFEREE'].includes(receiver.type) && receiver.guardianOrphaned === true;
+          if (senderOrphaned || receiverOrphaned) {
             return res.status(403).json({
-              message:
-                'Message not delivered — recipient only accepts messages from their friends.',
+              error: 'Huwezi kutuma ujumbe bila mlezi.',
+              message: 'Huwezi kutuma ujumbe bila mlezi.',
+              errorKey: 'gate.err.no_guardian_message',
             });
+          }
+          if (receiver && receiver.friendsOnly) {
+            const isFriend = (receiver.friends || [])
+              .some(id => String(id) === String(senderId));
+            if (!isFriend) {
+              return res.status(403).json({
+                message:
+                  'Message not delivered — recipient only accepts messages from their friends.',
+              });
+            }
           }
         }
       } catch (blockErr) {
@@ -238,6 +311,18 @@ module.exports = function createChatRouter(io) {
           userMessageDoc: msg,
           populatedUser: populated,
         }).catch(err => console.log('Ismaili reply failed:', err.message));
+      }
+
+      // House-account side effects: fire the canned greeting on first
+      // contact, and clear any prior "resolved" flag on the sender so
+      // their new question shows back up in the admin inbox as open.
+      if (receiverIsHouseAccount) {
+        sendSokasokoGreetingIfFirstContact(io, receiverId, senderId)
+          .catch((err) => console.log('[sokasoko] greeting err:', err.message));
+        User.updateOne(
+          { _id: senderId, sokasokoSupportResolvedAt: { $ne: null } },
+          { $set: { sokasokoSupportResolvedAt: null } },
+        ).catch((err) => console.log('[sokasoko] clear resolved err:', err.message));
       }
 
       return res.status(201).json(populated);
@@ -566,6 +651,217 @@ module.exports = function createChatRouter(io) {
       return res.json({ data: all });
     } catch (err) {
       return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── SokaSoko Support Inbox (admin-only) ───────────────────────────────
+  //
+  // These endpoints power the mobile app's Support Console for admins:
+  //   GET  /v1/chat/sokasoko/inbox?adminId=…      → list open conversations
+  //   POST /v1/chat/sokasoko/reply                → reply-as-SokaSoko
+  //   POST /v1/chat/sokasoko/resolve              → mark thread resolved
+  //   POST /v1/chat/sokasoko/reopen               → clear the resolved flag
+  //
+  // Every endpoint verifies the caller carries isAdmin=true. That flag
+  // is flipped manually in the DB (see scripts/grant-admin.js) — a
+  // deliberate belt-and-suspenders control against a leaked APK.
+
+  async function requireAdmin(req, res) {
+    const adminId = req.query.adminId || req.body.adminId;
+    if (!adminId) {
+      res.status(400).json({ error: 'adminId is required' });
+      return null;
+    }
+    const admin = await User.findById(adminId).select('isAdmin').lean();
+    if (!admin || admin.isAdmin !== true) {
+      res.status(403).json({ error: 'Admin access required' });
+      return null;
+    }
+    return admin;
+  }
+
+  async function findHouseAccount() {
+    return User.findOne({ isHouseAccount: true })
+      .select('_id firstName lastName companyName').lean();
+  }
+
+  // GET /v1/chat/sokasoko/inbox?adminId=…&filter=open|resolved|all
+  // Returns one row per user who has ever DM'd SokaSoko, with the
+  // latest message + unread-count + resolved status. Default filter is
+  // "open" — resolved threads are hidden unless explicitly requested.
+  router.get('/v1/chat/sokasoko/inbox', async (req, res) => {
+    try {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+      const house = await findHouseAccount();
+      if (!house) return res.status(404).json({ error: 'SokaSoko house account not seeded' });
+      const filter = req.query.filter || 'open';
+
+      // Aggregate all messages either direction between users and the
+      // house account, group by the OTHER party, grab the latest message
+      // per pair.
+      const rows = await ChatMessage.aggregate([
+        {
+          $match: {
+            $or: [
+              { sender: house._id },
+              { receiver: house._id },
+            ],
+          },
+        },
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: {
+              $cond: [
+                { $eq: ['$sender', house._id] },
+                '$receiver',
+                '$sender',
+              ],
+            },
+            lastMessage: { $first: '$$ROOT' },
+            unreadFromUser: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ['$receiver', house._id] },
+                      { $ne: ['$read', true] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+            messageCount: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const userIds = rows.map((r) => r._id).filter(Boolean);
+      const users = await User.find({ _id: { $in: userIds } })
+        .select('firstName lastName companyName academyName type accountNumber profileImage sokasokoSupportResolvedAt')
+        .lean();
+      const userById = new Map(users.map((u) => [String(u._id), u]));
+
+      const enriched = rows.map((r) => {
+        const u = userById.get(String(r._id));
+        return {
+          userId: String(r._id),
+          user: u || null,
+          lastMessage: r.lastMessage,
+          unreadFromUser: r.unreadFromUser,
+          messageCount: r.messageCount,
+          resolvedAt: u ? u.sokasokoSupportResolvedAt : null,
+        };
+      });
+
+      const visible = filter === 'all'
+        ? enriched
+        : enriched.filter((c) => filter === 'resolved'
+            ? !!c.resolvedAt
+            : !c.resolvedAt);
+      visible.sort((a, b) => {
+        const at = new Date(a.lastMessage?.createdAt || 0).getTime();
+        const bt = new Date(b.lastMessage?.createdAt || 0).getTime();
+        return bt - at;
+      });
+
+      return res.json({
+        data: visible,
+        houseAccountId: String(house._id),
+        counts: {
+          open: enriched.filter((c) => !c.resolvedAt).length,
+          resolved: enriched.filter((c) => !!c.resolvedAt).length,
+        },
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /v1/chat/sokasoko/reply
+  // Body: { adminId, userId, content }
+  // Admin sends a message to `userId`; on the wire the sender is
+  // stamped as the house account so the user only ever sees "SokaSoko"
+  // in their inbox.
+  router.post('/v1/chat/sokasoko/reply', async (req, res) => {
+    try {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+      const { userId, content } = req.body;
+      if (!userId || !content || !content.trim()) {
+        return res.status(400).json({ error: 'userId and content required' });
+      }
+      const house = await findHouseAccount();
+      if (!house) return res.status(404).json({ error: 'SokaSoko house account not seeded' });
+
+      const msg = await ChatMessage.create({
+        sender: house._id,
+        receiver: userId,
+        content: content.trim(),
+        read: false,
+      });
+      const populated = await ChatMessage.findById(msg._id)
+        .populate('sender', 'firstName lastName companyName photo type')
+        .populate('receiver', 'firstName lastName photo type')
+        .lean();
+
+      if (io) {
+        io.to(String(userId)).emit('new_message', populated);
+        io.to(String(house._id)).emit('new_message', populated);
+      }
+      return res.status(201).json(populated);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /v1/chat/sokasoko/resolve   Body: { adminId, userId }
+  router.post('/v1/chat/sokasoko/resolve', async (req, res) => {
+    try {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+      const { userId } = req.body;
+      if (!userId) return res.status(400).json({ error: 'userId required' });
+      await User.updateOne(
+        { _id: userId },
+        { $set: { sokasokoSupportResolvedAt: new Date() } },
+      );
+      return res.json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /v1/chat/sokasoko/reopen    Body: { adminId, userId }
+  router.post('/v1/chat/sokasoko/reopen', async (req, res) => {
+    try {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+      const { userId } = req.body;
+      if (!userId) return res.status(400).json({ error: 'userId required' });
+      await User.updateOne(
+        { _id: userId },
+        { $set: { sokasokoSupportResolvedAt: null } },
+      );
+      return res.json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /v1/chat/sokasoko/account
+  // Public — returns the house account's minimal identity so the mobile
+  // app can render the "Contact SokaSoko" tile + open a chat with it.
+  router.get('/v1/chat/sokasoko/account', async (req, res) => {
+    try {
+      const house = await findHouseAccount();
+      if (!house) return res.status(404).json({ error: 'SokaSoko house account not seeded' });
+      return res.json({ data: house });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
   });
 
