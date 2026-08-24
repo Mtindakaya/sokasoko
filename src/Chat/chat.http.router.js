@@ -152,11 +152,13 @@ async function sendSokasokoGreetingIfFirstContact(io, houseAccountId, userId) {
       receiver: userId,
     });
     if (priorFromHouse) return; // already seen the greeting
+    // Kiswahili-only — matches the app's default locale. English users
+    // who've toggled locale still see this in Kiswahili on first contact;
+    // per-user locale-aware greetings would need a chat-open handshake
+    // (see release notes / gap #1 discussion 2026-08-24). Punting.
     const greeting = 'Karibu SokaSoko Support 👋\n\n'
       + 'Andika swali lako lolote hapa — timu yetu itakujibu haraka iwezekanavyo. '
-      + 'Wastani wa majibu: masaa 24 wakati wa siku za kazi.\n\n'
-      + 'Welcome to SokaSoko Support — write your question here and our team '
-      + 'will get back to you. Typical response time: 24 hours on business days.';
+      + 'Wastani wa majibu: masaa 24 wakati wa siku za kazi.';
     const msg = await ChatMessage.create({
       sender: houseAccountId,
       receiver: userId,
