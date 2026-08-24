@@ -14,6 +14,10 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
+// User has ref: 'Academy' — Mongoose refuses to load User's schema
+// unless the target model is registered first, even when we're not
+// populate()ing. Force-register.
+require('../src/Academy/academy.model');
 const User = require('../src/User/user.model');
 
 const MONGO_URL = process.env.MONGO_URL
