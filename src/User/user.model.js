@@ -382,6 +382,17 @@ const UserSchema = new Schema(
       default: null,
     },
 
+    // --- SokaSoko support menu state ---
+    // Tracks where the user is in the menu-driven help flow.
+    //   area  : null | 'ROOT' | <area code from support_menu.AREAS>
+    //   updatedAt: Date used to expire stale menu context after
+    //              STATE_TTL_MIN minutes so a long-gone menu doesn't
+    //              intercept a fresh support question.
+    sokasokoSupportMenu: {
+      area: { type: String, default: null },
+      updatedAt: { type: Date, default: null },
+    },
+
     // --- Free Trial ---
     freeTrialEndDate: {
       type: Date,

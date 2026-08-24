@@ -7,6 +7,7 @@ const mongoose = require('mongoose');
 const IsmailiConversation = require('../Ismaili/ismaili_conversation.model');
 const User = require('../User/user.model');
 const { checkRateLimit, scanContent } = require('./chat.moderation');
+const supportMenu = require('./sokasoko_support_menu');
 
 const ISMAILI_USER_ID = getString('ISMAILI_USER_ID', '');
 const ISMAILI_MODEL = getString('ISMAILI_MODEL', 'claude-haiku-4-5-20251001');
@@ -141,6 +142,91 @@ async function checkHouseAccountRateLimit(senderId) {
   return { ok: true };
 }
 
+// Send an auto-reply from SokaSoko back to the user. Small wrapper
+// around ChatMessage.create so the menu bot + greeting share the
+// same populate + socket-emit path.
+async function postSokasokoAutoReply(io, houseAccountId, userId, content) {
+  const msg = await ChatMessage.create({
+    sender: houseAccountId,
+    receiver: userId,
+    content,
+    read: false,
+  });
+  const populated = await ChatMessage.findById(msg._id)
+    .populate('sender', 'firstName lastName companyName photo type')
+    .populate('receiver', 'firstName lastName photo type')
+    .lean();
+  if (io) {
+    io.to(String(userId)).emit('new_message', populated);
+    io.to(String(houseAccountId)).emit('new_message', populated);
+  }
+  return populated;
+}
+
+// Menu-driven support router. Reads the user's current menu state,
+// classifies their message, and either sends an auto-reply (menu /
+// submenu / canned answer) or lets the message fall through to the
+// admin inbox for a human. Returns:
+//   true  = auto-replied, no human action needed
+//   false = message needs a human (either free-form or explicit
+//           MHUDUMU escalation) — admin sees it in the inbox
+async function runSokasokoMenuBot(io, houseAccountId, sender, content) {
+  const now = new Date();
+  const menu = sender.sokasokoSupportMenu || { area: null, updatedAt: null };
+  // Expire stale menu state before classifying so an old context
+  // doesn't intercept a fresh question days later.
+  let currentArea = menu.area;
+  if (menu.updatedAt) {
+    const ageMin = (now - new Date(menu.updatedAt)) / 60000;
+    if (ageMin > supportMenu.STATE_TTL_MIN) currentArea = null;
+  }
+
+  const result = supportMenu.classifyMessage(content, currentArea);
+
+  const setState = async (nextArea) => {
+    await User.updateOne(
+      { _id: sender._id },
+      { $set: { sokasokoSupportMenu: { area: nextArea, updatedAt: now } } },
+    );
+  };
+
+  if (result.kind === 'trigger') {
+    await postSokasokoAutoReply(io, houseAccountId, sender._id,
+      supportMenu.renderRootMenu());
+    await setState('ROOT');
+    return true;
+  }
+  if (result.kind === 'root_pick') {
+    const body = supportMenu.renderAreaMenu(result.areaCode);
+    if (body) {
+      await postSokasokoAutoReply(io, houseAccountId, sender._id, body);
+      await setState(result.areaCode);
+      return true;
+    }
+  }
+  if (result.kind === 'area_pick') {
+    const body = supportMenu.renderAnswer(currentArea, result.questionId);
+    if (body) {
+      await postSokasokoAutoReply(io, houseAccountId, sender._id, body);
+      // State stays on the area so the user can pick another Q.
+      await setState(currentArea);
+      return true;
+    }
+  }
+  if (result.kind === 'back_to_root') {
+    await postSokasokoAutoReply(io, houseAccountId, sender._id,
+      supportMenu.renderRootMenu());
+    await setState('ROOT');
+    return true;
+  }
+  // Escalate or freeform → clear state, let the admin inbox handle it.
+  if (result.kind === 'escalate' || result.kind === 'freeform') {
+    await setState(null);
+    return false;
+  }
+  return false;
+}
+
 // Send the canned greeting from the house account to a first-time
 // support-inbox visitor. Called AFTER the user's first message is
 // persisted; the greeting appears right after their message so the
@@ -152,13 +238,15 @@ async function sendSokasokoGreetingIfFirstContact(io, houseAccountId, userId) {
       receiver: userId,
     });
     if (priorFromHouse) return; // already seen the greeting
-    // Kiswahili-only — matches the app's default locale. English users
-    // who've toggled locale still see this in Kiswahili on first contact;
-    // per-user locale-aware greetings would need a chat-open handshake
-    // (see release notes / gap #1 discussion 2026-08-24). Punting.
+    // Kiswahili-only — matches the app's default locale. Nudges the
+    // user toward the menu-driven help flow (MSAADA / HELP) which
+    // returns instant canned answers for the top questions per user
+    // type. Free-form questions or MHUDUMU escalate to a human admin.
     const greeting = 'Karibu SokaSoko Support 👋\n\n'
-      + 'Andika swali lako lolote hapa — timu yetu itakujibu haraka iwezekanavyo. '
-      + 'Wastani wa majibu: masaa 24 wakati wa siku za kazi.';
+      + 'Andika "MSAADA" au "HELP" kupata menyu ya maswali ya kawaida — '
+      + 'majibu ya haraka. Au andika swali lako moja kwa moja na msimamizi '
+      + 'atakujibu haraka iwezekanavyo (wastani: masaa 24 wakati wa siku '
+      + 'za kazi).';
     const msg = await ChatMessage.create({
       sender: houseAccountId,
       receiver: userId,
@@ -315,16 +403,41 @@ module.exports = function createChatRouter(io) {
         }).catch(err => console.log('Ismaili reply failed:', err.message));
       }
 
-      // House-account side effects: fire the canned greeting on first
-      // contact, and clear any prior "resolved" flag on the sender so
-      // their new question shows back up in the admin inbox as open.
+      // House-account side effects:
+      //  1. On first-ever contact, send the canned greeting so the
+      //     thread opens on a friendly note.
+      //  2. Run the menu bot — if the user's message is a trigger
+      //     word or a numeric menu pick, auto-reply and return without
+      //     touching the admin inbox flag. Free-form / MHUDUMU
+      //     falls through to the admin.
+      //  3. Clear the resolved flag when the message actually needs
+      //     human attention so the thread re-surfaces in the open
+      //     queue.
       if (receiverIsHouseAccount) {
-        sendSokasokoGreetingIfFirstContact(io, receiverId, senderId)
-          .catch((err) => console.log('[sokasoko] greeting err:', err.message));
-        User.updateOne(
-          { _id: senderId, sokasokoSupportResolvedAt: { $ne: null } },
-          { $set: { sokasokoSupportResolvedAt: null } },
-        ).catch((err) => console.log('[sokasoko] clear resolved err:', err.message));
+        (async () => {
+          try {
+            const isFirst = !(await ChatMessage.exists({
+              sender: receiverId, receiver: senderId,
+            }));
+            if (isFirst) {
+              await sendSokasokoGreetingIfFirstContact(
+                io, receiverId, senderId);
+            }
+            const senderDoc = await require('../User/user.model').findById(senderId)
+              .select('_id sokasokoSupportMenu sokasokoSupportResolvedAt').lean();
+            if (!senderDoc) return;
+            const handledByBot = await runSokasokoMenuBot(
+              io, receiverId, senderDoc, content);
+            if (!handledByBot && senderDoc.sokasokoSupportResolvedAt) {
+              await require('../User/user.model').updateOne(
+                { _id: senderId },
+                { $set: { sokasokoSupportResolvedAt: null } },
+              );
+            }
+          } catch (err) {
+            console.log('[sokasoko] menu bot flow err:', err.message);
+          }
+        })();
       }
 
       return res.status(201).json(populated);
