@@ -217,6 +217,30 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.ward) filter.ward = req.query.ward;
     if (req.query.street) filter.street = req.query.street;
 
+    // Free-text keyword search across every bio-shaped field the app
+    // exposes — works for any user type. Case-insensitive substring so
+    // hashtags ("#boots") and multi-word phrases match. Composes with
+    // an existing $or (from createdBy) by nesting both under $and.
+    if (req.query.keyword && String(req.query.keyword).trim()) {
+      const kw = String(req.query.keyword).trim();
+      const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = { $regex: escaped, $options: 'i' };
+      const keywordOr = [
+        { short_bio: rx },
+        { company_name: rx },
+        { company_description: rx },
+        { academy_name: rx },
+        { academy_description: rx },
+        { entity_name: rx },
+      ];
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: keywordOr }];
+        delete filter.$or;
+      } else {
+        filter.$or = keywordOr;
+      }
+    }
+
     // Age group → DOB range. Categories cover both academy age brackets
     // (U9..U20) and the legal-minor/adult split.
     const ageGroup = req.query.ageGroup;
