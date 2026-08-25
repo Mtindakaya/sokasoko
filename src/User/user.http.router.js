@@ -462,10 +462,26 @@ router.get(PATH_SEARCH, async (request, response) => {
       ...typeFilter,
     };
 
-    // Top bar stays on registered profile info only — names + bios.
-    // Content-based hashtag/keyword search (adverts, media posts) lives
-    // on the filter modal's keyword field, so the general bar doesn't
-    // drag in post/advert lookups on every keystroke.
+    // Top bar keyword surface: names + bios + owners of any non-expired
+    // matching Advert. Media posts are intentionally excluded here —
+    // hashtag-on-posts search lives only on the filter modal, so the
+    // top bar stays snappy and free of high-volume post noise.
+    let contentOwnerIds = [];
+    if (!inferredType && query) {
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const advRx = { $regex: escaped, $options: 'i' };
+      const now = new Date();
+      const advertOwners = await Advert.distinct('advertiser', {
+        $and: [
+          { $or: [{ title: advRx }, { description: advRx }] },
+          { $or: [{ endDate: null }, { endDate: { $exists: false } }, { endDate: { $gte: now } }] },
+        ],
+      });
+      contentOwnerIds = Array.from(new Set(
+        advertOwners.filter(Boolean).map((id) => String(id))
+      )).map((id) => new mongoose.Types.ObjectId(id));
+    }
+
     const finalFilter = inferredType
       ? baseFilter
       : {
@@ -480,6 +496,7 @@ router.get(PATH_SEARCH, async (request, response) => {
             { short_bio: { $regex: query, $options: 'i' } },
             { company_description: { $regex: query, $options: 'i' } },
             { academy_description: { $regex: query, $options: 'i' } },
+            ...(contentOwnerIds.length > 0 ? [{ _id: { $in: contentOwnerIds } }] : []),
           ],
         };
     const data = await User.find(finalFilter)
