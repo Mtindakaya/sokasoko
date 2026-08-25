@@ -15,8 +15,10 @@ const { uploadFor } = require('../Utils/uploader');
 const Counter = require('../Counter/counter.model');
 const { leftFillNum, sendSms, generateHash } = require('../Utils/utils');
 const { Subscription } = require('../Subscription/subscription.model');
+const mongoose = require('mongoose');
 const ProfileView = require('./profile_view.model');
 const Media = require('../Media/media.model');
+const Advert = require('../Advert/advert.model');
 
 const attachPrimaryVideoUrls = async (users) => {
   const ids = users.map((u) => u._id).filter(Boolean);
@@ -217,15 +219,19 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.ward) filter.ward = req.query.ward;
     if (req.query.street) filter.street = req.query.street;
 
-    // Free-text keyword search across every bio-shaped field the app
-    // exposes — works for any user type. Case-insensitive substring so
-    // hashtags ("#boots") and multi-word phrases match. Composes with
-    // an existing $or (from createdBy) by nesting both under $and.
+    // Free-text keyword search. Two surfaces are searched and unioned:
+    //   1) bio-shaped fields on the User (short_bio, company_*, etc.)
+    //   2) title/description on the user's Adverts (non-expired) and
+    //      Media posts — so time-bound content ("Sale on boots today")
+    //      is findable without requiring the user to update their bio.
+    // Bios change rarely; posts/adverts do the heavy lifting for
+    // time-bound discovery and roll off naturally on expiry.
     if (req.query.keyword && String(req.query.keyword).trim()) {
       const kw = String(req.query.keyword).trim();
       const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const rx = { $regex: escaped, $options: 'i' };
-      const keywordOr = [
+
+      const bioOr = [
         { short_bio: rx },
         { company_name: rx },
         { company_description: rx },
@@ -233,6 +239,33 @@ router.get(PATH_LIST, async (req, res) => {
         { academy_description: rx },
         { entity_name: rx },
       ];
+
+      // Pull owner IDs of any matching Advert (still live) and Media
+      // post. .distinct returns just the ObjectIds so this stays cheap
+      // even on a growing corpus.
+      const now = new Date();
+      const [advertOwners, mediaOwners] = await Promise.all([
+        Advert.distinct('advertiser', {
+          $and: [
+            { $or: [{ title: rx }, { description: rx }] },
+            { $or: [{ endDate: null }, { endDate: { $exists: false } }, { endDate: { $gte: now } }] },
+          ],
+        }),
+        Media.distinct('createdBy', {
+          $or: [{ title: rx }, { description: rx }],
+        }),
+      ]);
+      const contentOwnerIds = Array.from(new Set(
+        [...advertOwners, ...mediaOwners]
+          .filter(Boolean)
+          .map((id) => String(id))
+      )).map((id) => new mongoose.Types.ObjectId(id));
+
+      const keywordOr = [...bioOr];
+      if (contentOwnerIds.length > 0) {
+        keywordOr.push({ _id: { $in: contentOwnerIds } });
+      }
+
       if (filter.$or) {
         filter.$and = [{ $or: filter.$or }, { $or: keywordOr }];
         delete filter.$or;
