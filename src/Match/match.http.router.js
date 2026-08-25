@@ -95,6 +95,57 @@ router.get(`${BASE}/refereeing/:userId`, async (req, res) => {
   }
 });
 
+// GET /v1/matches/for-player/:playerId — every match this player has
+// appeared in (playerStats sub-doc present with player=playerId).
+// Returns a flat list ready to render, with the caller's per-match
+// stats extracted so the client doesn't have to walk the sub-array.
+// Sorted newest first. Public — no tier gate for beta.
+router.get(`${BASE}/for-player/:playerId`, async (req, res) => {
+  try {
+    const pid = req.params.playerId;
+    const rows = await Match.find({
+      'playerStats.player': pid,
+      status: 'COMPLETED',
+    })
+      .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('venue', 'name region district ward')
+      .populate('tournament', 'name type')
+      .select('homeTeam awayTeam venue tournament scheduledDate homeScore awayScore matchId status playerStats')
+      .sort({ scheduledDate: -1 })
+      .lean();
+
+    // Extract the caller's own playerStats sub-doc into a flat
+    // `myStats` field so the client just reads m.myStats.goals
+    // instead of scanning m.playerStats for their entry. Drop the
+    // full array from the payload — it can contain data on every
+    // other player and blows up the response size.
+    const trimmed = rows.map((m) => {
+      const my = (m.playerStats || [])
+        .find((p) => p && String(p.player) === String(pid));
+      const { playerStats, ...rest } = m;
+      return {
+        ...rest,
+        myStats: my
+          ? {
+              appearances: 1,
+              goals: my.goals || 0,
+              assists: my.assists || 0,
+              yellowCards: my.yellowCards || 0,
+              redCards: my.redCards || 0,
+              minutesPlayed: my.minutesPlayed || 0,
+              position: my.position || null,
+            }
+          : null,
+      };
+    });
+
+    return res.status(200).json({ data: trimmed });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get(`${BASE}/scouting/:userId`, async (req, res) => {
   try {
     const matches = await Match.find({
