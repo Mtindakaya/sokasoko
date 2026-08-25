@@ -121,7 +121,7 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
         bodyKey: 'notif.staff.invite.body',
         params: { org: orgName, role },
         type: 'SYSTEM',
-        metadata: { linkId: link._id.toString(), orgId, role },
+        metadata: { kind: 'STAFF_INVITE', linkId: link._id.toString(), orgId, role },
       });
     } catch (_) { /* best-effort */ }
 
