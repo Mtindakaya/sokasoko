@@ -280,18 +280,29 @@ const UserSchema = new Schema(
       default: false,
     },
 
-    // --- Scout rates (SCOUT type only) ---
-    // Cost the scout charges per academy engagement (full-team scouting for a match).
+    // --- Rate per game (SCOUT + REFEREE) ---
+    // Fee charged per game engagement. For SCOUT: full-team scouting.
+    // For REFEREE: officiating one match. Same field, same units (TSh).
+    // Consumed by the SokaSoko Recommend scoring formula.
     costPerGame: {
       type: Number,
       default: 0,
       min: 0,
     },
     // Cost the scout charges per individual player evaluation request.
+    // (SCOUT-only; separate from per-game because it's a different service.)
     costPerPlayer: {
       type: Number,
       default: 0,
       min: 0,
+    },
+    // Scout has completed formal scout training. Feeds the SokaSoko
+    // Recommend score at 25%. Default false — new signups and existing
+    // scouts start off untrained until they explicitly opt in on the
+    // edit-profile screen. Not scored for non-SCOUT users.
+    scoutTraining: {
+      type: Boolean,
+      default: false,
     },
 
     // --- System agents (AI assistant "Ismaili", etc.) ---
