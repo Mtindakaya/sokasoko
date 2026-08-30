@@ -51,6 +51,7 @@ const LegalRouter = require('./Legal/legal.http.router');
 const ReportRouter = require('./Report/report.http.router');
 const RefereeRatingRouter = require('./RefereeRating/referee_rating.http.router');
 const RecommendationRouter = require('./Recommendation/recommendation.http.router');
+const GuardianConsentRouter = require('./GuardianConsent/guardian_consent.http.router');
 require('./scheduler');
 
 const PORT = getNumber('PORT', 5000);
@@ -174,6 +175,7 @@ connect(MONGODB_URI, (error) => {
   app.use(ScoutReportRouter);
   app.use(RefereeRatingRouter);
   app.use(RecommendationRouter);
+  app.use(GuardianConsentRouter);
   app.use(IsmailiRouter);
   app.use(AdvisoryRouter);
   app.use(LegalRouter);
