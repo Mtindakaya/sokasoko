@@ -72,6 +72,16 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
         error: 'CHAIRPERSON / SECRETARY / ACCOUNTANT are FOOTBALL_ASSOCIATION roles',
       });
     }
+    // FA orgs don't use the OWNER / MANAGER / COACH shape — those
+    // roles map to Academy/Club leadership and would confuse the
+    // governance taxonomy. Reject them here so the client can't
+    // send stale values from an older build.
+    if (org.type === 'FOOTBALL_ASSOCIATION' &&
+        ['OWNER', 'MANAGER', 'COACH'].includes(role)) {
+      return res.status(400).json({
+        error: 'FOOTBALL_ASSOCIATION orgs use CHAIRPERSON / SECRETARY / ACCOUNTANT / OTHER',
+      });
+    }
 
     // Seat cap check — count ACTIVE + PENDING toward the quota so an org
     // can't over-invite past their seats even before acceptance.
@@ -90,6 +100,29 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
         error: `Umefikia kikomo cha wafanyakazi ${cap}. Ondoa mtu au boresha kifurushi.`,
         reason: 'STAFF_SEATS_FULL', cap, current: inFlight,
       });
+    }
+
+    // Per-role cap for OTHER on FA orgs — governance singletons are
+    // caught by SINGLETON_ROLES below; OTHER is normally unlimited so
+    // needs this extra guard. Bounded by FEATURE_CAPS.<type>.<tier>
+    // .maxOtherStaff when set.
+    if (role === 'OTHER') {
+      const tierForCap = await Subscription.getEffectiveTier(orgId, org.type);
+      const capsForType = FEATURE_CAPS[org.type]?.[tierForCap] || {};
+      const otherCap = capsForType.maxOtherStaff;
+      if (otherCap != null) {
+        const otherInFlight = await OrgStaffLink.countDocuments({
+          org: orgId, role: 'OTHER',
+          status: { $in: ['ACTIVE', 'PENDING'] },
+        });
+        if (otherInFlight >= otherCap) {
+          return res.status(403).json({
+            error: `Umefikia kikomo cha nafasi za "Nyingine" (${otherCap}).`,
+            reason: 'STAFF_OTHER_CAP_HIT',
+            cap: otherCap, current: otherInFlight,
+          });
+        }
+      }
     }
 
     // One-to-one enforcement (application-level for a friendlier error;

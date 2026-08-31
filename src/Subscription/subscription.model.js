@@ -609,6 +609,11 @@ const FEATURE_CAPS = {
   // clinics (their two most-common outreach activities) while keeping
   // roster / evaluation flows off (they aren't the developer, just the
   // convenor). Regional reach by default.
+  //
+  // staffSeats = 5: Chairperson + Secretary + Accountant (three
+  // singleton governance roles) + up to 2 "OTHER" custom-titled
+  // positions. Extra guardrail on OTHER count lives in the org-staff
+  // invite handler.
   FOOTBALL_ASSOCIATION: {
     FREE: {
       ai: 30,
@@ -620,7 +625,8 @@ const FEATURE_CAPS = {
       canPerformOfficialScouting: false,
       maxTournamentTeams: 32,
       reachScope: 'REGIONAL',
-      staffSeats: 3,
+      staffSeats: 5,
+      maxOtherStaff: 2,
     },
   },
 };
