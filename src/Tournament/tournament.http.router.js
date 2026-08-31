@@ -71,7 +71,7 @@ router.post(BASE, async (req, res) => {
           });
         }
       }
-      if (['COACH', 'ACADEMY', 'CLUB'].includes(orgType)) {
+      if (['COACH', 'ACADEMY', 'CLUB', 'FOOTBALL_ASSOCIATION'].includes(orgType)) {
         const tier = ctx?.delegated ? ctx.tier
           : await Subscription.getEffectiveTier(organizer, orgType);
         const caps = ctx?.delegated ? ctx.caps

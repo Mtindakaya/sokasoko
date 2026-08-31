@@ -13,7 +13,11 @@ const BASE = `/v${API_VERSION.split('.')[0]}`;
 const FULL_POWER_ROLES = ['OWNER', 'MANAGER', 'COACH'];
 // Singleton roles — an org may have at most one holder each (ACTIVE or
 // PENDING count toward the check so we don't stack duplicate invites).
-const SINGLETON_ROLES = ['OWNER', 'MANAGER', 'COACH'];
+// CHAIRPERSON / SECRETARY / ACCOUNTANT are governance roles for FA
+// orgs — one per org each. OTHER stays multi-instance (many "other"
+// staff can coexist with different customRoleTitles).
+const SINGLETON_ROLES = ['OWNER', 'MANAGER', 'COACH',
+  'CHAIRPERSON', 'SECRETARY', 'ACCOUNTANT'];
 
 // Look up the org's staff cap for its current effective tier. SCHOOL has
 // a fixed FREE tier since it isn't subscription-eligible.
@@ -59,6 +63,15 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     if (['ACADEMY', 'CLUB', 'FOOTBALL_ASSOCIATION'].includes(org.type) && role === 'SPORTS_TEACHER') {
       return res.status(400).json({ error: 'SPORTS_TEACHER is a SCHOOL role only' });
     }
+    // CHAIRPERSON / SECRETARY / ACCOUNTANT are FA governance roles;
+    // reject if ACADEMY / CLUB try to use them (avoid confusion with
+    // their existing OWNER/MANAGER/COACH taxonomy).
+    if (['ACADEMY', 'CLUB', 'SCHOOL'].includes(org.type) &&
+        ['CHAIRPERSON', 'SECRETARY', 'ACCOUNTANT'].includes(role)) {
+      return res.status(400).json({
+        error: 'CHAIRPERSON / SECRETARY / ACCOUNTANT are FOOTBALL_ASSOCIATION roles',
+      });
+    }
 
     // Seat cap check — count ACTIVE + PENDING toward the quota so an org
     // can't over-invite past their seats even before acceptance.
@@ -103,9 +116,16 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
       }
     }
 
+    const { customRoleTitle } = req.body;
     const link = await OrgStaffLink.create({
       org: orgId, staff: guardianId, role,
       invitedBy: orgId, status: 'PENDING',
+      // Only stored when role === 'OTHER'; ignored otherwise so
+      // canonical roles keep their localized display.
+      customRoleTitle:
+        role === 'OTHER' && customRoleTitle && String(customRoleTitle).trim()
+          ? String(customRoleTitle).trim()
+          : null,
     });
 
     // Bell notification to the guardian.

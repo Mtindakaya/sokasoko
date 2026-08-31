@@ -8,9 +8,16 @@ const { Schema, model } = mongoose;
 //   - OWNER   : full delegated org powers (Academy/Club)
 //   - MANAGER : full delegated org powers (Academy/Club)
 //   - COACH   : full delegated org powers (Academy/Club)
-//   - OTHER   : chat only — no elevated powers
+//   - OTHER   : chat only — no elevated powers. `customRoleTitle` may
+//               carry a user-typed job title for display.
 //   - SPORTS_TEACHER : COACH-GOLD equivalent (School only)
-const ROLES = ['OWNER', 'MANAGER', 'COACH', 'OTHER', 'SPORTS_TEACHER'];
+//   - CHAIRPERSON / SECRETARY / ACCOUNTANT : governance roles for
+//     Football Associations (Mwenyekiti / Katibu / Mweka Hazina).
+//     Chat + view roster; no elevated tier privileges.
+const ROLES = [
+  'OWNER', 'MANAGER', 'COACH', 'OTHER', 'SPORTS_TEACHER',
+  'CHAIRPERSON', 'SECRETARY', 'ACCOUNTANT',
+];
 const STATUSES = ['PENDING', 'ACTIVE', 'DECLINED', 'DISABLED'];
 
 const OrgStaffLinkSchema = new Schema(
@@ -18,6 +25,11 @@ const OrgStaffLinkSchema = new Schema(
     org:   { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     staff: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     role:  { type: String, enum: ROLES, required: true },
+    // Free-text job title used when role === 'OTHER' — lets orgs add
+    // any position (e.g. Msajili wa Klabu, Msemaji, Mkurugenzi). UI
+    // shows this string in the role slot when set; otherwise falls
+    // back to the localized ROLES label.
+    customRoleTitle: { type: String, trim: true, default: null },
     status: { type: String, enum: STATUSES, default: 'PENDING', index: true },
     invitedBy:  { type: Schema.Types.ObjectId, ref: 'User', default: null },
     invitedAt:  { type: Date, default: Date.now },
