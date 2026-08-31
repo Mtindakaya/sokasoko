@@ -34,7 +34,7 @@ const SUBSCRIPTION_ELIGIBLE_TYPES = [
   'REFEREE', 'SCOUT', 'VENDOR',
 ];
 // User types excluded from subscriptions entirely.
-const NON_SUBSCRIPTION_TYPES = ['GUARDIAN', 'SPONSOR', 'SCHOOL', 'FIELD_OWNER'];
+const NON_SUBSCRIPTION_TYPES = ['GUARDIAN', 'SPONSOR', 'SCHOOL', 'FIELD_OWNER', 'FOOTBALL_ASSOCIATION'];
 
 // PRICES[userType][tier][plan][currency]. `null` = plan not offered for tier.
 // STANDARD is universally free. Only PLAYER tiers are locked as of 2026-08-09.
@@ -602,6 +602,25 @@ const FEATURE_CAPS = {
       canGenerateMarketReport: false,
       canGenerateCustomAnalysis: false,
       canPerformOfficialScouting: false,
+    },
+  },
+  // FOOTBALL_ASSOCIATION: not subscription-eligible. FAs, federations,
+  // and sports authorities get a fixed FREE cap that enables trials +
+  // clinics (their two most-common outreach activities) while keeping
+  // roster / evaluation flows off (they aren't the developer, just the
+  // convenor). Regional reach by default.
+  FOOTBALL_ASSOCIATION: {
+    FREE: {
+      ai: 30,
+      canPostTrials: true,
+      canPostClinics: true,
+      canCreateTournaments: true,
+      canRequestScouting: false,
+      canAddScoutsToOwnMatches: false,
+      canPerformOfficialScouting: false,
+      maxTournamentTeams: 32,
+      reachScope: 'REGIONAL',
+      staffSeats: 3,
     },
   },
 };

@@ -41,6 +41,11 @@ const types = [
   'REFEREE',
   'SCOUT',
   'FIELD_OWNER',
+  // Federations, regional / district FAs, National Sports Council,
+  // TFF, MoFA, sports registrars. Not subscription-eligible; capped
+  // FREE tier with trials + clinics enabled. Sub-type kept on the
+  // `association_type` field below.
+  'FOOTBALL_ASSOCIATION',
 ];
 
 const FREE_TRIAL_DAYS = 60;
@@ -236,6 +241,21 @@ const UserSchema = new Schema(
     secretaryName: { type: String, trim: true },
     academy_description: { type: String, trim: true },
     school_type: { type: String, trim: true, enum: ['PRIMARY', 'SECONDARY', 'CHUO'] },
+    // FOOTBALL_ASSOCIATION sub-classification.
+    //   FOOTBALL_ASSOCIATION  → e.g. TFF, regional/district FAs, MoFA
+    //   SPORTS_AUTHORITY      → e.g. National Sports Council, registrar
+    association_type: {
+      type: String,
+      trim: true,
+      enum: ['FOOTBALL_ASSOCIATION', 'SPORTS_AUTHORITY'],
+    },
+    // Physical / postal address of the organisation's office. Free-form
+    // (accepts "P.O. Box 12345, Ilala" and similar). Applied to every
+    // entity-shaped user type (VENDOR / ACADEMY / CLUB / SCHOOL / entity
+    // SPONSOR / FOOTBALL_ASSOCIATION). Displayed BEFORE region on the
+    // signup and edit-profile forms; region/district/ward/serikaliYaMtaa
+    // still capture the physical geography for search / recommendation.
+    office_address: { type: String, trim: true },
     school_gender: { type: String, trim: true, enum: ['ALL_GIRLS', 'ALL_BOYS', 'MIXED'] },
     academic_teacher: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
     sports_teacher_1: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
