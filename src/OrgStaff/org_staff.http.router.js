@@ -45,8 +45,8 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     if (!org) return res.status(404).json({ error: 'org not found' });
     if (!guardian) return res.status(404).json({ error: 'guardian not found' });
 
-    if (!['ACADEMY', 'CLUB', 'SCHOOL'].includes(org.type)) {
-      return res.status(400).json({ error: 'org must be ACADEMY, CLUB or SCHOOL' });
+    if (!['ACADEMY', 'CLUB', 'SCHOOL', 'FOOTBALL_ASSOCIATION'].includes(org.type)) {
+      return res.status(400).json({ error: 'org must be ACADEMY, CLUB, SCHOOL or FOOTBALL_ASSOCIATION' });
     }
     if (guardian.type !== 'GUARDIAN') {
       return res.status(400).json({ error: 'staff must currently be a GUARDIAN account' });
@@ -56,7 +56,7 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     if (org.type === 'SCHOOL' && role !== 'SPORTS_TEACHER') {
       return res.status(400).json({ error: 'SCHOOL can only invite SPORTS_TEACHER role' });
     }
-    if (['ACADEMY', 'CLUB'].includes(org.type) && role === 'SPORTS_TEACHER') {
+    if (['ACADEMY', 'CLUB', 'FOOTBALL_ASSOCIATION'].includes(org.type) && role === 'SPORTS_TEACHER') {
       return res.status(400).json({ error: 'SPORTS_TEACHER is a SCHOOL role only' });
     }
 
