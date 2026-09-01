@@ -728,6 +728,22 @@ router.post(PATH_LIST, uploadFor(), postFor({
     if (body.dob) body.dob = body.dob.toString().replace(' ', 'T');
     const isOwnerRaw = _.get(body, 'subAccount', 'false');
     const isOwner = isOwnerRaw === true || isOwnerRaw === 'true' ? 'true' : 'false';
+
+    // For subaccounts (minor players / referees registered by a
+    // GUARDIAN), populate the `guardian` field from day 1 alongside
+    // `createdBy`. Previously only `createdBy` was set which broke
+    // the ownership check on the remove-ward endpoint. Only promote
+    // when the creator is actually a GUARDIAN — other org types
+    // (ACADEMY / CLUB / SCHOOL) use different lifecycle fields.
+    if (isOwner === 'false' && body.createdBy && !body.guardian) {
+      try {
+        const creator = await User.findById(body.createdBy)
+          .select('type').lean();
+        if (creator?.type === 'GUARDIAN') {
+          body.guardian = body.createdBy;
+        }
+      } catch (_) { /* best-effort */ }
+    }
     const isPhoneExists = await User.where('phone', phone).count();
     const passwordValue = _.get(body, 'password');
     if (!passwordValue && isOwner === 'false') {
@@ -1169,9 +1185,24 @@ router.post('/users/:guardianId/ward/remove', async (req, res) => {
     const { minorId } = req.body;
     if (!minorId) return res.status(400).json({ error: 'minorId required' });
     const minor = await User.findById(minorId);
-    if (!minor) return res.status(404).json({ error: 'Minor not found' });
+    if (!minor) return res.status(404).json({ error: 'Mtoto hajapatikana.' });
+
+    // Legacy self-heal: pre-guardian-lifecycle minors carry the
+    // registering account only in `createdBy`, not in the new
+    // `guardian` field. Promote here so the ownership check passes
+    // and future reads have both fields populated. Mirrors the same
+    // block on GET /users/:minorId/guardian-status.
+    if (!minor.guardian && !minor.guardianOrphaned && minor.createdBy &&
+        String(minor.createdBy) === String(req.params.guardianId)) {
+      minor.guardian = req.params.guardianId;
+      // Save happens below anyway; this line covers the ownership check.
+    }
+
     if (String(minor.guardian) !== String(req.params.guardianId)) {
-      return res.status(403).json({ error: 'Not this minor\'s current guardian' });
+      return res.status(403).json({
+        error: 'Wewe si mlezi wa sasa wa mtoto huyu.',
+        reason: 'NOT_CURRENT_GUARDIAN',
+      });
     }
     minor.previousGuardian = req.params.guardianId;
     minor.guardian = null;
