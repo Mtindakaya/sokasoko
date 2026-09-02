@@ -14,6 +14,15 @@ const SCHEMA_OPTIONS = {
 
 const MATCH_STATUS = ['SCHEDULED', 'ONGOING', 'COMPLETED', 'CANCELLED', 'POSTPONED', 'DECLINED'];
 
+// Age level for the match — mirrors the player-signup age brackets so
+// scores can be filtered / labelled consistently ("U15 · M", etc.).
+const MATCH_AGE_LEVELS = ['U9', 'U11', 'U13', 'U15', 'U17', 'U20', 'ADULT'];
+
+// Gender of the players in the match. Stored as MALE / FEMALE for
+// consistency with the User.gender field; client renders localized
+// short labels (M/W in English, Me/Ke in Kiswahili).
+const MATCH_GENDERS = ['MALE', 'FEMALE'];
+
 const PlayerStatSchema = new Schema({
   // Registered players have a User ref; guest players use playerName instead.
   player: { type: Schema.Types.ObjectId, ref: 'User', required: false },
@@ -64,6 +73,16 @@ const MatchSchema = new Schema(
     scheduledDate: {
       type: Date,
       required: [true, 'Match date is required'],
+      index: true,
+    },
+    ageLevel: {
+      type: String,
+      enum: MATCH_AGE_LEVELS,
+      index: true,
+    },
+    gender: {
+      type: String,
+      enum: MATCH_GENDERS,
       index: true,
     },
     status: {
@@ -281,3 +300,5 @@ mongoose.plugin(actions);
 
 module.exports = model('Match', MatchSchema);
 module.exports.MATCH_STATUS = MATCH_STATUS;
+module.exports.MATCH_AGE_LEVELS = MATCH_AGE_LEVELS;
+module.exports.MATCH_GENDERS = MATCH_GENDERS;

@@ -53,7 +53,7 @@ router.get(`${BASE}/refereeing/:userId`, async (req, res) => {
       .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
       .populate('venue', 'name region district ward')
       .populate('tournament', 'name type')
-      .select('homeTeam awayTeam venue tournament scheduledDate homeScore awayScore matchId referee assistantReferee1 assistantReferee2 status')
+      .select('homeTeam awayTeam venue tournament scheduledDate homeScore awayScore matchId referee assistantReferee1 assistantReferee2 status ageLevel gender')
       .sort({ scheduledDate: -1 })
       .lean();
     // Tag the caller's role on each row so the UI can distinguish
@@ -111,7 +111,7 @@ router.get(`${BASE}/for-player/:playerId`, async (req, res) => {
       .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
       .populate('venue', 'name region district ward')
       .populate('tournament', 'name type')
-      .select('homeTeam awayTeam venue tournament scheduledDate homeScore awayScore matchId status playerStats')
+      .select('homeTeam awayTeam venue tournament scheduledDate homeScore awayScore matchId status playerStats ageLevel gender')
       .sort({ scheduledDate: -1 })
       .lean();
 
@@ -232,7 +232,7 @@ router.get(`${BASE}/:id`, async (req, res) => {
 // POST /v1/matches — schedule a match
 router.post(BASE, async (req, res) => {
   try {
-    const { homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee } = req.body;
+    const { homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee, ageLevel, gender } = req.body;
     if (!homeTeam || !awayTeam || !scheduledDate) {
       return res.status(400).json({
         error: 'Tafadhali chagua timu mbili na tarehe ya mechi.',
@@ -419,6 +419,7 @@ router.post(BASE, async (req, res) => {
 
     const match = await Match.create({
       homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee,
+      ageLevel, gender,
       assistantReferee1, assistantReferee2,
       // Every assigned ref slot starts PENDING — the ref must accept
       // or decline from the Verifications screen.
