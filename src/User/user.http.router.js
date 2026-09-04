@@ -297,6 +297,20 @@ router.get(PATH_LIST, async (req, res) => {
       if (ranges[ageGroup]) filter.dob = ranges[ageGroup];
     }
 
+    // Anonymous sponsors are undiscoverable in the general list too —
+    // even the SPONSOR type-browse view drops them. The sponsor
+    // themselves still sees their own row (viewerId escape hatch).
+    const requestingUserIdForAnon = req.query.viewerId;
+    if (requestingUserIdForAnon) {
+      const excludeAnon = { $or: [
+        { isAnonymous: { $ne: true } },
+        { _id: new mongoose.Types.ObjectId(requestingUserIdForAnon) },
+      ] };
+      filter.$and = [...(filter.$and || []), excludeAnon];
+    } else {
+      filter.$and = [...(filter.$and || []), { isAnonymous: { $ne: true } }];
+    }
+
     const [data, total] = await Promise.all([
       User.find(filter)
         .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number dob themeColor isAnonymous')
@@ -482,21 +496,38 @@ router.get(PATH_SEARCH, async (request, response) => {
       )).map((id) => new mongoose.Types.ObjectId(id));
     }
 
+    // Anonymous sponsors must be undiscoverable — anonymising the
+    // outgoing payload isn't enough because the query still matches
+    // their real firstName/lastName/entity_name. Drop them from every
+    // result unless the caller IS the anonymous sponsor themselves
+    // (they still need to find their own account).
+    const excludeAnon = requestingUserId
+      ? { $or: [
+          { isAnonymous: { $ne: true } },
+          { _id: new mongoose.Types.ObjectId(requestingUserId) },
+        ] }
+      : { isAnonymous: { $ne: true } };
+
     const finalFilter = inferredType
-      ? baseFilter
+      ? { $and: [baseFilter, excludeAnon] }
       : {
-          ...baseFilter,
-          $or: [
-            { firstName: { $regex: query, $options: 'i' } },
-            { lastName: { $regex: query, $options: 'i' } },
-            { accountNumber: { $regex: query, $options: 'i' } },
-            { academy_name: { $regex: query, $options: 'i' } },
-            { company_name: { $regex: query, $options: 'i' } },
-            { entity_name: { $regex: query, $options: 'i' } },
-            { short_bio: { $regex: query, $options: 'i' } },
-            { company_description: { $regex: query, $options: 'i' } },
-            { academy_description: { $regex: query, $options: 'i' } },
-            ...(contentOwnerIds.length > 0 ? [{ _id: { $in: contentOwnerIds } }] : []),
+          $and: [
+            {
+              ...baseFilter,
+              $or: [
+                { firstName: { $regex: query, $options: 'i' } },
+                { lastName: { $regex: query, $options: 'i' } },
+                { accountNumber: { $regex: query, $options: 'i' } },
+                { academy_name: { $regex: query, $options: 'i' } },
+                { company_name: { $regex: query, $options: 'i' } },
+                { entity_name: { $regex: query, $options: 'i' } },
+                { short_bio: { $regex: query, $options: 'i' } },
+                { company_description: { $regex: query, $options: 'i' } },
+                { academy_description: { $regex: query, $options: 'i' } },
+                ...(contentOwnerIds.length > 0 ? [{ _id: { $in: contentOwnerIds } }] : []),
+              ],
+            },
+            excludeAnon,
           ],
         };
     const data = await User.find(finalFilter)
