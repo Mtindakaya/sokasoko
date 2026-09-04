@@ -43,6 +43,24 @@ function collectPhotos(body) {
   return out.slice(0, 3);
 }
 
+// Sweep any stale PENDING requests for this sponsor to EXPIRED so
+// they (a) don't clutter the sponsor's inbox and (b) don't block a
+// fresh request from the same requester via the dedupe unique index.
+// Called before both create + list on the sponsor scope.
+async function expireStale(sponsorId) {
+  try {
+    await SponsorshipRequest.updateMany(
+      { sponsor: sponsorId, status: 'PENDING', expiresAt: { $lte: new Date() } },
+      { $set: { status: 'EXPIRED' } },
+    );
+  } catch (_) { /* best-effort */ }
+}
+
+// Default polite decline body when the sponsor doesn't type a note.
+// Kiswahili — matches the phrasing the user asked for.
+const DEFAULT_DECLINE_BODY =
+  'Samahani, ombi lako kwa mdhamini haliwezi kushughuikiwa kwa sasa.';
+
 // ── Sponsorship (main entries) ─────────────────────────────────────────
 
 router.post(`${BASE}/sponsorships`, uploadFor(), async (req, res) => {
@@ -259,6 +277,9 @@ router.post(`${BASE}/sponsorship-requests`, async (req, res) => {
         error: 'sponsor + requester + beneficiary required',
       });
     }
+    // Clear any stale PENDING first — otherwise a 30-days-old row still
+    // reads as PENDING and the unique dedupe index rejects a fresh ask.
+    await expireStale(b.sponsor);
     const doc = await SponsorshipRequest.create({
       sponsor: b.sponsor,
       requester: b.requester,
@@ -305,6 +326,7 @@ router.post(`${BASE}/sponsorship-requests`, async (req, res) => {
 
 router.get(`${BASE}/sponsorship-requests/sponsor/:id`, async (req, res) => {
   try {
+    await expireStale(req.params.id);
     const rows = await SponsorshipRequest.find({
       sponsor: req.params.id,
       status: 'PENDING',
@@ -329,14 +351,18 @@ async function respondToRequest(res, requestId, sponsor, status, note) {
   doc.respondedAt = new Date();
   doc.responseNote = String(note || '').trim();
   await doc.save();
-  // Notify requester.
+  // Notify requester. Decline uses the sponsor's typed note if given,
+  // otherwise the polite default the user asked us to send.
   try {
+    const declineBody = (doc.responseNote && doc.responseNote.trim())
+      ? doc.responseNote.trim()
+      : DEFAULT_DECLINE_BODY;
     await Notification.create({
       userId: doc.requester,
       title: status === 'ACCEPTED' ? 'Ombi lako limekubaliwa' : 'Ombi lako limekataliwa',
       body: status === 'ACCEPTED'
         ? 'Mdhamini amekubali ombi lako. Watawasiliana nawe hivi karibuni.'
-        : 'Mdhamini amekataa ombi lako.',
+        : declineBody,
       titleKey: status === 'ACCEPTED'
         ? 'notif.sponsor.request.accepted_title'
         : 'notif.sponsor.request.declined_title',
