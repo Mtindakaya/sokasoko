@@ -180,6 +180,12 @@ const UserSchema = new Schema(
     // Set to the previous guardian's id on removal so the new guardian's
     // acceptance can notify them: "minor X is now with guardian Y".
     previousGuardian: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    // Minor emancipation (18+ opts out of guardianship). One-way.
+    // guardian field is null'd on emancipate; emancipatedFrom keeps the
+    // audit link so we can trace the previous relationship.
+    emancipated:      { type: Boolean, default: false, index: true },
+    emancipatedAt:    { type: Date,    default: null },
+    emancipatedFrom:  { type: Schema.Types.ObjectId, ref: 'User', default: null },
     suspend: { type: Boolean, default: false },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },

@@ -194,10 +194,14 @@ router.get(PATH_LIST, async (req, res) => {
       // guardian-lifecycle rollout (still linked only via `createdBy`,
       // and not yet re-attached to someone else). This handles both
       // legacy minors and minors newly accepted by request.
+      //
+      // Emancipated (18+ opted-out) minors are excluded — they own
+      // their own account now and shouldn't clutter the guardian's
+      // "Wachezaji Wangu" list.
       const gid = req.query.createdBy;
       filter.$or = [
         { guardian: gid },
-        { createdBy: gid, guardian: null },
+        { createdBy: gid, guardian: null, emancipated: { $ne: true } },
       ];
     }
     if (req.query.academy) filter.academy = req.query.academy;
@@ -1252,6 +1256,152 @@ router.post('/users/:guardianId/ward/remove', async (req, res) => {
       },
     );
     return res.status(200).json({ data: minor });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/emancipate  body { actor }
+// Minor (18+) opts out of guardianship — one-way. Guardian + any
+// attached academy / school get a notification so the minor's public
+// relationships stay in sync with reality.
+router.post('/users/:id/emancipate', async (req, res) => {
+  try {
+    const actor = req.body?.actor;
+    if (!actor || String(actor) !== String(req.params.id)) {
+      return res.status(403).json({
+        error: 'Ni mtumiaji mwenyewe pekee anayeweza kuwasha akaunti binafsi.',
+      });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Mtumiaji hajapatikana.' });
+    if (!['PLAYER', 'REFEREE'].includes(user.type)) {
+      return res.status(400).json({
+        error: 'Ni akaunti za PLAYER na REFEREE pekee zinazoweza kuwa huru.',
+      });
+    }
+    if (user.emancipated) {
+      return res.status(409).json({
+        error: 'Akaunti yako tayari ni huru.',
+        reason: 'ALREADY_EMANCIPATED',
+      });
+    }
+    // Age >= 18 from DOB.
+    if (!user.dob) {
+      return res.status(400).json({
+        error: 'Tarehe ya kuzaliwa haijawekwa. Sasisha kwanza.',
+      });
+    }
+    const now = new Date();
+    const eighteenAgo = new Date(
+      now.getFullYear() - 18, now.getMonth(), now.getDate());
+    if (new Date(user.dob) > eighteenAgo) {
+      return res.status(403).json({
+        error: 'Lazima uwe umefikisha miaka 18 kuweza kuwasha akaunti binafsi.',
+        reason: 'UNDERAGE',
+      });
+    }
+    // Must currently have a guardian to detach from.
+    const guardianId = user.guardian || user.createdBy;
+    if (!guardianId) {
+      return res.status(400).json({
+        error: 'Huna mlezi wa sasa wa kuachana naye.',
+        reason: 'NO_GUARDIAN',
+      });
+    }
+
+    // Snapshot roster links before we change anything so we can notify
+    // school / academy too.
+    const academyId = user.academy;
+    const schoolId = user.school;
+
+    user.emancipated = true;
+    user.emancipatedAt = now;
+    user.emancipatedFrom = guardianId;
+    user.previousGuardian = guardianId;
+    user.guardian = null;
+    // Ensure the minor is no longer treated as orphaned — they're an
+    // independent adult, not a stranded child.
+    user.guardianOrphaned = false;
+    await user.save();
+
+    const minorName = `${user.firstName || ''} ${user.lastName || ''}`.trim()
+      || user.accountNumber || 'Mchezaji';
+
+    // Guardian notification.
+    try {
+      await Notification.create({
+        userId: guardianId,
+        title: 'Mtoto wako amewasha akaunti binafsi',
+        body: `${minorName} amewasha akaunti yake binafsi. Sasa anajitegemea. Historia ya kila mmoja imehifadhiwa.`,
+        titleKey: 'notif.emancipation.guardian_title',
+        bodyKey: 'notif.emancipation.guardian_body',
+        params: { minor: minorName },
+        type: 'SYSTEM',
+        metadata: {
+          kind: 'MINOR_EMANCIPATED',
+          minorId: user._id.toString(),
+        },
+      });
+    } catch (_) {}
+
+    // Academy notification (if attached).
+    if (academyId) {
+      try {
+        await Notification.create({
+          userId: academyId,
+          title: 'Mchezaji wa akademi yako amewasha akaunti binafsi',
+          body: `${minorName} sasa ni huru — anasimamia mawasiliano yake mwenyewe. Uhusiano wenu wa akademi haujabadilika.`,
+          titleKey: 'notif.emancipation.org_title',
+          bodyKey: 'notif.emancipation.org_body',
+          params: { minor: minorName },
+          type: 'SYSTEM',
+          metadata: {
+            kind: 'MINOR_EMANCIPATED',
+            minorId: user._id.toString(),
+            role: 'ACADEMY',
+          },
+        });
+      } catch (_) {}
+    }
+
+    // School notification (if attached, and different from academy).
+    if (schoolId && String(schoolId) !== String(academyId)) {
+      try {
+        await Notification.create({
+          userId: schoolId,
+          title: 'Mwanafunzi wako amewasha akaunti binafsi',
+          body: `${minorName} sasa ni huru — anasimamia mawasiliano yake mwenyewe. Uhusiano wenu wa shule haujabadilika.`,
+          titleKey: 'notif.emancipation.org_title',
+          bodyKey: 'notif.emancipation.org_body',
+          params: { minor: minorName },
+          type: 'SYSTEM',
+          metadata: {
+            kind: 'MINOR_EMANCIPATED',
+            minorId: user._id.toString(),
+            role: 'SCHOOL',
+          },
+        });
+      } catch (_) {}
+    }
+
+    // Confirmation to the minor themselves.
+    try {
+      await Notification.create({
+        userId: user._id,
+        title: 'Akaunti yako sasa ni huru',
+        body: 'Umefanikiwa kuwasha akaunti binafsi. Unaweza kuwasiliana na kufanya vitendo bila mlezi. Ongeza namba ya simu yako kwenye Wasifu kama bado hujaweka.',
+        titleKey: 'notif.emancipation.minor_title',
+        bodyKey: 'notif.emancipation.minor_body',
+        params: {},
+        type: 'SYSTEM',
+        metadata: {
+          kind: 'MINOR_EMANCIPATION_CONFIRMED',
+        },
+      });
+    } catch (_) {}
+
+    return res.json({ data: user });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
