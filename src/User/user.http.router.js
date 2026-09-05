@@ -1323,7 +1323,20 @@ router.post('/users/:id/emancipate', async (req, res) => {
     // Ensure the minor is no longer treated as orphaned — they're an
     // independent adult, not a stranded child.
     user.guardianOrphaned = false;
+    // Clear reminder-related state so the pinned nudge won't be
+    // re-created on the next inbox load.
+    user.emancipationSnoozedUntil = null;
     await user.save();
+
+    // Delete any active pinned emancipation reminder — the action is
+    // complete, the prompt should not linger.
+    try {
+      await Notification.deleteMany({
+        userId: user._id,
+        pinned: true,
+        'metadata.kind': 'EMANCIPATION_REMINDER',
+      });
+    } catch (_) {}
 
     const minorName = `${user.firstName || ''} ${user.lastName || ''}`.trim()
       || user.accountNumber || 'Mchezaji';
@@ -1402,6 +1415,49 @@ router.post('/users/:id/emancipate', async (req, res) => {
     } catch (_) {}
 
     return res.json({ data: user });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/emancipation/snooze  body { months, actor }
+// Minor (18+) postpones the emancipation reminder. Snoozing removes
+// the pinned reminder from the inbox until the snooze window passes;
+// after that the lazy check on GET /v1/notifications/my/:userId
+// re-creates a fresh pinned reminder.
+router.post('/users/:id/emancipation/snooze', async (req, res) => {
+  try {
+    const actor = req.body?.actor;
+    if (!actor || String(actor) !== String(req.params.id)) {
+      return res.status(403).json({
+        error: 'Ni mtumiaji mwenyewe pekee anayeweza kuahirisha kumbukumbu.',
+      });
+    }
+    const months = Number(req.body?.months);
+    if (!Number.isFinite(months) || months <= 0 || months > 24) {
+      return res.status(400).json({
+        error: 'months lazima iwe kati ya 1 na 24.',
+      });
+    }
+    const user = await User.findById(req.params.id)
+      .select('type emancipated');
+    if (!user) return res.status(404).json({ error: 'Mtumiaji hajapatikana.' });
+    if (user.emancipated) {
+      return res.status(409).json({ error: 'Akaunti yako tayari ni huru.' });
+    }
+    const until = new Date();
+    until.setMonth(until.getMonth() + Math.floor(months));
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { emancipationSnoozedUntil: until } });
+    try {
+      await Notification.deleteMany({
+        userId: user._id,
+        pinned: true,
+        'metadata.kind': 'EMANCIPATION_REMINDER',
+      });
+    } catch (_) {}
+    return res.json({ data: { snoozedUntil: until.toISOString() } });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

@@ -28,6 +28,11 @@ const NotificationSchema = new Schema(
       default: 'SYSTEM',
     },
     read: { type: Boolean, default: false, index: true },
+    // Pinned notifications sort to the top of the inbox regardless of
+    // read state and are not intended to be dismissed by the normal
+    // read/mark-all-read flow. Used for reminders that must remain
+    // discoverable (e.g. minor emancipation prompt at 18+).
+    pinned: { type: Boolean, default: false, index: true },
     metadata: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } }

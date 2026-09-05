@@ -186,6 +186,14 @@ const UserSchema = new Schema(
     emancipated:      { type: Boolean, default: false, index: true },
     emancipatedAt:    { type: Date,    default: null },
     emancipatedFrom:  { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    // Emancipation reminder scheduling. The reminder is a pinned
+    // notification created lazily when a PLAYER/REFEREE turns 18 with
+    // an active guardian. Once created we stamp `emancipationRemindedAt`
+    // so the lazy check doesn't spam duplicates. Snoozing sets
+    // `emancipationSnoozedUntil`; when that expires the lazy check
+    // creates a fresh pinned reminder.
+    emancipationRemindedAt:  { type: Date, default: null },
+    emancipationSnoozedUntil:{ type: Date, default: null, index: true },
     suspend: { type: Boolean, default: false },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },
