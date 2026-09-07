@@ -637,11 +637,20 @@ router.get(PATH_SINGLE, getByIdFor({
   getById: async (options, done) => {
     const id = _.get(options, 'id');
     const requestingUserId = _.get(options, 'query.viewerId');
-    // populate('academy') — without this the profile vCard renders
-    // every player as "Free Agent" because Flutter's User.fromJson
-    // only recognises the field when it comes back as a nested doc,
-    // not as the bare ObjectId that findById() returns by default.
-    User.findById(id).populate('academy').exec(async (err, user) => {
+    // Nested populate: `academy` on the User is an Academy enrollment
+    // row, and `academy.addedBy` is the org's User doc. The client's
+    // Academy.fromJson reads the team name from addedBy.academy_name /
+    // company_name / firstName+lastName — a shallow populate here
+    // leaves addedBy as a bare ObjectId and the vCard falls back to
+    // "Free Agent". Autopopulate plugin isn't installed on this schema
+    // so we spell the nesting out explicitly.
+    User.findById(id).populate({
+      path: 'academy',
+      populate: {
+        path: 'addedBy',
+        select: 'academy_name company_name entity_name firstName lastName type profileImage region district',
+      },
+    }).exec(async (err, user) => {
       if (err) return done(err, null);
       if (!user) return done(null, null);
       const canView = await canViewFullProfile(requestingUserId, user);
