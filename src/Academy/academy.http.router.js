@@ -19,6 +19,7 @@ const PATH_SCHEMA = '/academys/schema/';
 const Academy = require('./academy.model');
 const User = require('../User/user.model');
 const Notification = require('../Notification/notification.model');
+const CareerEvent = require('../CareerEvent/career_event.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 
 const router = new Router({
@@ -214,6 +215,39 @@ router.post('/academys/:id/verify', async (req, res) => {
     row.verifiedAt = new Date();
     await row.save();
     await User.findByIdAndUpdate(row.player, { $set: { academy: row._id } });
+
+    // Career-history log entry — one open CareerEvent per stint. If a
+    // stray open row already exists for this player + org (shouldn't
+    // happen under normal flow but is possible with hand-fixed data),
+    // skip creating a duplicate.
+    try {
+      const org = await User.findById(row.addedBy)
+        .select('type academy_name firstName lastName').lean();
+      const entityType = org && org.type === 'CLUB' ? 'CLUB' : 'ACADEMY';
+      const nameSnap = (org && org.academy_name && org.academy_name.trim())
+        || (org && `${org.firstName || ''} ${org.lastName || ''}`.trim())
+        || 'Chuo';
+      const dupe = await CareerEvent.findOne({
+        player: row.player,
+        entity: row.addedBy,
+        leftAt: null,
+      }).select('_id').lean();
+      if (!dupe) {
+        await CareerEvent.create({
+          player: row.player,
+          entity: row.addedBy,
+          entityType,
+          entityNameSnapshot: nameSnap,
+          level: row.level || '',
+          role: 'PLAYER',
+          joinedAt: row.verifiedAt,
+          source: 'ACADEMY_ENROLLMENT',
+          sourceRef: row._id,
+        });
+      }
+    } catch (ceErr) {
+      console.log('[ACADEMY VERIFY] career-event write failed:', ceErr.message);
+    }
 
     try {
       const orgLabel = await orgName(row.addedBy);
