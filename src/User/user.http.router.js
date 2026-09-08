@@ -323,7 +323,14 @@ router.get(PATH_LIST, async (req, res) => {
 
     const [data, total] = await Promise.all([
       User.find(filter)
-        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number dob themeColor isAnonymous')
+        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number dob themeColor isAnonymous academy')
+        .populate({
+          path: 'academy',
+          populate: {
+            path: 'addedBy',
+            select: 'academy_name company_name entity_name firstName lastName type profileImage region district',
+          },
+        })
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -541,7 +548,14 @@ router.get(PATH_SEARCH, async (request, response) => {
           ],
         };
     const data = await User.find(finalFilter)
-      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor isAnonymous')
+      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor isAnonymous academy')
+      .populate({
+        path: 'academy',
+        populate: {
+          path: 'addedBy',
+          select: 'academy_name company_name entity_name firstName lastName type profileImage region district',
+        },
+      })
       .limit(limit)
       .lean();
 
