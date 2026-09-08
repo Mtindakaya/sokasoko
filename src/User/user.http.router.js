@@ -66,10 +66,16 @@ const router = new Router({
   version: API_VERSION,
 });
 
+// Contact-only fields hidden from viewers who fail canViewFullProfile
+// (unsubscribed scouts). Team affiliation (`academy`) used to be on
+// this list, but it's public data — visible in roster views, match
+// schedules, feed posts — so hiding it here just broke the profile
+// vCard for every viewer that doesn't send viewerId (which is every
+// caller today, since the client doesn't pass it).
 const RESTRICTED_FIELDS = [
   'phone', 'email', 'contact_number', 'street',
   'facebook', 'instagram', 'twitter', 'youtube',
-  'linkedin', 'agent', 'academy', 'password',
+  'linkedin', 'agent', 'password',
 ];
 
 const stripRestrictedFields = (user) => {
