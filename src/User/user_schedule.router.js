@@ -29,6 +29,15 @@ router.get(`${BASE}/:id/schedule`, async (req, res) => {
       : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
     const limit = Math.min(parseInt(req.query.limit || '20', 10), 100);
 
+    // Host-self view sees their own pending (REQUESTED) LiveSessions
+    // too, so they can eyeball what they've submitted without waiting
+    // for admin approval. Public viewers only see APPROVED/LIVE.
+    const viewer = req.query.viewer;
+    const isSelfView = viewer && String(viewer) === String(userId);
+    const liveStatuses = isSelfView
+      ? ['REQUESTED', 'APPROVED', 'LIVE']
+      : ['APPROVED', 'LIVE'];
+
     // Kick off all five queries in parallel so the aggregation is a
     // single round-trip's worth of latency.
     const [matches, trialsAndClinics, tournaments, liveSessions] =
@@ -59,7 +68,7 @@ router.get(`${BASE}/:id/schedule`, async (req, res) => {
         LiveSession.find({
           host: oid,
           scheduledFor: { $gte: from, $lte: to },
-          status: { $in: ['APPROVED', 'LIVE'] },
+          status: { $in: liveStatuses },
         })
           .select('_id title scheduledFor durationMinutes status')
           .sort({ scheduledFor: 1 })

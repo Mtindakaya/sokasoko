@@ -106,22 +106,26 @@ router.post(BASE, async (req, res) => {
       });
     }
 
-    // Cap check
-    const cap = await getLiveSessionCap(hostUser);
-    if (cap === 0) {
-      return res.status(402).json({
-        error: 'Kifurushi chako hakikuruhusu kuomba kipindi cha moja kwa moja. Boresha kifurushi.',
-        reason: 'TIER_LOCKED',
-      });
-    }
-    if (cap !== null) {
-      const used = await usedThisMonth(host);
-      if (used >= cap) {
-        return res.status(409).json({
-          error: `Umefikia kikomo cha vipindi ${cap} kwa mwezi huu.`,
-          reason: 'MONTHLY_CAP',
-          cap, used,
+    // Cap check — bypassed in beta when USAGE_CAPS_DISABLED is on
+    // (matches the existing project-wide beta-testing convention).
+    const capsDisabled = String(process.env.USAGE_CAPS_DISABLED || '').toLowerCase() === 'true';
+    if (!capsDisabled) {
+      const cap = await getLiveSessionCap(hostUser);
+      if (cap === 0) {
+        return res.status(402).json({
+          error: 'Kifurushi chako hakikuruhusu kuomba kipindi cha moja kwa moja. Boresha kifurushi.',
+          reason: 'TIER_LOCKED',
         });
+      }
+      if (cap !== null) {
+        const used = await usedThisMonth(host);
+        if (used >= cap) {
+          return res.status(409).json({
+            error: `Umefikia kikomo cha vipindi ${cap} kwa mwezi huu.`,
+            reason: 'MONTHLY_CAP',
+            cap, used,
+          });
+        }
       }
     }
 
