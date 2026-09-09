@@ -55,6 +55,7 @@ const GuardianConsentRouter = require('./GuardianConsent/guardian_consent.http.r
 const SponsorshipRouter = require('./Sponsorship/sponsorship.http.router');
 const CareerEventRouter = require('./CareerEvent/career_event.http.router');
 const LiveSessionRouter = require('./LiveSession/live_session.http.router');
+const UserScheduleRouter = require('./User/user_schedule.router');
 require('./scheduler');
 
 const PORT = getNumber('PORT', 5000);
@@ -182,6 +183,7 @@ connect(MONGODB_URI, (error) => {
   app.use(SponsorshipRouter);
   app.use(CareerEventRouter);
   app.use(LiveSessionRouter);
+  app.use(UserScheduleRouter);
   app.use(IsmailiRouter);
   app.use(AdvisoryRouter);
   app.use(LegalRouter);
