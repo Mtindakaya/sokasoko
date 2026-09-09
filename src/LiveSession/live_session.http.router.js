@@ -28,15 +28,18 @@ const NON_SUB_BASELINE = {
 // Returns the monthly LiveSession cap for a user, or `null` for
 // unlimited (ENTERPRISE tier). Returns 0 when they can't request
 // at all (blocked type, expired sub, wrong tier, etc.).
+//
+// Uses getEffectiveTier (not getActiveSubscription) so brand-new
+// accounts inside their auto-Gold onboarding trial get the GOLD
+// cap even without an explicit subscription record. Without this,
+// every newly-registered COACH/ACADEMY/CLUB/AGENT would 402.
 async function getLiveSessionCap(user) {
   if (!user) return 0;
   if (BLOCKED_TYPES.has(user.type)) return 0;
   if (Object.prototype.hasOwnProperty.call(NON_SUB_BASELINE, user.type)) {
     return NON_SUB_BASELINE[user.type];
   }
-  const sub = await Subscription.getActiveSubscription(user._id);
-  if (!sub) return 0;
-  const tier = sub.tier;
+  const tier = await Subscription.getEffectiveTier(user._id, user.type);
   if (tier === 'ENTERPRISE') return null;
   if (tier === 'PLATINUM') return 5;
   if (tier === 'GOLD') return 1;
