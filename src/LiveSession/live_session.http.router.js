@@ -84,6 +84,40 @@ async function isAdmin(userId) {
   return !!(u && u.isAdmin);
 }
 
+// Resolve the invitee list for a session: SPECIFIC audience uses the
+// stored list; GENERAL pulls every non-blocked user (capped at 2000
+// so a single call can't OOM the box).
+async function resolveInvitees(session) {
+  if (session.audience === 'SPECIFIC') return session.audienceUsers || [];
+  const rows = await User.find({ type: { $nin: [...BLOCKED_TYPES] } })
+    .select('_id').limit(2000).lean();
+  return rows.map((u) => u._id);
+}
+
+// Fire-and-forget notification fan-out. Uses Promise.allSettled so
+// one bad recipient doesn't poison the batch; wraps in a top-level
+// try/catch so any thrown error is swallowed (we've already sent
+// the HTTP response before this runs). Logs a summary if any
+// notification insert failed so a spike is visible in Render logs.
+function fanOutNotifications({ label, invitees, payloadFor }) {
+  Promise.allSettled(
+    invitees.map((uid) => {
+      try {
+        return Notification.create(payloadFor(uid));
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    })
+  ).then((results) => {
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed) {
+      console.warn(`[LIVE_SESSION ${label}] ${failed}/${invitees.length} notifications failed`);
+    }
+  }).catch((e) => {
+    console.warn(`[LIVE_SESSION ${label}] fan-out crashed:`, e.message);
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // POST /v1/live-sessions — request a new session
 // body: { host, title, description, scheduledFor, durationMinutes,
@@ -306,9 +340,17 @@ router.post(`${BASE}/:id/approve`, async (req, res) => {
     s.jitsiRoomUrl = `${JITSI_BASE}/${s.jitsiRoomId}`;
     await s.save();
 
-    // Notify host + audience.
-    try {
-      await Notification.create({
+    // Respond first — the client only needs to know the approval
+    // committed. Notification fan-out (host + audience) runs after
+    // this and cannot delay or fail the response.
+    res.json({ data: s });
+
+    // Host notification — fan-out of 1, but same fire-and-forget
+    // pattern so a stray DB blip doesn't leak past the response.
+    fanOutNotifications({
+      label: 'approve.host',
+      invitees: [s.host],
+      payloadFor: () => ({
         userId: s.host,
         type: 'SYSTEM',
         title: 'Ombi lako la Kipindi Limekubaliwa',
@@ -321,31 +363,36 @@ router.post(`${BASE}/:id/approve`, async (req, res) => {
           liveSessionId: s._id.toString(),
           scheduledFor: s.scheduledFor.toISOString(),
         },
-      });
-      const invitees = s.audience === 'SPECIFIC'
-        ? s.audienceUsers
-        : (await User.find({ type: { $nin: [...BLOCKED_TYPES] } })
-            .select('_id').limit(2000).lean()).map((u) => u._id);
-      await Promise.all(invitees.map((uid) => Notification.create({
-        userId: uid,
-        type: 'SYSTEM',
-        title: 'Alika Kwenye Kipindi cha Moja kwa Moja',
-        body: `Umealikwa kwenye kipindi "${s.title}".`,
-        titleKey: 'notif.live_session.invite_title',
-        bodyKey: 'notif.live_session.invite_body',
-        params: { title: s.title },
-        metadata: {
-          kind: 'LIVE_SESSION_INVITE',
-          liveSessionId: s._id.toString(),
-          hostId: s.host.toString(),
-          scheduledFor: s.scheduledFor.toISOString(),
-        },
-      })));
-    } catch (e) {
-      console.log('[LIVE_SESSION approved] notify failed:', e.message);
-    }
+      }),
+    });
 
-    return res.json({ data: s });
+    // Audience fan-out — GENERAL walks up to 2000 non-blocked users;
+    // SPECIFIC uses the stored list. Async; the response has already
+    // gone out.
+    resolveInvitees(s).then((invitees) => {
+      fanOutNotifications({
+        label: 'approve.audience',
+        invitees,
+        payloadFor: (uid) => ({
+          userId: uid,
+          type: 'SYSTEM',
+          title: 'Alika Kwenye Kipindi cha Moja kwa Moja',
+          body: `Umealikwa kwenye kipindi "${s.title}".`,
+          titleKey: 'notif.live_session.invite_title',
+          bodyKey: 'notif.live_session.invite_body',
+          params: { title: s.title },
+          metadata: {
+            kind: 'LIVE_SESSION_INVITE',
+            liveSessionId: s._id.toString(),
+            hostId: s.host.toString(),
+            scheduledFor: s.scheduledFor.toISOString(),
+          },
+        }),
+      });
+    }).catch((e) => {
+      console.warn('[LIVE_SESSION approve.audience] resolve failed:', e.message);
+    });
+    return;
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -409,29 +456,33 @@ router.post(`${BASE}/:id/start`, async (req, res) => {
     s.actualStartedAt = new Date();
     await s.save();
 
-    // Notify audience "live now".
-    try {
-      const invitees = s.audience === 'SPECIFIC'
-        ? s.audienceUsers
-        : (await User.find({ type: { $nin: [...BLOCKED_TYPES] } })
-            .select('_id').limit(2000).lean()).map((u) => u._id);
-      await Promise.all(invitees.map((uid) => Notification.create({
-        userId: uid,
-        type: 'SYSTEM',
-        title: 'Kipindi Kimeanza Sasa',
-        body: `"${s.title}" kinaendelea sasa. Fungua wasifu wa mwenyeji kuangalia.`,
-        titleKey: 'notif.live_session.live_now_title',
-        bodyKey: 'notif.live_session.live_now_body',
-        params: { title: s.title },
-        metadata: {
-          kind: 'LIVE_SESSION_LIVE_NOW',
-          liveSessionId: s._id.toString(),
-          hostId: s.host.toString(),
-        },
-      })));
-    } catch (_) {}
+    // Respond first — audience "live now" fan-out happens async so a
+    // slow fan-out can't stall the host's start button.
+    res.json({ data: s });
 
-    return res.json({ data: s });
+    resolveInvitees(s).then((invitees) => {
+      fanOutNotifications({
+        label: 'start.audience',
+        invitees,
+        payloadFor: (uid) => ({
+          userId: uid,
+          type: 'SYSTEM',
+          title: 'Kipindi Kimeanza Sasa',
+          body: `"${s.title}" kinaendelea sasa. Fungua wasifu wa mwenyeji kuangalia.`,
+          titleKey: 'notif.live_session.live_now_title',
+          bodyKey: 'notif.live_session.live_now_body',
+          params: { title: s.title },
+          metadata: {
+            kind: 'LIVE_SESSION_LIVE_NOW',
+            liveSessionId: s._id.toString(),
+            hostId: s.host.toString(),
+          },
+        }),
+      });
+    }).catch((e) => {
+      console.warn('[LIVE_SESSION start.audience] resolve failed:', e.message);
+    });
+    return;
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
