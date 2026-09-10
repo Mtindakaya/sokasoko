@@ -18,7 +18,16 @@ const PATH_SCHEMA = '/playlists/schema/';
 const Playlist = require('./playlist.model');
 const User = require('../User/user.model');
 const Media = require('../Media/media.model');
+const { Subscription } = require('../Subscription/subscription.model');
 const { uploadFor } = require('../Utils/uploader');
+
+// Sponsor tiers allowed to attach a brand color to their challenge.
+// GOLD sponsors can still be attached (name + logo render); only the
+// color override is gated behind PLATINUM / ENTERPRISE.
+const BRAND_COLOR_TIERS = new Set(['PLATINUM', 'ENTERPRISE']);
+// Simple hex-color validator (#RGB or #RRGGBB). Server discards
+// anything that doesn't match.
+const HEX_COLOR_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
 
 const router = new Router({ version: API_VERSION });
 
@@ -40,6 +49,7 @@ const withEffectiveOverride = (playlist, userId) => {
   if (!playlist) return null;
   const obj = playlist.toObject ? playlist.toObject() : { ...playlist };
   obj.effectiveOverride = obj.globalOverride || isScheduledNow(obj.scheduledSessions);
+  let viewerHasVoted = false;
   if (obj.videos) {
     obj.videos = obj.videos.map(v => {
       const votes = v.votes || [];
@@ -52,10 +62,15 @@ const withEffectiveOverride = (playlist, userId) => {
         ? votes.find(vt => vt.userId && vt.userId.toString() === userId.toString())
         : null;
       const myVote = myVoteEntry != null ? myVoteEntry.score : null;
+      if (myVote != null) viewerHasVoted = true;
       const iLiked = userId ? likes.some(id => id.toString() === userId.toString()) : false;
       return { ...v, likesCount: likes.length, voteCount, averageScore, myVote, iLiked };
     });
   }
+  // Single vote on any video in the challenge = viewer's carousel
+  // unlocks (their own videos resume). Client checks
+  // (globalOverride && !viewerHasVoted) to decide which set to render.
+  obj.viewerHasVoted = viewerHasVoted;
   return obj;
 };
 
@@ -75,15 +90,19 @@ router.get('/playlists/active', async (req, res) => {
       const u = await User.findById(userId).select('type').lean();
       if (u) userType = u.type;
     }
+    const SPONSOR_SELECT =
+      'firstName lastName academy_name company_name entity_name type profileImage';
     let playlist = null;
     if (userType) {
       playlist = await Playlist.findOne({
         isActive: true,
         targetAudiences: userType,
-      }).populate({
-        path: 'videos',
-        populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
-      });
+      })
+        .populate('sponsor', SPONSOR_SELECT)
+        .populate({
+          path: 'videos',
+          populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
+        });
     }
     if (!playlist) {
       // Broadcast fallback (or no-user-context legacy).
@@ -93,10 +112,12 @@ router.get('/playlists/active', async (req, res) => {
           { targetAudiences: { $exists: false } },
           { targetAudiences: { $size: 0 } },
         ],
-      }).populate({
-        path: 'videos',
-        populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
-      });
+      })
+        .populate('sponsor', SPONSOR_SELECT)
+        .populate({
+          path: 'videos',
+          populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
+        });
     }
     if (!playlist) return res.status(404).json({ error: 'No active playlist' });
     return res.status(200).json(withEffectiveOverride(playlist, userId));
@@ -270,6 +291,54 @@ router.post('/medias/:id/vote', async (req, res) => {
       ? Math.round((media.votes.reduce((sum, v) => sum + v.score, 0) / voteCount) * 10) / 10
       : 0;
     return res.status(200).json({ voteCount, averageScore });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /v1/playlists/:id/sponsor  body { sponsorId, brandColor }
+// Admin attaches a sponsor to a playlist. Brand color is a Platinum/
+// Enterprise perk — server discards it when the sponsor's effective
+// tier is below PLATINUM (or the color isn't a valid hex). GOLD /
+// STANDARD sponsors can still be attached; only the color is gated.
+// Passing sponsorId=null clears the sponsor entirely.
+router.patch('/playlists/:id/sponsor', async (req, res) => {
+  try {
+    const { sponsorId, brandColor } = req.body;
+    // Clear path — no sponsor.
+    if (sponsorId === null || sponsorId === '') {
+      const playlist = await Playlist.findByIdAndUpdate(
+        req.params.id,
+        { sponsor: null, sponsorBrandColor: '' },
+        { new: true },
+      ).populate('sponsor',
+        'firstName lastName academy_name company_name entity_name type profileImage');
+      if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+      return res.status(200).json(playlist);
+    }
+
+    const sponsor = await User.findById(sponsorId).select('type').lean();
+    if (!sponsor) return res.status(404).json({ error: 'Sponsor user not found' });
+
+    // Brand color validation: hex format + tier gate. Silently discard
+    // (fall back to default gradient) rather than 402 — the sponsor
+    // attachment itself still succeeds.
+    let cleanColor = '';
+    if (brandColor && HEX_COLOR_RE.test(brandColor)) {
+      const tier = await Subscription.getEffectiveTier(sponsorId, sponsor.type);
+      if (BRAND_COLOR_TIERS.has(tier)) {
+        cleanColor = brandColor;
+      }
+    }
+
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      { sponsor: sponsorId, sponsorBrandColor: cleanColor },
+      { new: true },
+    ).populate('sponsor',
+      'firstName lastName academy_name company_name entity_name type profileImage');
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

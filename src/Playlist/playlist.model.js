@@ -18,6 +18,20 @@ const PlaylistSchema = new Schema(
     isActive: { type: Boolean, default: false },
     globalOverride: { type: Boolean, default: false },
     votingEnabled: { type: Boolean, default: false },
+    // Optional sponsor for the challenge — a User of type SPONSOR (or
+    // any Platinum/Enterprise account that runs a challenge). When
+    // present, the client renders logo + name on the challenge banner
+    // and taps route to the sponsor's profile.
+    sponsor: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    // Hex color (e.g. "#FF6B00") — a Platinum/Enterprise sponsor perk.
+    // Server rejects writes when the sponsor's effective tier is below
+    // PLATINUM, so a client that bypasses the UI can't set this. Empty
+    // string means "use the default blue gradient."
+    sponsorBrandColor: { type: String, trim: true, default: '' },
     // Which User types this playlist targets. Empty array = broadcast
     // (every user type sees it). Non-empty = only those types.
     // Audience-scoped playlists can coexist with the broadcast; on
