@@ -197,6 +197,13 @@ const UserSchema = new Schema(
     suspend: { type: Boolean, default: false },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },
+    // Sponsor's own brand color — hex string, e.g. "#FF6B00". Sponsor
+    // sets this on their edit-profile screen (Platinum/Enterprise
+    // only). Rendered on any challenge banner where they're the
+    // sponsor. Write path (see user PATCH handler) discards the
+    // field silently when the writer's effective tier is below
+    // PLATINUM, so a hand-crafted payload can't buy the visual perk.
+    brandColor: { type: String, trim: true, default: '' },
     street: String,
     email: { type: String, trim: true },
     contact_number: { type: String, trim: true },
