@@ -173,7 +173,12 @@ router.post(BASE, async (req, res) => {
     }
     const now = new Date();
     const minStart = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    if (startAt < minStart) {
+    // 24h advance-notice check is bypassed when LIVE_SESSION_DEV_BYPASS=true
+    // on the server (Render env var). See memory
+    // project_live_session_dev_bypass — flip this off before launch.
+    const bypass24h = String(process.env.LIVE_SESSION_DEV_BYPASS || '')
+      .toLowerCase() === 'true';
+    if (!bypass24h && startAt < minStart) {
       return res.status(400).json({
         error: 'Kipindi lazima kiwe angalau saa 24 kabla ya sasa.',
         reason: 'ADVANCE_NOTICE',
