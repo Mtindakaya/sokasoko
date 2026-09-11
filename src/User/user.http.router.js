@@ -875,50 +875,16 @@ router.post(PATH_LIST, uploadFor(), postFor({
   },
 }));
 
-// Sponsor brand color is a Platinum/Enterprise perk. Any PATCH/PUT
-// that includes `brandColor` gets tier-checked; below-tier writes
-// have the field silently stripped so a hand-crafted payload can't
-// buy the visual override.
-const BRAND_COLOR_TIERS = new Set(['PLATINUM', 'ENTERPRISE']);
-const HEX_COLOR_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
-async function sanitizeBrandColor(body, userId) {
-  if (!Object.prototype.hasOwnProperty.call(body, 'brandColor')) return body;
-  const raw = (body.brandColor || '').trim();
-  // Empty string is always allowed (clears the color).
-  if (raw === '') return body;
-  if (!HEX_COLOR_RE.test(raw)) {
-    delete body.brandColor;
-    return body;
-  }
-  try {
-    const target = await User.findById(userId).select('type').lean();
-    if (!target) { delete body.brandColor; return body; }
-    const tier = await Subscription.getEffectiveTier(userId, target.type);
-    if (!BRAND_COLOR_TIERS.has(tier)) {
-      delete body.brandColor;
-    } else {
-      body.brandColor = raw;
-    }
-  } catch (_) {
-    delete body.brandColor;
-  }
-  return body;
-}
-
 router.patch(PATH_SINGLE, uploadFor(), patchFor({
-  patch: async (body, done) => {
+  patch: (body, done) => {
     const remove = _.get(body, 'remove');
     if (remove) body = _.assign(body, { agent: null });
-    body = await sanitizeBrandColor(body, _.get(body, '_id'));
     return User.patch(body, done);
   },
 }));
 
 router.put(PATH_SINGLE, uploadFor(), putFor({
-  put: async (body, done) => {
-    body = await sanitizeBrandColor(body, _.get(body, '_id'));
-    return User.put(body, done);
-  },
+  put: (body, done) => User.put(body, done),
 }));
 
 router.delete(PATH_SINGLE, deleteFor({

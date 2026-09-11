@@ -91,7 +91,7 @@ router.get('/playlists/active', async (req, res) => {
       if (u) userType = u.type;
     }
     const SPONSOR_SELECT =
-      'firstName lastName academy_name company_name entity_name type profileImage brandColor';
+      'firstName lastName academy_name company_name entity_name type profileImage themeColor';
     let playlist = null;
     if (userType) {
       playlist = await Playlist.findOne({
@@ -312,7 +312,7 @@ router.patch('/playlists/:id/sponsor', async (req, res) => {
         { sponsor: null, sponsorBrandColor: '' },
         { new: true },
       ).populate('sponsor',
-        'firstName lastName academy_name company_name entity_name type profileImage brandColor');
+        'firstName lastName academy_name company_name entity_name type profileImage themeColor');
       if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
       return res.status(200).json(playlist);
     }
@@ -336,7 +336,7 @@ router.patch('/playlists/:id/sponsor', async (req, res) => {
       { sponsor: sponsorId, sponsorBrandColor: cleanColor },
       { new: true },
     ).populate('sponsor',
-      'firstName lastName academy_name company_name entity_name type profileImage brandColor');
+      'firstName lastName academy_name company_name entity_name type profileImage themeColor');
     if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
     return res.status(200).json(playlist);
   } catch (err) {
