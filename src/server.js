@@ -72,7 +72,16 @@ app.get('/', (request, response) => {
   return response.ok({ status: 'working' });
 });
 
-app.use('/uploads', require('express').static('public/uploads'));
+// /uploads static route was removed on 2026-09-11 as part of the R2
+// migration. Any legacy URL still pointing here now returns 410 Gone
+// so clients see a clear signal instead of a redirect loop.
+// scripts/nullify-stale-profile-images.js nulls dead profileImage URLs
+// so the client renders the default avatar rather than a broken image.
+app.use('/uploads', (req, res) => {
+  res.status(410).json({
+    error: 'Legacy /uploads route removed. Media is now served via R2.',
+  });
+});
 
 // Public profile page for PDF hyperlinks
 app.get('/profile/:userId', async (req, res) => {
