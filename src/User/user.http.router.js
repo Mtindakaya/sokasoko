@@ -887,8 +887,23 @@ router.put(PATH_SINGLE, uploadFor(), putFor({
   put: (body, done) => User.put(body, done),
 }));
 
+// User delete purges their UserFile vault (rows + R2 objects) before
+// deleting the account. Signed-URL cleanup + row deletion is best-
+// effort — a failure here shouldn't block the account deletion.
 router.delete(PATH_SINGLE, deleteFor({
-  del: (options, done) => User.del(options, done),
+  del: async (options, done) => {
+    const targetId = _.get(options, 'id') || _.get(options, '_id');
+    if (targetId) {
+      try {
+        const { purgeUserFilesForOwner } =
+          require('../UserFile/user_file.purge');
+        await purgeUserFilesForOwner(targetId);
+      } catch (e) {
+        console.warn('[user delete] file-repo purge failed:', e.message);
+      }
+    }
+    return User.del(options, done);
+  },
 }));
 
 router.post(PATH_LOGIN, (request, response) => {
