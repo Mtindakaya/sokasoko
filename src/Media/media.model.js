@@ -31,6 +31,14 @@ const MediaSchema = new Schema(
     // Consumes one Subscription.promoSlotsUsed on write (see POST
     // /v1/medias/:id/boost). Cleared naturally on expiry — no cron.
     boostedUntil: { type: Date, default: null, index: true },
+    // Cached native video dimensions — populated by the client's JS
+    // probe the first time anyone plays this clip. Subsequent viewers
+    // read these fields off the initial playlist response and skip
+    // the probe entirely, so the challenge frame renders at the
+    // correct aspect from the first paint (no dark-rectangle load-in
+    // animation for known clips).
+    videoWidth: { type: Number, default: 0 },
+    videoHeight: { type: Number, default: 0 },
   },
   {
     id: false,

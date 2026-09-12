@@ -244,6 +244,31 @@ router.post('/playlists/active/voting', async (req, res) => {
   }
 });
 
+// POST /v1/medias/:id/aspect — cache a video's natural dimensions
+// so subsequent viewers can render at the right aspect from the
+// first paint (no probe, no dark-frame load-in). Idempotent write —
+// re-sending the same w/h is a no-op. Silently drops implausible
+// values (< 16 or > 8192 in either dimension).
+router.post('/medias/:id/aspect', async (req, res) => {
+  try {
+    const w = Number(req.body?.w);
+    const h = Number(req.body?.h);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) {
+      return res.status(400).json({ error: 'w and h required' });
+    }
+    if (w < 16 || h < 16 || w > 8192 || h > 8192) {
+      return res.status(400).json({ error: 'implausible dimensions' });
+    }
+    await Media.findByIdAndUpdate(req.params.id, {
+      videoWidth: Math.round(w),
+      videoHeight: Math.round(h),
+    });
+    return res.status(200).json({ data: { videoWidth: w, videoHeight: h } });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/medias/:id/like — binary like (always available)
 router.post('/medias/:id/like', async (req, res) => {
   try {
