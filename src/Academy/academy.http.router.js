@@ -76,6 +76,39 @@ router.post(
         const player = await User.findById(playerId).lean();
         if (!player) return done(new Error('Player not found'), null);
 
+        // Age-vs-level guard. Player's DOB must be consistent with the
+        // chosen age band, otherwise a 28-year-old ends up on a U20
+        // roster (real bug reported 2026-09-12). Age computed as of
+        // the calendar year of the enrollment; levels defined as
+        // "under N" (U9 = <9, U20 = <20). "21+" is the senior/open
+        // level with no upper bound.
+        if (player.dob) {
+          const born = new Date(player.dob);
+          if (!isNaN(born.getTime())) {
+            const now = new Date();
+            let age = now.getFullYear() - born.getFullYear();
+            if (now.getMonth() < born.getMonth() ||
+                (now.getMonth() === born.getMonth() && now.getDate() < born.getDate())) {
+              age -= 1;
+            }
+            const maxAgeFor = {
+              U9: 9, U11: 11, U13: 13, U15: 15,
+              U17: 17, U20: 20,
+            };
+            if (level === '21+') {
+              if (age < 21) {
+                return done(new Error(
+                  `Kikundi cha 21+ ni cha wachezaji wenye miaka 21 au zaidi. Mchezaji ana miaka ${age}.`,
+                ), null);
+              }
+            } else if (maxAgeFor[level] != null && age >= maxAgeFor[level]) {
+              return done(new Error(
+                `Mchezaji ana miaka ${age} — hafai kwenye kikundi cha ${level}. Chagua kikundi kinachofaa.`,
+              ), null);
+            }
+          }
+        }
+
         // ACADEMY tier gate — roster composition (age levels + gender).
         // Only VERIFIED rows count toward the cap — a PENDING invite the
         // player hasn't answered yet should not consume the roster slot.
