@@ -126,6 +126,190 @@ router.get('/playlists/active', async (req, res) => {
   }
 });
 
+// ── Challenge briefs ────────────────────────────────────────────────────────
+// A brief is an admin-authored preamble that runs for `durationDays`
+// BEFORE the challenge opens for submissions. Either a reference video
+// or written instructions must be provided (or both). While the brief is
+// live, submissions to that playlist are blocked (enforced elsewhere).
+
+const MIN_BRIEF_DAYS = 1;
+const MAX_BRIEF_DAYS = 30;
+const DEFAULT_BRIEF_DAYS = 7;
+
+function clampDays(raw) {
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n)) return DEFAULT_BRIEF_DAYS;
+  return Math.max(MIN_BRIEF_DAYS, Math.min(MAX_BRIEF_DAYS, n));
+}
+
+// POST /v1/playlists/with-brief — create a NEW playlist and attach a
+// brief atomically. Multipart: optional `video` file becomes a Media doc
+// referenced by brief.video. Body: title, description?, instructions?,
+// durationDays?, source?, recommendedBy?, createdBy, sponsor?,
+// sponsorBrandColor?, targetAudiences?.
+router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
+  try {
+    const {
+      title,
+      description = '',
+      instructions = '',
+      durationDays,
+      source = 'SOKASOKO',
+      recommendedBy = null,
+      createdBy = null,
+      sponsor = null,
+      sponsorBrandColor = '',
+      targetAudiences,
+    } = req.body;
+
+    if (!title || !String(title).trim()) {
+      return res.status(400).json({ error: 'title is required' });
+    }
+    if (!createdBy) {
+      return res.status(400).json({ error: 'createdBy is required' });
+    }
+    // uploadFor turns the file into req.body.video === '<public url>'
+    const uploadedVideoUrl =
+      typeof req.body.video === 'string' && req.body.video.trim().length > 0
+        ? req.body.video.trim()
+        : null;
+    const hasInstructions = String(instructions || '').trim().length > 0;
+    if (!uploadedVideoUrl && !hasInstructions) {
+      return res.status(400).json({
+        error: 'Provide at least one of a brief video or instructions',
+      });
+    }
+
+    let briefVideoId = null;
+    if (uploadedVideoUrl) {
+      const media = await Media.create({
+        title: `[Brief] ${String(title).trim()}`,
+        description: hasInstructions ? String(instructions).trim() : '',
+        url: uploadedVideoUrl,
+        type: 'Video',
+        createdBy,
+        isPlaylist: false,
+      });
+      briefVideoId = media._id;
+    }
+
+    const days = clampDays(durationDays);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    let cleanAudiences = [];
+    if (Array.isArray(targetAudiences)) {
+      const allowed = new Set(['PLAYER','COACH','GUARDIAN','ACADEMY','SCHOOL','VENDOR','CLUB','SPONSOR','AGENT','REFEREE','SCOUT','FIELD_OWNER']);
+      cleanAudiences = targetAudiences.filter((t) => allowed.has(t));
+    }
+
+    const cleanSponsorBrandColor =
+      sponsorBrandColor && HEX_COLOR_RE.test(sponsorBrandColor)
+        ? sponsorBrandColor
+        : '';
+
+    const playlist = await Playlist.create({
+      title: String(title).trim(),
+      description,
+      videos: [],
+      isActive: false,
+      globalOverride: false,
+      votingEnabled: false,
+      sponsor: sponsor || null,
+      sponsorBrandColor: cleanSponsorBrandColor,
+      targetAudiences: cleanAudiences,
+      brief: {
+        video: briefVideoId,
+        instructions: hasInstructions ? String(instructions).trim() : '',
+        createdBy,
+        source: ['SOKASOKO', 'RECOMMENDATION'].includes(source)
+          ? source
+          : 'SOKASOKO',
+        recommendedBy: source === 'RECOMMENDATION' ? recommendedBy : null,
+        publishedAt: now,
+        expiresAt,
+        showOnHome: true,
+        carouselWeight: 1,
+      },
+    });
+
+    const populated = await Playlist.findById(playlist._id).populate('brief.video');
+    return res.status(201).json(populated);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /v1/playlists/:id/brief — edit brief fields on an existing playlist.
+// Body: any subset of { instructions, durationDays, showOnHome,
+// carouselWeight }. `durationDays` re-computes expiresAt from NOW so admin
+// can extend or shorten the preview window.
+router.patch('/playlists/:id/brief', async (req, res) => {
+  try {
+    const { instructions, durationDays, showOnHome, carouselWeight } = req.body;
+    const update = {};
+    if (typeof instructions === 'string') {
+      update['brief.instructions'] = instructions.trim();
+    }
+    if (durationDays !== undefined) {
+      const days = clampDays(durationDays);
+      update['brief.expiresAt'] = new Date(
+        Date.now() + days * 24 * 60 * 60 * 1000,
+      );
+    }
+    if (typeof showOnHome === 'boolean') update['brief.showOnHome'] = showOnHome;
+    if (typeof carouselWeight === 'number') {
+      update['brief.carouselWeight'] = Math.max(0, Math.min(5, carouselWeight));
+    }
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ error: 'No brief fields provided' });
+    }
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      update,
+      { new: true },
+    ).populate('brief.video');
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /v1/playlists/:id/brief — end the brief preview early. Sets
+// expiresAt to now so submissions can open immediately.
+router.delete('/playlists/:id/brief', async (req, res) => {
+  try {
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      { 'brief.expiresAt': new Date() },
+      { new: true },
+    ).populate('brief.video');
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/playlists/active/brief — the currently-running brief for
+// Home / carousel rendering. Returns null when no brief is active.
+router.get('/playlists/active/brief', async (req, res) => {
+  try {
+    const now = new Date();
+    const playlist = await Playlist.findOne({
+      'brief.publishedAt': { $ne: null },
+      'brief.expiresAt': { $gt: now },
+    })
+      .sort({ 'brief.publishedAt': -1 })
+      .populate('brief.video');
+    if (!playlist) return res.status(200).json({ data: null });
+    return res.status(200).json({ data: playlist });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/playlists/active/challenge — start or close a challenge in one action
 router.post('/playlists/active/challenge', async (req, res) => {
   try {

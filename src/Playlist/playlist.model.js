@@ -51,6 +51,28 @@ const PlaylistSchema = new Schema(
         days: [{ type: String, enum: ['mon','tue','wed','thu','fri','sat','sun'] }], // empty = every day
       }
     ],
+    // Admin-created preamble that runs BEFORE the challenge opens for
+    // submissions. Either `video` or `instructions` must be present.
+    // While `expiresAt > now`, submissions are blocked and the brief is
+    // shown on Home + intermittently in the user-account carousel.
+    brief: {
+      video: { type: Schema.Types.ObjectId, ref: 'Media', default: null },
+      instructions: { type: String, trim: true, default: '' },
+      createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      // 'SOKASOKO' = admin-initiated. 'RECOMMENDATION' = admin promoted
+      // a Platinum user's recommendation (Phase 2 intake).
+      source: {
+        type: String,
+        enum: ['SOKASOKO', 'RECOMMENDATION'],
+        default: 'SOKASOKO',
+      },
+      recommendedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      publishedAt: { type: Date, default: null },
+      expiresAt: { type: Date, default: null },
+      showOnHome: { type: Boolean, default: true },
+      // 1 = roughly every 5th carousel slot. 0 hides from carousel.
+      carouselWeight: { type: Number, default: 1, min: 0, max: 5 },
+    },
   },
   {
     id: false,
