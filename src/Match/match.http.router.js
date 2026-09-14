@@ -623,6 +623,7 @@ router.post(`${BASE}/:id/cancel`, async (req, res) => {
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Cannot cancel a completed match' });
+    if (match.homeScore != null) return res.status(400).json({ error: 'Cannot cancel a match with a result already submitted' });
     if (match.scheduledBy && match.scheduledBy.toString() !== cancelledBy) {
       return res.status(403).json({ error: 'Only the match creator can cancel this match' });
     }
@@ -643,6 +644,7 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Cannot reschedule a completed match' });
     if (match.status === 'CANCELLED') return res.status(400).json({ error: 'Cannot reschedule a cancelled match' });
+    if (match.homeScore != null) return res.status(400).json({ error: 'Cannot reschedule a match with a result already submitted' });
     if (rescheduledBy && match.scheduledBy && match.scheduledBy.toString() !== rescheduledBy) {
       return res.status(403).json({ error: 'Only the match creator can reschedule this match' });
     }
