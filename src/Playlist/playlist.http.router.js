@@ -168,25 +168,45 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
     if (!createdBy) {
       return res.status(400).json({ error: 'createdBy is required' });
     }
-    // uploadFor turns the file into req.body.video === '<public url>'
+    // Admin can attach ONE piece of media via three routes:
+    //   1. multipart file 'video'  → Media type 'Video'
+    //   2. multipart file 'image'  → Media type 'Image'
+    //   3. body field 'videoUrl'   → Media type 'Link' (YouTube etc.)
+    // uploadFor rewrites files into req.body[fieldname] = <public url>.
+    // Precedence when >1 is sent: uploaded video > uploaded image > url.
     const uploadedVideoUrl =
       typeof req.body.video === 'string' && req.body.video.trim().length > 0
         ? req.body.video.trim()
         : null;
+    const uploadedImageUrl =
+      typeof req.body.image === 'string' && req.body.image.trim().length > 0
+        ? req.body.image.trim()
+        : null;
+    const externalVideoUrl =
+      typeof req.body.videoUrl === 'string' && req.body.videoUrl.trim().length > 0
+        ? req.body.videoUrl.trim()
+        : null;
     const hasInstructions = String(instructions || '').trim().length > 0;
-    if (!uploadedVideoUrl && !hasInstructions) {
+    const hasAttachment = !!(uploadedVideoUrl || uploadedImageUrl || externalVideoUrl);
+    if (!hasAttachment && !hasInstructions) {
       return res.status(400).json({
-        error: 'Provide at least one of a brief video or instructions',
+        error: 'Provide a brief video, image, video URL, or instructions',
       });
     }
 
     let briefVideoId = null;
-    if (uploadedVideoUrl) {
+    let attachUrl = null;
+    let attachType = null;
+    if (uploadedVideoUrl) { attachUrl = uploadedVideoUrl; attachType = 'Video'; }
+    else if (uploadedImageUrl) { attachUrl = uploadedImageUrl; attachType = 'Image'; }
+    else if (externalVideoUrl) { attachUrl = externalVideoUrl; attachType = 'Link'; }
+
+    if (attachUrl) {
       const media = await Media.create({
         title: `[Brief] ${String(title).trim()}`,
         description: hasInstructions ? String(instructions).trim() : '',
-        url: uploadedVideoUrl,
-        type: 'Video',
+        url: attachUrl,
+        type: attachType,
         createdBy,
         isPlaylist: false,
       });
