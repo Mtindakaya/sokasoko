@@ -194,6 +194,12 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.type) filter.type = req.query.type;
     if (req.query.school) filter.school = req.query.school;
     if (req.query.gender) filter.gender = req.query.gender;
+    // Admin-only lookups (e.g. CMS "createdBy" dropdown). Accept both the
+    // top-level `?isAdmin=true` shape and the mquery `?filter[isAdmin]=true`
+    // shape that antd/axios sometimes serializes to.
+    const rawIsAdmin = req.query.isAdmin ?? (req.query.filter || {}).isAdmin;
+    if (rawIsAdmin === 'true' || rawIsAdmin === true) filter.isAdmin = true;
+    if (rawIsAdmin === 'false' || rawIsAdmin === false) filter.isAdmin = { $ne: true };
     if (req.query.createdBy) {
       // A guardian's roster should include everyone currently under them
       // (new `guardian` field) plus legacy minors created before the
