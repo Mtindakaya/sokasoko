@@ -256,7 +256,17 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
     const populated = await Playlist.findById(playlist._id).populate('brief.video');
     return res.status(201).json(populated);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error('[POST /v1/playlists/with-brief] failed:', err);
+    return res.status(500).json({
+      error: err.message,
+      name: err.name,
+      // ValidationError adds .errors — pull out the first field-specific
+      // message so the client toast is actionable ("type: 'Video' is not
+      // a valid enum" rather than a generic 500).
+      details: err.errors
+        ? Object.entries(err.errors).map(([k, v]) => `${k}: ${v.message}`).join('; ')
+        : undefined,
+    });
   }
 });
 

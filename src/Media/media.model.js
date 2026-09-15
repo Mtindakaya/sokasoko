@@ -3,7 +3,7 @@ const actions = require('mongoose-rest-actions');
 
 const { Schema, model } = mongoose;
 
-const MediaTypes = ['Image', 'Link'];
+const MediaTypes = ['Image', 'Link', 'Video'];
 
 const MediaSchema = new Schema(
   {
