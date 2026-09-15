@@ -322,6 +322,32 @@ router.delete('/playlists/:id/brief', async (req, res) => {
   }
 });
 
+// GET /v1/playlists/briefs — admin console list of every playlist that
+// carries a brief, live or ended. Sorted newest published first so the
+// CMS Brief Challenges page shows current on top, archive below.
+router.get('/playlists/briefs', async (req, res) => {
+  try {
+    const now = new Date();
+    const rows = await Playlist.find({ 'brief.publishedAt': { $ne: null } })
+      .sort({ 'brief.publishedAt': -1 })
+      .populate('brief.video')
+      .populate('brief.createdBy', 'firstName lastName accountNumber isAdmin')
+      .populate('brief.recommendedBy', 'firstName lastName accountNumber');
+    const items = rows.map((p) => {
+      const obj = p.toObject({ getters: true });
+      const exp = obj.brief && obj.brief.expiresAt
+        ? new Date(obj.brief.expiresAt)
+        : null;
+      obj.brief.state = exp && exp > now ? 'live' : 'ended';
+      return obj;
+    });
+    return res.status(200).json({ data: items });
+  } catch (err) {
+    console.error('[GET /v1/playlists/briefs] failed:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/playlists/active/brief — the currently-running brief for
 // Home / carousel rendering. Returns null when no brief is active.
 router.get('/playlists/active/brief', async (req, res) => {
