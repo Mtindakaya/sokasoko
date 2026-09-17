@@ -395,9 +395,12 @@ router.get('/playlists/active/brief', async (req, res) => {
 });
 
 // POST /v1/playlists/active/challenge — start or close a challenge in one action.
-// `close` cascades to isActive:false and expires any live brief so the
-// mobile home tab reverts to the default carousel + hides the banner
-// without a manual pull-to-refresh.
+// `close` expires any live brief so the mobile home banner clears, and
+// turns off voting + global override so the challenge stops taking over
+// the carousel. It deliberately does NOT flip isActive:false — the
+// playlist stays alive as the user-account carousel's system-content
+// fallback (users with no personal media still see something to play).
+// Admin can fully deactivate via the CMS "Deactivate" button.
 router.post('/playlists/active/challenge', async (req, res) => {
   try {
     const { action } = req.body; // 'start' | 'close'
@@ -407,7 +410,6 @@ router.post('/playlists/active/challenge', async (req, res) => {
       : {
           votingEnabled: false,
           globalOverride: false,
-          isActive: false,
           'brief.expiresAt': new Date(),
         };
     const playlist = await Playlist.findOneAndUpdate({ isActive: true }, update, { new: true });
