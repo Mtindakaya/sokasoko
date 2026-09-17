@@ -194,15 +194,31 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
         error: 'Provide a brief video, image, video URL, or instructions',
       });
     }
-    // recommendedBy must be a real user _id — the field is stored as an
-    // ObjectId ref on brief.recommendedBy. Anything else (an account
-    // number the admin typed, a prefix like "TRA", '') fails Mongoose
-    // cast and would surface as HTTP 500. Reject cleanly here.
+    // recommendedBy must resolve to a real user _id (stored as ObjectId
+    // ref on brief.recommendedBy). Accept either a 24-hex _id from the
+    // Platinum picker, or a raw accountNumber the admin typed (e.g.
+    // 'TFH-V-A000173') for the non-Platinum override path. Anything
+    // else 400s cleanly instead of leaking a Mongoose cast 500.
+    let resolvedRecommendedBy = null;
     if (source === 'RECOMMENDATION') {
-      if (!recommendedBy || !OBJECT_ID_RE.test(String(recommendedBy).trim())) {
+      const raw = String(recommendedBy || '').trim();
+      if (!raw) {
         return res.status(400).json({
-          error: 'recommendedBy must be a valid Platinum user (select from the picker).',
+          error: 'recommendedBy is required for RECOMMENDATION source (pick from the Platinum list or enter an account number).',
         });
+      }
+      if (OBJECT_ID_RE.test(raw)) {
+        resolvedRecommendedBy = raw;
+      } else {
+        const found = await User.findOne({ accountNumber: raw })
+          .select('_id')
+          .lean();
+        if (!found) {
+          return res.status(400).json({
+            error: `recommendedBy not found: no user with _id or accountNumber "${raw}".`,
+          });
+        }
+        resolvedRecommendedBy = found._id;
       }
     }
 
@@ -257,7 +273,7 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
         source: ['SOKASOKO', 'RECOMMENDATION'].includes(source)
           ? source
           : 'SOKASOKO',
-        recommendedBy: source === 'RECOMMENDATION' ? recommendedBy : null,
+        recommendedBy: source === 'RECOMMENDATION' ? resolvedRecommendedBy : null,
         publishedAt: now,
         expiresAt,
         showOnHome: true,
