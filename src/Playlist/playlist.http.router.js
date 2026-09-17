@@ -299,13 +299,18 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
 });
 
 // PATCH /v1/playlists/:id/brief — edit brief fields on an existing playlist.
-// Body: any subset of { instructions, durationDays, showOnHome,
+// Body: any subset of { title, instructions, durationDays, showOnHome,
 // carouselWeight }. `durationDays` re-computes expiresAt from NOW so admin
-// can extend or shorten the preview window.
+// can extend or shorten the preview window. `title` updates the underlying
+// playlist.title (the brief has no title of its own — it inherits from
+// the playlist), so the CMS Edit modal can rename a live brief.
 router.patch('/playlists/:id/brief', async (req, res) => {
   try {
-    const { instructions, durationDays, showOnHome, carouselWeight } = req.body;
+    const { title, instructions, durationDays, showOnHome, carouselWeight } = req.body;
     const update = {};
+    if (typeof title === 'string' && title.trim().length > 0) {
+      update.title = title.trim();
+    }
     if (typeof instructions === 'string') {
       update['brief.instructions'] = instructions.trim();
     }
