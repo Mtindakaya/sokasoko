@@ -20,6 +20,7 @@ const User = require('../User/user.model');
 const Media = require('../Media/media.model');
 const { Subscription } = require('../Subscription/subscription.model');
 const { uploadFor } = require('../Utils/uploader');
+const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 
 // Sponsor tiers allowed to attach a brand color to their challenge.
 // GOLD sponsors can still be attached (name + logo render); only the
@@ -192,6 +193,17 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
       return res.status(400).json({
         error: 'Provide a brief video, image, video URL, or instructions',
       });
+    }
+    // recommendedBy must be a real user _id — the field is stored as an
+    // ObjectId ref on brief.recommendedBy. Anything else (an account
+    // number the admin typed, a prefix like "TRA", '') fails Mongoose
+    // cast and would surface as HTTP 500. Reject cleanly here.
+    if (source === 'RECOMMENDATION') {
+      if (!recommendedBy || !OBJECT_ID_RE.test(String(recommendedBy).trim())) {
+        return res.status(400).json({
+          error: 'recommendedBy must be a valid Platinum user (select from the picker).',
+        });
+      }
     }
 
     let briefVideoId = null;

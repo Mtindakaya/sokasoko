@@ -663,6 +663,57 @@ router.get('/users/eligible-scouts', async (req, res) => {
   }
 });
 
+// GET /v1/users/platinum-recommenders?q=… — typeahead source for the
+// challenge-brief "recommendedBy" picker. Returns only users with a
+// live PLATINUM subscription (ACTIVE or GRACE). Empty q returns the
+// first `limit` matches so the sheet has something to show on open.
+// Must be registered BEFORE '/users/:id' or the literal path segment
+// gets cast to an ObjectId.
+router.get('/users/platinum-recommenders', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const limit = Math.min(
+      parseInt(req.query.limit || '25', 10) || 25,
+      50,
+    );
+    const platinumSubs = await Subscription.find({
+      tier: 'PLATINUM',
+      status: { $in: ['ACTIVE', 'GRACE'] },
+    }).select('user').lean();
+    const userIds = Array.from(
+      new Set(platinumSubs.map((s) => String(s.user)).filter(Boolean)),
+    ).map((id) => new mongoose.Types.ObjectId(id));
+    if (userIds.length === 0) return res.status(200).json({ data: [] });
+    const baseFilter = {
+      _id: { $in: userIds },
+      suspend: { $ne: true },
+      isSystemAgent: { $ne: true },
+    };
+    let filter = baseFilter;
+    if (q) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter = {
+        ...baseFilter,
+        $or: [
+          { firstName: { $regex: escaped, $options: 'i' } },
+          { lastName: { $regex: escaped, $options: 'i' } },
+          { accountNumber: { $regex: escaped, $options: 'i' } },
+          { academy_name: { $regex: escaped, $options: 'i' } },
+          { company_name: { $regex: escaped, $options: 'i' } },
+          { entity_name: { $regex: escaped, $options: 'i' } },
+        ],
+      };
+    }
+    const data = await User.find(filter)
+      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber')
+      .limit(limit)
+      .lean();
+    return res.status(200).json({ data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get(PATH_SINGLE, getByIdFor({
   getById: async (options, done) => {
     const id = _.get(options, 'id');
