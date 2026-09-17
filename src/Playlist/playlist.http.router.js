@@ -394,17 +394,42 @@ router.get('/playlists/active/brief', async (req, res) => {
   }
 });
 
-// POST /v1/playlists/active/challenge — start or close a challenge in one action
+// POST /v1/playlists/active/challenge — start or close a challenge in one action.
+// `close` cascades to isActive:false and expires any live brief so the
+// mobile home tab reverts to the default carousel + hides the banner
+// without a manual pull-to-refresh.
 router.post('/playlists/active/challenge', async (req, res) => {
   try {
     const { action } = req.body; // 'start' | 'close'
     if (!['start', 'close'].includes(action)) return res.status(400).json({ error: 'action must be start or close' });
     const update = action === 'start'
       ? { votingEnabled: true, globalOverride: true }
-      : { votingEnabled: false, globalOverride: false };
+      : {
+          votingEnabled: false,
+          globalOverride: false,
+          isActive: false,
+          'brief.expiresAt': new Date(),
+        };
     const playlist = await Playlist.findOneAndUpdate({ isActive: true }, update, { new: true });
     if (!playlist) return res.status(404).json({ error: 'No active playlist' });
     return res.status(200).json(withEffectiveOverride(playlist));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/playlists/:id/deactivate — CMS manual toggle counterpart to
+// /:id/activate. Turns off the active flag + voting + global override
+// so the playlist stops running everywhere.
+router.post('/playlists/:id/deactivate', async (req, res) => {
+  try {
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false, votingEnabled: false, globalOverride: false },
+      { new: true },
+    );
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
