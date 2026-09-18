@@ -120,6 +120,20 @@ router.get('/playlists/active', async (req, res) => {
           populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
         });
     }
+    // Admin/CMS fallback: when neither user-scoped nor broadcast active
+    // playlist matched but there IS an audience-scoped active playlist,
+    // return it so the CMS console isn't blind to it. Only fires when
+    // ?admin=true is passed OR when there's no userId (CMS makes the
+    // call anonymously). Regular mobile clients that pass a userId
+    // still get audience-correct scoping (no cross-audience leak).
+    if (!playlist && (req.query.admin === 'true' || !userId)) {
+      playlist = await Playlist.findOne({ isActive: true })
+        .populate('sponsor', SPONSOR_SELECT)
+        .populate({
+          path: 'videos',
+          populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
+        });
+    }
     if (!playlist) return res.status(404).json({ error: 'No active playlist' });
     return res.status(200).json(withEffectiveOverride(playlist, userId));
   } catch (err) {
