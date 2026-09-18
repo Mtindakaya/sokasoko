@@ -719,6 +719,27 @@ router.patch('/playlists/:id/rename', async (req, res) => {
   }
 });
 
+// PATCH /v1/playlists/:id/mandatory — toggle mandatoryView on a
+// non-challenge playlist. When true the profile-carousel client hides
+// the SKIP button so the viewer must play through the announcement.
+router.patch('/playlists/:id/mandatory', async (req, res) => {
+  try {
+    const { mandatoryView } = req.body;
+    if (typeof mandatoryView !== 'boolean') {
+      return res.status(400).json({ error: 'mandatoryView must be a boolean' });
+    }
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      { mandatoryView },
+      { new: true },
+    );
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/playlists/:id/activate — set this playlist as active.
 // Only deactivates OTHER active playlists whose audience set overlaps
 // with this one's (broadcast [] is treated as "any audience"), so
@@ -726,8 +747,23 @@ router.patch('/playlists/:id/rename', async (req, res) => {
 // still can't both be active — the newly activated one wins.
 router.post('/playlists/:id/activate', async (req, res) => {
   try {
-    const target = await Playlist.findById(req.params.id).select('targetAudiences').lean();
+    const target = await Playlist.findById(req.params.id)
+      .select('targetAudiences votingEnabled videos')
+      .lean();
     if (!target) return res.status(404).json({ error: 'Playlist not found' });
+    // Non-challenge playlists (announcements) must contain exactly one
+    // item — they prepend a single item to profile carousels with a SKIP
+    // affordance. Multiple items would clutter every viewer's carousel.
+    // Challenge playlists (votingEnabled=true) can have many items — they
+    // override the carousel while voting is open.
+    const videoCount = Array.isArray(target.videos) ? target.videos.length : 0;
+    if (target.votingEnabled !== true && videoCount !== 1) {
+      return res.status(400).json({
+        error:
+          'Non-challenge playlist must have exactly one item before activation. ' +
+          'Either reduce to a single item, or attach a challenge.',
+      });
+    }
     const targetAud = target.targetAudiences || [];
     let deactivateFilter;
     if (targetAud.length === 0) {

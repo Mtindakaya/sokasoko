@@ -18,6 +18,12 @@ const PlaylistSchema = new Schema(
     isActive: { type: Boolean, default: false },
     globalOverride: { type: Boolean, default: false },
     votingEnabled: { type: Boolean, default: false },
+    // Non-challenge playlists (announcements) prepend a single item to
+    // the profile carousel. When mandatoryView is true the client hides
+    // the SKIP button so the viewer must play through. Only meaningful
+    // when votingEnabled is false and videos.length === 1 — the /activate
+    // endpoint enforces the single-item rule for non-challenge playlists.
+    mandatoryView: { type: Boolean, default: false },
     // Optional sponsor for the challenge — a User of type SPONSOR (or
     // any Platinum/Enterprise account that runs a challenge). When
     // present, the client renders logo + name on the challenge banner
