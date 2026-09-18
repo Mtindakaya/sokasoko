@@ -733,6 +733,60 @@ router.patch('/playlists/:id/rename', async (req, res) => {
   }
 });
 
+// GET /v1/playlists/default — the ultimate fallback playlist. Plays
+// on the profile carousel when the viewer has no personal media AND
+// no audience-matched active playlist. Independent of isActive.
+router.get('/playlists/default', async (req, res) => {
+  try {
+    const playlist = await Playlist.findOne({ isDefaultPlaylist: true })
+      .populate({
+        path: 'videos',
+        populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
+      });
+    if (!playlist) return res.status(404).json({ error: 'No default playlist' });
+    return res.status(200).json(playlist);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/playlists/:id/set-default — mark this playlist as the
+// default fallback. Any previously-default playlist is unset in the
+// same operation so only one default exists at a time.
+router.post('/playlists/:id/set-default', async (req, res) => {
+  try {
+    await Playlist.updateMany(
+      { isDefaultPlaylist: true, _id: { $ne: req.params.id } },
+      { isDefaultPlaylist: false },
+    );
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      { isDefaultPlaylist: true },
+      { new: true },
+    );
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/playlists/:id/unset-default — clear the default flag from
+// a playlist so the app has no fallback.
+router.post('/playlists/:id/unset-default', async (req, res) => {
+  try {
+    const playlist = await Playlist.findByIdAndUpdate(
+      req.params.id,
+      { isDefaultPlaylist: false },
+      { new: true },
+    );
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+    return res.status(200).json(playlist);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /v1/playlists/:id/mandatory — toggle mandatoryView on a
 // non-challenge playlist. When true the profile-carousel client hides
 // the SKIP button so the viewer must play through the announcement.

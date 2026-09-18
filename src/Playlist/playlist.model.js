@@ -24,6 +24,12 @@ const PlaylistSchema = new Schema(
     // when votingEnabled is false and videos.length === 1 — the /activate
     // endpoint enforces the single-item rule for non-challenge playlists.
     mandatoryView: { type: Boolean, default: false },
+    // The default playlist is the ultimate fallback content pool — it
+    // plays when a viewer has no personal media AND no audience-matched
+    // active playlist. Only ONE playlist can be default at a time
+    // (set-default endpoint enforces uniqueness). Independent of
+    // isActive: admin curates it once and it's always available.
+    isDefaultPlaylist: { type: Boolean, default: false },
     // Optional sponsor for the challenge — a User of type SPONSOR (or
     // any Platinum/Enterprise account that runs a challenge). When
     // present, the client renders logo + name on the challenge banner
