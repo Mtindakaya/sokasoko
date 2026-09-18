@@ -141,6 +141,26 @@ router.get('/playlists/active', async (req, res) => {
   }
 });
 
+// GET /v1/playlists/default — the ultimate fallback playlist. Plays
+// on the profile carousel when the viewer has no personal media AND
+// no audience-matched active playlist. Independent of isActive.
+// MUST be registered BEFORE the generic /playlists/:id handler so
+// Express doesn't route the literal "default" segment to the getById
+// path (which returns a list wrapped in {data:[...]}).
+router.get('/playlists/default', async (req, res) => {
+  try {
+    const playlist = await Playlist.findOne({ isDefaultPlaylist: true })
+      .populate({
+        path: 'videos',
+        populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
+      });
+    if (!playlist) return res.status(404).json({ error: 'No default playlist' });
+    return res.status(200).json(playlist);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Challenge briefs ────────────────────────────────────────────────────────
 // A brief is an admin-authored preamble that runs for `durationDays`
 // BEFORE the challenge opens for submissions. Either a reference video
@@ -727,23 +747,6 @@ router.patch('/playlists/:id/rename', async (req, res) => {
       { new: true }
     );
     if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
-    return res.status(200).json(playlist);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /v1/playlists/default — the ultimate fallback playlist. Plays
-// on the profile carousel when the viewer has no personal media AND
-// no audience-matched active playlist. Independent of isActive.
-router.get('/playlists/default', async (req, res) => {
-  try {
-    const playlist = await Playlist.findOne({ isDefaultPlaylist: true })
-      .populate({
-        path: 'videos',
-        populate: { path: 'player', select: 'firstName lastName accountNumber profileImage' },
-      });
-    if (!playlist) return res.status(404).json({ error: 'No default playlist' });
     return res.status(200).json(playlist);
   } catch (err) {
     return res.status(500).json({ error: err.message });
