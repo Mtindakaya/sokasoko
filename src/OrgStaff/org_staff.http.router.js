@@ -58,7 +58,8 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     // athletes being managed, not the managers).
     if (guardian.type === 'PLAYER') {
       return res.status(400).json({
-        error: 'Mchezaji hawezi kuongezwa kama mfanyakazi. / A player cannot be added as staff.',
+        error: 'Mchezaji hawezi kuongezwa kama mfanyakazi.',
+        errorKey: 'staff.err.type_player',
         reason: 'STAFF_TYPE_PLAYER',
       });
     }
@@ -160,9 +161,8 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
       return res.status(409).json({
         error:
           `${staffName} tayari yuko chini ya ${otherOrgName} — anahitaji ` +
-          `kujiondoa kabla ya kuunganishwa na taasisi nyingine. / ` +
-          `${staffName} is already attached to ${otherOrgName} — they must ` +
-          `detach before joining another organization.`,
+          `kujiondoa kabla ya kuunganishwa na taasisi nyingine.`,
+        errorKey: 'staff.err.already_linked',
         reason: 'STAFF_ALREADY_LINKED',
         staffName,
         otherOrgName,

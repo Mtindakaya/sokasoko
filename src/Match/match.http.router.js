@@ -256,8 +256,8 @@ router.post(BASE, async (req, res) => {
     // schedule via POST /:id/confirm-schedule; no gate here for them.
     if (scheduledBy && !(await canManageTeam(scheduledBy, homeTeam))) {
       return res.status(403).json({
-        error: 'Huna ruhusa ya kupanga mechi kwa niaba ya timu hii. / ' +
-               'You are not authorized to schedule a match for this team.',
+        error: 'Huna ruhusa ya kupanga mechi kwa niaba ya timu hii.',
+        errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
       });
     }
@@ -515,8 +515,8 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     // endpoint.
     if (confirmedBy && !(await canManageMatch(confirmedBy, match))) {
       return res.status(403).json({
-        error: 'Huna ruhusa ya kuweka matokeo kwa mechi hii. / ' +
-               'You are not authorized to save results for this match.',
+        error: 'Huna ruhusa ya kuweka matokeo kwa mechi hii.',
+        errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
       });
     }
@@ -589,8 +589,8 @@ router.post(`${BASE}/:id/confirm`, async (req, res) => {
     // vice versa — the semantics of "confirm" is per-side.
     if (confirmedBy && team && !(await canManageTeam(confirmedBy, team))) {
       return res.status(403).json({
-        error: 'Huna ruhusa ya kuthibitisha matokeo kwa timu hii. / ' +
-               'You are not authorized to confirm the result for this team.',
+        error: 'Huna ruhusa ya kuthibitisha matokeo kwa timu hii.',
+        errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
       });
     }
@@ -640,8 +640,8 @@ router.post(`${BASE}/:id/confirm-schedule`, async (req, res) => {
       // COACH user could previously confirm ANY schedule.
       if (!(await canManageTeam(confirmedBy, match.awayTeam))) {
         return res.status(403).json({
-          error: 'Huna ruhusa ya kuthibitisha ratiba ya timu hii. / ' +
-                 'You are not authorized to confirm the schedule for the away team.',
+          error: 'Huna ruhusa ya kuthibitisha ratiba ya timu hii.',
+          errorKey: 'matches.error.action_forbidden',
           reason: 'MATCH_ACTION_FORBIDDEN',
         });
       }
@@ -676,8 +676,8 @@ router.post(`${BASE}/:id/decline-schedule`, async (req, res) => {
       // the AWAY team (the side whose consent is being withheld).
       if (!(await canManageTeam(declinedBy, match.awayTeam))) {
         return res.status(403).json({
-          error: 'Huna ruhusa ya kukataa ratiba ya timu hii. / ' +
-                 'You are not authorized to decline the schedule for the away team.',
+          error: 'Huna ruhusa ya kukataa ratiba ya timu hii.',
+          errorKey: 'matches.error.action_forbidden',
           reason: 'MATCH_ACTION_FORBIDDEN',
         });
       }
@@ -711,8 +711,8 @@ router.post(`${BASE}/:id/cancel`, async (req, res) => {
     // when a match was scheduled by a coach who later left the org.
     if (!(await canManageMatch(cancelledBy, match))) {
       return res.status(403).json({
-        error: 'Huna ruhusa ya kufuta mechi hii. / ' +
-               'You are not authorized to cancel this match.',
+        error: 'Huna ruhusa ya kufuta mechi hii.',
+        errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
       });
     }
@@ -742,8 +742,8 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
     // reset scheduleConfirmed below.
     if (rescheduledBy && !(await canManageMatch(rescheduledBy, match))) {
       return res.status(403).json({
-        error: 'Huna ruhusa ya kuhamisha mechi hii. / ' +
-               'You are not authorized to reschedule this match.',
+        error: 'Huna ruhusa ya kuhamisha mechi hii.',
+        errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
       });
     }
@@ -1101,8 +1101,8 @@ router.patch(`${BASE}/:id`, async (req, res) => {
     const actorId = req.body?.updatedBy || req.query?.userId;
     if (actorId && !(await canManageMatch(actorId, existing))) {
       return res.status(403).json({
-        error: 'Huna ruhusa ya kubadilisha mechi hii. / ' +
-               'You are not authorized to update this match.',
+        error: 'Huna ruhusa ya kubadilisha mechi hii.',
+        errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
       });
     }
@@ -1121,8 +1121,8 @@ router.delete(`${BASE}/:id`, async (req, res) => {
     const actorId = req.body?.userId || req.query?.userId;
     if (actorId && !(await canManageMatch(actorId, existing))) {
       return res.status(403).json({
-        error: 'Huna ruhusa ya kufuta mechi hii. / ' +
-               'You are not authorized to delete this match.',
+        error: 'Huna ruhusa ya kufuta mechi hii.',
+        errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
       });
     }

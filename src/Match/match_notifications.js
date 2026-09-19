@@ -123,6 +123,12 @@ async function notifyMatchAction({ match, kind, actorId, extras = {} }) {
   }
 }
 
+// Notification copy. `title` / `body` are the Kiswahili fallback the
+// client uses when its L10n dictionary is missing the key (or the
+// notification pre-dates the key landing). Live rendering goes
+// through titleKey/bodyKey + params so English-toggle users get the
+// English string from their local dictionary — no mixed-language
+// strings ever end up on-screen.
 function renderCopy(kind, p, extras) {
   const { homeLabel, awayLabel, matchLabel, actorLabel } = p;
   const when = extras.newDate ? isoDate(extras.newDate) : isoDate(p && p.home ? undefined : null);
@@ -131,87 +137,72 @@ function renderCopy(kind, p, extras) {
   switch (kind) {
     case 'MATCH_SCHEDULED':
       return {
-        title: 'Mechi mpya imepangwa · New match scheduled',
+        title: 'Mechi mpya imepangwa',
         body:
           `${actorLabel} amepanga mechi: ${matchLabel}. ` +
-          `Fungua Mechi ili kukagua tarehe na uwanja. / ` +
-          `${actorLabel} scheduled a match: ${matchLabel}. ` +
-          `Open Matches to review the date and venue.`,
+          `Fungua Mechi ili kukagua tarehe na uwanja.`,
         titleKey: 'notif.match.scheduled.title',
         bodyKey: 'notif.match.scheduled.body',
         params: { actor: actorLabel, match: matchLabel },
       };
     case 'MATCH_RESULT_SAVED':
       return {
-        title: 'Matokeo yamewekwa · Result saved',
+        title: 'Matokeo yamewekwa',
         body:
           `${actorLabel} ameweka matokeo ya mechi ${matchLabel}. ` +
-          `Kagua na thibitisha upande wako. / ` +
-          `${actorLabel} saved the result for ${matchLabel}. ` +
-          `Review and confirm your side.`,
+          `Kagua na thibitisha upande wako.`,
         titleKey: 'notif.match.result_saved.title',
         bodyKey: 'notif.match.result_saved.body',
         params: { actor: actorLabel, match: matchLabel },
       };
     case 'MATCH_SCORE_CONFIRMED':
       return {
-        title: 'Upande umethibitisha matokeo · Side confirmed result',
+        title: 'Upande umethibitisha matokeo',
         body:
           `${sideLabel || actorLabel} amethibitisha matokeo ya mechi ${matchLabel}. ` +
-          `Fungua mechi kuthibitisha upande wako. / ` +
-          `${sideLabel || actorLabel} confirmed the result for ${matchLabel}. ` +
-          `Open the match to confirm your side.`,
+          `Fungua mechi kuthibitisha upande wako.`,
         titleKey: 'notif.match.score_confirmed.title',
         bodyKey: 'notif.match.score_confirmed.body',
         params: { side: sideLabel || actorLabel, match: matchLabel },
       };
     case 'MATCH_COMPLETED':
       return {
-        title: 'Mechi imefungwa · Match closed',
-        body:
-          `Mechi ${matchLabel} imefungwa rasmi. Hakuna mabadiliko zaidi. / ` +
-          `${matchLabel} is now closed. No further changes.`,
+        title: 'Mechi imefungwa',
+        body: `Mechi ${matchLabel} imefungwa rasmi. Hakuna mabadiliko zaidi.`,
         titleKey: 'notif.match.completed.title',
         bodyKey: 'notif.match.completed.body',
         params: { match: matchLabel },
       };
     case 'MATCH_CANCELLED':
       return {
-        title: 'Mechi imefutwa · Match cancelled',
-        body:
-          `${actorLabel} amefuta mechi ${matchLabel}. / ` +
-          `${actorLabel} cancelled ${matchLabel}.`,
+        title: 'Mechi imefutwa',
+        body: `${actorLabel} amefuta mechi ${matchLabel}.`,
         titleKey: 'notif.match.cancelled.title',
         bodyKey: 'notif.match.cancelled.body',
         params: { actor: actorLabel, match: matchLabel },
       };
     case 'MATCH_RESCHEDULED':
       return {
-        title: 'Mechi imehamishwa · Match rescheduled',
+        title: 'Mechi imehamishwa',
         body:
-          `${actorLabel} amehamisha mechi ${matchLabel} kwenda ${when || 'tarehe mpya'}. / ` +
-          `${actorLabel} rescheduled ${matchLabel} to ${when || 'a new date'}.`,
+          `${actorLabel} amehamisha mechi ${matchLabel} kwenda ${when || 'tarehe mpya'}.`,
         titleKey: 'notif.match.rescheduled.title',
         bodyKey: 'notif.match.rescheduled.body',
         params: { actor: actorLabel, match: matchLabel, when },
       };
     case 'MATCH_SCHEDULE_CONFIRMED':
       return {
-        title: 'Ratiba imethibitishwa · Schedule confirmed',
-        body:
-          `${actorLabel} amethibitisha ratiba ya mechi ${matchLabel}. / ` +
-          `${actorLabel} confirmed the schedule for ${matchLabel}.`,
+        title: 'Ratiba imethibitishwa',
+        body: `${actorLabel} amethibitisha ratiba ya mechi ${matchLabel}.`,
         titleKey: 'notif.match.schedule_confirmed.title',
         bodyKey: 'notif.match.schedule_confirmed.body',
         params: { actor: actorLabel, match: matchLabel },
       };
     case 'MATCH_SCHEDULE_DECLINED':
       return {
-        title: 'Ratiba imekataliwa · Schedule declined',
+        title: 'Ratiba imekataliwa',
         body:
           `${actorLabel} amekataa ratiba ya mechi ${matchLabel}` +
-          `${extras.reason ? `: ${extras.reason}` : ''}. / ` +
-          `${actorLabel} declined the schedule for ${matchLabel}` +
           `${extras.reason ? `: ${extras.reason}` : ''}.`,
         titleKey: 'notif.match.schedule_declined.title',
         bodyKey: 'notif.match.schedule_declined.body',
