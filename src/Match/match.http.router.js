@@ -10,6 +10,7 @@ const { SubscriptionUsage } = require('../Subscription/subscription_usage.model'
 const { Subscription } = require('../Subscription/subscription.model');
 const { busyUserIds, venueBusy, busyTeamIds } = require('./conflict.helper');
 const { notifyMatchAction } = require('./match_notifications');
+const { canManageTeam, canManageMatch } = require('./match_access');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -248,6 +249,18 @@ router.post(BASE, async (req, res) => {
     }
     const blocked = await orphanedPlayerBlock(scheduledBy);
     if (blocked) return res.status(403).json(blocked);
+
+    // Auth: caller must be authorized to act on behalf of the home
+    // team — either the team account itself OR ACTIVE staff with role
+    // OWNER / MANAGER / COACH / SECRETARY. Away team consents to the
+    // schedule via POST /:id/confirm-schedule; no gate here for them.
+    if (scheduledBy && !(await canManageTeam(scheduledBy, homeTeam))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kupanga mechi kwa niaba ya timu hii. / ' +
+               'You are not authorized to schedule a match for this team.',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
+    }
 
     // GUARDIAN cap — bare guardians cannot schedule matches. Delegated
     // staff (Academy/Club COACH role, or School SPORTS_TEACHER) can via
@@ -496,6 +509,18 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Match already completed' });
 
+    // Auth: only score-authorized staff of either team may save
+    // results / stats. Away-team staff need write access here too
+    // because the away-team stat-save flow (My Stats) reuses this
+    // endpoint.
+    if (confirmedBy && !(await canManageMatch(confirmedBy, match))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kuweka matokeo kwa mechi hii. / ' +
+               'You are not authorized to save results for this match.',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
+    }
+
     // Only overwrite scores when the caller explicitly sends them —
     // stats-only saves from the away team shouldn't blank out the score.
     if (homeScore !== undefined && homeScore !== null) match.homeScore = homeScore;
@@ -559,6 +584,17 @@ router.post(`${BASE}/:id/confirm`, async (req, res) => {
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
 
+    // Auth: caller must be authorized on the side (team) they're
+    // confirming. Home-team staff cannot confirm the away side and
+    // vice versa — the semantics of "confirm" is per-side.
+    if (confirmedBy && team && !(await canManageTeam(confirmedBy, team))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kuthibitisha matokeo kwa timu hii. / ' +
+               'You are not authorized to confirm the result for this team.',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
+    }
+
     let sideCode = null;
     if (team === match.homeTeam.toString()) {
       match.homeConfirmed = true;
@@ -598,13 +634,23 @@ router.post(`${BASE}/:id/confirm-schedule`, async (req, res) => {
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (confirmedBy) {
-      const confirmingUser = await User.findById(confirmedBy).select('type').lean();
-      const isAwayTeam = match.awayTeam && match.awayTeam.toString() === confirmedBy;
-      const isCoach = confirmingUser && confirmingUser.type === 'COACH';
-      if (!isAwayTeam && !isCoach) {
-        return res.status(403).json({ error: 'Only the away team or their coach can confirm the schedule' });
+      // Auth: caller must be authorized on the AWAY team (that's the
+      // side whose consent turns a scheduled match into a confirmed
+      // one). Replaces the old "away team OR any COACH" hack — any
+      // COACH user could previously confirm ANY schedule.
+      if (!(await canManageTeam(confirmedBy, match.awayTeam))) {
+        return res.status(403).json({
+          error: 'Huna ruhusa ya kuthibitisha ratiba ya timu hii. / ' +
+                 'You are not authorized to confirm the schedule for the away team.',
+          reason: 'MATCH_ACTION_FORBIDDEN',
+        });
       }
-      if (isCoach) match.awayCoach = confirmedBy;
+      // Remember the linked-staff person for the awayCoach slot when
+      // it's not the account itself — used by downstream flows that
+      // credit the acting coach.
+      if (String(confirmedBy) !== String(match.awayTeam)) {
+        match.awayCoach = confirmedBy;
+      }
     }
     match.scheduleConfirmed = true;
     match.scheduleConfirmedBy = confirmedBy;
@@ -626,12 +672,14 @@ router.post(`${BASE}/:id/decline-schedule`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.scheduleConfirmed) return res.status(400).json({ error: 'Cannot decline already confirmed schedule' });
     if (declinedBy) {
-      const User = require('../User/user.model');
-      const decliningUser = await User.findById(declinedBy).select('type').lean();
-      const isAwayTeam = match.awayTeam && match.awayTeam.toString() === declinedBy;
-      const isCoach = decliningUser && decliningUser.type === 'COACH';
-      if (!isAwayTeam && !isCoach) {
-        return res.status(403).json({ error: 'Only the away team or their coach can decline the schedule' });
+      // Auth: same as confirm-schedule — caller must be authorized on
+      // the AWAY team (the side whose consent is being withheld).
+      if (!(await canManageTeam(declinedBy, match.awayTeam))) {
+        return res.status(403).json({
+          error: 'Huna ruhusa ya kukataa ratiba ya timu hii. / ' +
+                 'You are not authorized to decline the schedule for the away team.',
+          reason: 'MATCH_ACTION_FORBIDDEN',
+        });
       }
     }
     match.scheduleDeclined = true;
@@ -658,8 +706,15 @@ router.post(`${BASE}/:id/cancel`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Cannot cancel a completed match' });
     if (match.homeScore != null) return res.status(400).json({ error: 'Cannot cancel a match with a result already submitted' });
-    if (match.scheduledBy && match.scheduledBy.toString() !== cancelledBy) {
-      return res.status(403).json({ error: 'Only the match creator can cancel this match' });
+    // Auth: any score-authorized staff on EITHER team can cancel.
+    // Previously locked to only the scheduledBy user, which broke
+    // when a match was scheduled by a coach who later left the org.
+    if (!(await canManageMatch(cancelledBy, match))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kufuta mechi hii. / ' +
+               'You are not authorized to cancel this match.',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
     }
     match.status = 'CANCELLED';
     await match.save();
@@ -682,8 +737,15 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Cannot reschedule a completed match' });
     if (match.status === 'CANCELLED') return res.status(400).json({ error: 'Cannot reschedule a cancelled match' });
     if (match.homeScore != null) return res.status(400).json({ error: 'Cannot reschedule a match with a result already submitted' });
-    if (rescheduledBy && match.scheduledBy && match.scheduledBy.toString() !== rescheduledBy) {
-      return res.status(403).json({ error: 'Only the match creator can reschedule this match' });
+    // Auth: any score-authorized staff on EITHER team can reschedule.
+    // Away team gets a fresh confirm/decline cycle either way since we
+    // reset scheduleConfirmed below.
+    if (rescheduledBy && !(await canManageMatch(rescheduledBy, match))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kuhamisha mechi hii. / ' +
+               'You are not authorized to reschedule this match.',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
     }
     match.scheduledDate = new Date(scheduledDate);
     match.scheduleConfirmed = false;
@@ -1034,8 +1096,17 @@ router.post(`${BASE}/:id/temp-scout`, async (req, res) => {
 // PATCH /v1/matches/:id — update match details
 router.patch(`${BASE}/:id`, async (req, res) => {
   try {
+    const existing = await Match.findById(req.params.id).select('homeTeam awayTeam').lean();
+    if (!existing) return res.status(404).json({ error: 'Match not found' });
+    const actorId = req.body?.updatedBy || req.query?.userId;
+    if (actorId && !(await canManageMatch(actorId, existing))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kubadilisha mechi hii. / ' +
+               'You are not authorized to update this match.',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
+    }
     const match = await Match.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!match) return res.status(404).json({ error: 'Match not found' });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1045,8 +1116,17 @@ router.patch(`${BASE}/:id`, async (req, res) => {
 // DELETE /v1/matches/:id — cancel match
 router.delete(`${BASE}/:id`, async (req, res) => {
   try {
+    const existing = await Match.findById(req.params.id).select('homeTeam awayTeam').lean();
+    if (!existing) return res.status(404).json({ error: 'Match not found' });
+    const actorId = req.body?.userId || req.query?.userId;
+    if (actorId && !(await canManageMatch(actorId, existing))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kufuta mechi hii. / ' +
+               'You are not authorized to delete this match.',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
+    }
     const match = await Match.findByIdAndUpdate(req.params.id, { status: 'CANCELLED' }, { new: true });
-    if (!match) return res.status(404).json({ error: 'Match not found' });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
