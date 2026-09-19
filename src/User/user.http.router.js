@@ -489,10 +489,23 @@ router.get(PATH_SEARCH, async (request, response) => {
   // that role. Falls back to the regex name/entity match when no keyword
   // hits.
   const explicitType = request.query.type;
+  // typeExclude — comma-separated list of user types to EXCLUDE from
+  // the results. Used by staff-invite (excludes PLAYER). Only takes
+  // effect when no allow-list `type` param is set — the two are
+  // logically exclusive.
+  const typeExcludeRaw = request.query.typeExclude;
+  const typeExcludeList = typeExcludeRaw
+    ? String(typeExcludeRaw).split(',').map(s => s.trim()).filter(Boolean)
+    : [];
   const inferredType = explicitType ? null : typeFromKeyword(query);
-  const typeFilter = explicitType
-    ? { type: explicitType }
-    : (inferredType ? { type: inferredType } : {});
+  let typeFilter = {};
+  if (explicitType) {
+    typeFilter = { type: explicitType };
+  } else if (inferredType) {
+    typeFilter = { type: inferredType };
+  } else if (typeExcludeList.length > 0) {
+    typeFilter = { type: { $nin: typeExcludeList } };
+  }
 
   try {
     const baseFilter = {

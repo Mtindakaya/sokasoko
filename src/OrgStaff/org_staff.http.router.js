@@ -52,8 +52,15 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     if (!['ACADEMY', 'CLUB', 'SCHOOL', 'FOOTBALL_ASSOCIATION'].includes(org.type)) {
       return res.status(400).json({ error: 'org must be ACADEMY, CLUB, SCHOOL or FOOTBALL_ASSOCIATION' });
     }
-    if (guardian.type !== 'GUARDIAN') {
-      return res.status(400).json({ error: 'staff must currently be a GUARDIAN account' });
+    // Was: GUARDIAN-only. Relaxed to allow every user type except
+    // PLAYER — orgs often want to add existing Coach / Referee / Scout
+    // etc. accounts as staff. Players stay excluded (they're the
+    // athletes being managed, not the managers).
+    if (guardian.type === 'PLAYER') {
+      return res.status(400).json({
+        error: 'Mchezaji hawezi kuongezwa kama mfanyakazi. / A player cannot be added as staff.',
+        reason: 'STAFF_TYPE_PLAYER',
+      });
     }
 
     // Role restrictions per org type.
@@ -63,13 +70,19 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     if (['ACADEMY', 'CLUB', 'FOOTBALL_ASSOCIATION'].includes(org.type) && role === 'SPORTS_TEACHER') {
       return res.status(400).json({ error: 'SPORTS_TEACHER is a SCHOOL role only' });
     }
-    // CHAIRPERSON / SECRETARY / ACCOUNTANT are FA governance roles;
-    // reject if ACADEMY / CLUB try to use them (avoid confusion with
-    // their existing OWNER/MANAGER/COACH taxonomy).
+    // CHAIRPERSON / ACCOUNTANT remain FA-only. SECRETARY is now also
+    // valid for ACADEMY / CLUB (Katibu) — they're the 4th named staff
+    // slot alongside OWNER / MANAGER / COACH. SCHOOL still only uses
+    // SPORTS_TEACHER so gets none of these.
     if (['ACADEMY', 'CLUB', 'SCHOOL'].includes(org.type) &&
-        ['CHAIRPERSON', 'SECRETARY', 'ACCOUNTANT'].includes(role)) {
+        ['CHAIRPERSON', 'ACCOUNTANT'].includes(role)) {
       return res.status(400).json({
-        error: 'CHAIRPERSON / SECRETARY / ACCOUNTANT are FOOTBALL_ASSOCIATION roles',
+        error: 'CHAIRPERSON / ACCOUNTANT are FOOTBALL_ASSOCIATION roles',
+      });
+    }
+    if (org.type === 'SCHOOL' && role === 'SECRETARY') {
+      return res.status(400).json({
+        error: 'SECRETARY is not a SCHOOL role',
       });
     }
     // FA orgs don't use the OWNER / MANAGER / COACH shape — those
@@ -126,12 +139,33 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     }
 
     // One-to-one enforcement (application-level for a friendlier error;
-    // the DB partial unique index catches races).
-    const existingActive = await OrgStaffLink.findOne({ staff: guardianId, status: 'ACTIVE' }).lean();
+    // the DB partial unique index catches races). Look up the current
+    // org's display name so the client can tell the inviter exactly
+    // who is holding the staff slot and where — bilingual because the
+    // app is used in both sw and en and this UX matters (inviter needs
+    // to reach out to the person to detach).
+    const existingActive = await OrgStaffLink.findOne({
+      staff: guardianId, status: 'ACTIVE',
+    }).populate('org', 'firstName lastName academy_name company_name entity_name').lean();
     if (existingActive) {
+      const otherOrg = existingActive.org || {};
+      const otherOrgName = otherOrg.academy_name
+        || otherOrg.company_name
+        || otherOrg.entity_name
+        || `${otherOrg.firstName || ''} ${otherOrg.lastName || ''}`.trim()
+        || 'taasisi nyingine';
+      const staffName =
+        `${guardian.firstName || ''} ${guardian.lastName || ''}`.trim()
+        || 'Huyu mtumiaji';
       return res.status(409).json({
-        error: 'Mfanyakazi tayari yuko kwenye taasisi nyingine.',
+        error:
+          `${staffName} tayari yuko chini ya ${otherOrgName} — anahitaji ` +
+          `kujiondoa kabla ya kuunganishwa na taasisi nyingine. / ` +
+          `${staffName} is already attached to ${otherOrgName} — they must ` +
+          `detach before joining another organization.`,
         reason: 'STAFF_ALREADY_LINKED',
+        staffName,
+        otherOrgName,
       });
     }
 
