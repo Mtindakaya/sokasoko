@@ -509,6 +509,18 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (match.status === 'COMPLETED') return res.status(400).json({ error: 'Match already completed' });
 
+    // Schedule-gate: home team can't submit a score until the away
+    // team has accepted the schedule. Guards the "coach types a score
+    // on a match the opponent never agreed to play" case. Tournament
+    // matches skip this — the organizer sets the schedule directly.
+    if (!match.tournament && !match.scheduleConfirmed) {
+      return res.status(400).json({
+        error: 'Timu ya ugenini haijathibitisha ratiba bado. Subiri wakubali kabla ya kuweka matokeo.',
+        errorKey: 'matches.error.schedule_not_confirmed',
+        reason: 'MATCH_SCHEDULE_NOT_CONFIRMED',
+      });
+    }
+
     // Auth: only score-authorized staff of either team may save
     // results / stats. Away-team staff need write access here too
     // because the away-team stat-save flow (My Stats) reuses this
