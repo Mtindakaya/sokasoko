@@ -576,9 +576,22 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
       });
     }
 
-    // Result entry is now a "save draft" op — it never auto-confirms. The
-    // team explicitly locks their side by hitting POST /confirm, so coaches
-    // can save partial stats over several sittings.
+    // Any new save resets BOTH confirmations — workflow is:
+    //   1. Home enters/edits result → both confirmations cleared.
+    //   2. Away team confirms.
+    //   3. Home team submits (finalises).
+    // If home edits after step 2 the away confirm becomes stale, so
+    // the away side must confirm again before home can finalise.
+    // Skip the reset when nothing was actually written (empty POST).
+    const didWriteScore = homeScore !== undefined && homeScore !== null;
+    const didWriteAwayScore = awayScore !== undefined && awayScore !== null;
+    const didWriteStats = playerStats && playerStats.length > 0;
+    if (didWriteScore || didWriteAwayScore || didWriteStats) {
+      match.homeConfirmed = false;
+      match.awayConfirmed = false;
+      match.homeConfirmedBy = null;
+      match.awayConfirmedBy = null;
+    }
     await match.save();
     await notifyMatchAction({
       match, kind: 'MATCH_RESULT_SAVED', actorId: confirmedBy,
@@ -604,6 +617,24 @@ router.post(`${BASE}/:id/confirm`, async (req, res) => {
         error: 'Huna ruhusa ya kuthibitisha matokeo kwa timu hii.',
         errorKey: 'matches.error.action_forbidden',
         reason: 'MATCH_ACTION_FORBIDDEN',
+      });
+    }
+
+    // Workflow order: home enters → away confirms → home submits.
+    const isAwaySide = String(team) === String(match.awayTeam);
+    const isHomeSide = String(team) === String(match.homeTeam);
+    if (isAwaySide && match.homeScore == null) {
+      return res.status(400).json({
+        error: 'Timu ya nyumbani bado haijaweka matokeo. Subiri kabla ya kuthibitisha.',
+        errorKey: 'matches.error.no_score_yet',
+        reason: 'MATCH_NO_SCORE_YET',
+      });
+    }
+    if (isHomeSide && !match.awayConfirmed) {
+      return res.status(400).json({
+        error: 'Timu ya ugenini bado haijathibitisha. Subiri kabla ya kufunga matokeo.',
+        errorKey: 'matches.error.away_not_confirmed',
+        reason: 'MATCH_AWAY_NOT_CONFIRMED',
       });
     }
 
