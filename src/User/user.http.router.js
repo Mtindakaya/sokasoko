@@ -1081,6 +1081,61 @@ router.get('/users/:id/blocked', async (req, res) => {
 
 // ─── Friends / friendsOnly privacy ───────────────────────────────────────
 
+// POST /v1/users/:id/favorites/toggle  body { kind: 'team'|'tournament', targetId }
+// Idempotent toggle: adds targetId to the matching favorites array
+// when absent, removes it when present. Returns the fresh favorites
+// arrays so the client can update state without a re-fetch.
+router.post('/users/:id/favorites/toggle', async (req, res) => {
+  try {
+    const { kind, targetId } = req.body;
+    if (!targetId) return res.status(400).json({ error: 'targetId required' });
+    if (kind !== 'team' && kind !== 'tournament') {
+      return res.status(400).json({ error: 'kind must be team or tournament' });
+    }
+    const field = kind === 'team' ? 'favoriteTeams' : 'favoriteTournaments';
+    const u = await User.findById(req.params.id).select(`${field}`);
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    const arr = u[field] || [];
+    const targetStr = String(targetId);
+    const idx = arr.findIndex((v) => String(v) === targetStr);
+    if (idx >= 0) {
+      arr.splice(idx, 1);
+    } else {
+      arr.push(new mongoose.Types.ObjectId(targetStr));
+    }
+    u[field] = arr;
+    await u.save();
+    return res.status(200).json({
+      data: {
+        favoriteTeams: u.favoriteTeams || [],
+        favoriteTournaments: u.favoriteTournaments || [],
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:id/favorites  → { favoriteTeams, favoriteTournaments }
+router.get('/users/:id/favorites', async (req, res) => {
+  try {
+    const u = await User.findById(req.params.id)
+      .select('favoriteTeams favoriteTournaments')
+      .populate('favoriteTeams', 'firstName lastName academy_name company_name entity_name type profileImage')
+      .populate('favoriteTournaments', 'name startDate endDate location')
+      .lean();
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({
+      data: {
+        favoriteTeams: u.favoriteTeams || [],
+        favoriteTournaments: u.favoriteTournaments || [],
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/users/:id/friends-only  body { enabled: bool }
 router.post('/users/:id/friends-only', async (req, res) => {
   try {

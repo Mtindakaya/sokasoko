@@ -360,6 +360,22 @@ const UserSchema = new Schema(
       index: true,
     }],
 
+    // Followed teams + tournaments. Powers the "Vipendwa/Favourites"
+    // filter on the Scores tab so users can bookmark the clubs and
+    // tournaments they care about and quickly narrow the fixture
+    // list. Teams reference the ACADEMY/CLUB/SCHOOL user account
+    // that participates in matches; tournaments reference the
+    // Tournament collection. Toggled via
+    // POST /v1/users/:id/favorites/toggle.
+    favoriteTeams: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    }],
+    favoriteTournaments: [{
+      type: Schema.Types.ObjectId,
+      ref: 'Tournament',
+    }],
+
     // --- Friends-only privacy mode ---
     // When true, only users in `friends` can DM this account, view
     // their full profile, or request scouting. All other interactions
