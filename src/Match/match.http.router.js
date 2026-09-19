@@ -9,6 +9,7 @@ const Notification = require('../Notification/notification.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 const { Subscription } = require('../Subscription/subscription.model');
 const { busyUserIds, venueBusy, busyTeamIds } = require('./conflict.helper');
+const { notifyMatchAction } = require('./match_notifications');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -474,6 +475,13 @@ router.post(BASE, async (req, res) => {
       }
     }
 
+    // Fan-out: notify all score-access staff on BOTH teams that a new
+    // match has been scheduled. Excludes the actor so they don't ping
+    // themselves back.
+    await notifyMatchAction({
+      match, kind: 'MATCH_SCHEDULED', actorId: scheduledBy,
+    });
+
     return res.status(201).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -535,6 +543,9 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     // team explicitly locks their side by hitting POST /confirm, so coaches
     // can save partial stats over several sittings.
     await match.save();
+    await notifyMatchAction({
+      match, kind: 'MATCH_RESULT_SAVED', actorId: confirmedBy,
+    });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -548,15 +559,31 @@ router.post(`${BASE}/:id/confirm`, async (req, res) => {
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
 
+    let sideCode = null;
     if (team === match.homeTeam.toString()) {
       match.homeConfirmed = true;
       match.homeConfirmedBy = confirmedBy;
+      sideCode = 'HOME';
     } else if (team === match.awayTeam.toString()) {
       match.awayConfirmed = true;
       match.awayConfirmedBy = confirmedBy;
+      sideCode = 'AWAY';
     }
 
     await match.save();
+    if (sideCode) {
+      await notifyMatchAction({
+        match, kind: 'MATCH_SCORE_CONFIRMED', actorId: confirmedBy,
+        extras: { side: sideCode },
+      });
+      // Also broadcast a "match closed" notification when the save
+      // just flipped status to COMPLETED (pre-save hook sets this).
+      if (match.status === 'COMPLETED') {
+        await notifyMatchAction({
+          match, kind: 'MATCH_COMPLETED', actorId: confirmedBy,
+        });
+      }
+    }
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -582,6 +609,9 @@ router.post(`${BASE}/:id/confirm-schedule`, async (req, res) => {
     match.scheduleConfirmed = true;
     match.scheduleConfirmedBy = confirmedBy;
     await match.save();
+    await notifyMatchAction({
+      match, kind: 'MATCH_SCHEDULE_CONFIRMED', actorId: confirmedBy,
+    });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -609,6 +639,10 @@ router.post(`${BASE}/:id/decline-schedule`, async (req, res) => {
     match.scheduleDeclineReason = reason;
     match.status = 'DECLINED';
     await match.save();
+    await notifyMatchAction({
+      match, kind: 'MATCH_SCHEDULE_DECLINED', actorId: declinedBy,
+      extras: { reason },
+    });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -629,6 +663,9 @@ router.post(`${BASE}/:id/cancel`, async (req, res) => {
     }
     match.status = 'CANCELLED';
     await match.save();
+    await notifyMatchAction({
+      match, kind: 'MATCH_CANCELLED', actorId: cancelledBy,
+    });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -656,6 +693,10 @@ router.post(`${BASE}/:id/reschedule`, async (req, res) => {
     match.status = 'SCHEDULED';
     if (rescheduledBy) match.scheduledBy = rescheduledBy;
     await match.save();
+    await notifyMatchAction({
+      match, kind: 'MATCH_RESCHEDULED', actorId: rescheduledBy,
+      extras: { newDate: match.scheduledDate },
+    });
     return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
