@@ -376,6 +376,29 @@ const UserSchema = new Schema(
       ref: 'Tournament',
     }],
 
+    // --- Push notification preferences ---
+    // Categories users can mute independently. Missing fields default to
+    // true (opt-out model). Master switch `push.enabled` disables ALL
+    // push regardless of category (inbox writes still happen).
+    // Quiet hours in local HH:mm; server delays push during window.
+    notificationPrefs: {
+      push: {
+        enabled: { type: Boolean, default: true },
+        quietStart: { type: String, default: '' },
+        quietEnd: { type: String, default: '' },
+      },
+      categories: {
+        myMatches: { type: Boolean, default: true },
+        favourites: { type: Boolean, default: true },
+        invitations: { type: Boolean, default: true },
+        reports: { type: Boolean, default: true },
+        subscription: { type: Boolean, default: true },
+        moderation: { type: Boolean, default: true },
+        sokasoko: { type: Boolean, default: true },
+        chat: { type: Boolean, default: true },
+      },
+    },
+
     // --- Friends-only privacy mode ---
     // When true, only users in `friends` can DM this account, view
     // their full profile, or request scouting. All other interactions

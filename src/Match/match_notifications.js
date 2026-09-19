@@ -10,6 +10,7 @@
 const User = require('../User/user.model');
 const Notification = require('../Notification/notification.model');
 const OrgStaffLink = require('../OrgStaff/org_staff.model');
+const { sendPush } = require('../Notification/push_sender');
 
 // Roles that hold "score access" — team account itself + these 4
 // OrgStaff roles form the notified set. OTHER + custom roles are
@@ -116,6 +117,74 @@ async function notifyMatchAction({ match, kind, actorId, extras = {} }) {
       params: copy.params,
       metadata: baseMetadata,
     })));
+
+    // Device push, fire-and-forget. Category 'myMatches' covers the
+    // team + staff recipients; sendPush respects each user's prefs.
+    combined.forEach(userId => sendPush({
+      userId,
+      category: 'myMatches',
+      title: copy.title,
+      body: copy.body,
+      titleKey: copy.titleKey,
+      bodyKey: copy.bodyKey,
+      params: copy.params,
+      data: { matchId: String(match._id), kind },
+    }).catch(() => {}));
+
+    // Favourites fan-out. Fires on MATCH_COMPLETED (the score close-out)
+    // so followers get a "Full-time: Team A 3-1 Team B" ping. Excludes
+    // anyone already notified via team/staff so nobody gets it twice.
+    if (kind === 'MATCH_COMPLETED') {
+      try {
+        const fans = await User.find({
+          $or: [
+            { favoriteTeams: match.homeTeam },
+            { favoriteTeams: match.awayTeam },
+          ],
+        }).select('_id').lean();
+        const alreadyNotified = new Set(combined.map(String));
+        const homeScore = match.homeScore ?? '';
+        const awayScore = match.awayScore ?? '';
+        const favBody =
+          `Muda kamili: ${parties.homeLabel} ${homeScore} - ${awayScore} ${parties.awayLabel}.`;
+        fans.forEach(f => {
+          const uid = String(f._id);
+          if (alreadyNotified.has(uid)) return;
+          Notification.create({
+            userId: uid,
+            type: 'SYSTEM',
+            title: 'Timu yako imemaliza mechi',
+            body: favBody,
+            titleKey: 'notif.favourite.match_completed.title',
+            bodyKey: 'notif.favourite.match_completed.body',
+            params: {
+              home: parties.homeLabel,
+              away: parties.awayLabel,
+              homeScore: String(homeScore),
+              awayScore: String(awayScore),
+            },
+            metadata: { ...baseMetadata, kind: 'FAVOURITE_MATCH_COMPLETED' },
+          }).catch(() => {});
+          sendPush({
+            userId: uid,
+            category: 'favourites',
+            title: 'Timu yako imemaliza mechi',
+            body: favBody,
+            titleKey: 'notif.favourite.match_completed.title',
+            bodyKey: 'notif.favourite.match_completed.body',
+            params: {
+              home: parties.homeLabel,
+              away: parties.awayLabel,
+              homeScore: String(homeScore),
+              awayScore: String(awayScore),
+            },
+            data: { matchId: String(match._id), kind: 'FAVOURITE_MATCH_COMPLETED' },
+          }).catch(() => {});
+        });
+      } catch (err) {
+        console.log('[match_notifications] favourite fan-out failed:', err.message);
+      }
+    }
   } catch (err) {
     // Notifications must never break the action they follow.
     // eslint-disable-next-line no-console

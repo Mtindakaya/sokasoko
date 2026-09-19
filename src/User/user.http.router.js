@@ -19,6 +19,7 @@ const mongoose = require('mongoose');
 const ProfileView = require('./profile_view.model');
 const Media = require('../Media/media.model');
 const Advert = require('../Advert/advert.model');
+const DeviceToken = require('../DeviceToken/device_token.model');
 
 const attachPrimaryVideoUrls = async (users) => {
   const ids = users.map((u) => u._id).filter(Boolean);
@@ -1131,6 +1132,82 @@ router.get('/users/:id/favorites', async (req, res) => {
         favoriteTournaments: u.favoriteTournaments || [],
       },
     });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/device-tokens  body { token, platform, appVersion? }
+// Upsert by token. Same token re-registering under a different user
+// (device changed hands) simply reassigns; the unique index on token
+// prevents duplicates.
+router.post('/users/:id/device-tokens', async (req, res) => {
+  try {
+    const { token, platform, appVersion } = req.body || {};
+    if (!token || !platform) {
+      return res.status(400).json({ error: 'token and platform required' });
+    }
+    if (!['android', 'ios', 'web'].includes(platform)) {
+      return res.status(400).json({ error: 'invalid platform' });
+    }
+    const row = await DeviceToken.findOneAndUpdate(
+      { token },
+      {
+        userId: req.params.id,
+        token,
+        platform,
+        appVersion: appVersion || '',
+        lastSeenAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    return res.status(200).json({ data: row });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /v1/users/:id/device-tokens/:token
+router.delete('/users/:id/device-tokens/:token', async (req, res) => {
+  try {
+    await DeviceToken.deleteOne({
+      token: req.params.token,
+      userId: req.params.id,
+    });
+    return res.status(200).json({ data: { ok: true } });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:id/notification-prefs
+router.get('/users/:id/notification-prefs', async (req, res) => {
+  try {
+    const u = await User.findById(req.params.id)
+      .select('notificationPrefs')
+      .lean();
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    return res.status(200).json({ data: u.notificationPrefs || {} });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /v1/users/:id/notification-prefs  body: { push?, categories? }
+// Shallow-merged so callers can send only the changed field.
+router.put('/users/:id/notification-prefs', async (req, res) => {
+  try {
+    const patch = req.body || {};
+    const u = await User.findById(req.params.id).select('notificationPrefs');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    const cur = u.notificationPrefs || {};
+    const next = {
+      push: { ...(cur.push || {}), ...(patch.push || {}) },
+      categories: { ...(cur.categories || {}), ...(patch.categories || {}) },
+    };
+    u.notificationPrefs = next;
+    await u.save();
+    return res.status(200).json({ data: u.notificationPrefs });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
