@@ -206,6 +206,72 @@ router.get(BASE, async (req, res) => {
   }
 });
 
+// GET /v1/matches/for-district
+// District-scoped fixture calendar. Powers the Football Association
+// "Ratiba ya Wilaya" screen — every match whose venue lives in the
+// caller's region + district, split into upcoming and recent buckets.
+// Query params:
+//   region    — required, matches venue.region (case-insensitive).
+//   district  — optional; when set, further narrows by venue.district.
+//   ward      — optional; further narrows by venue.ward.
+//   days      — how far back "recent" reaches (default 30).
+// Response: { data: { upcoming: [...], recent: [...] } }.
+router.get(`${BASE}/for-district`, async (req, res) => {
+  try {
+    const { region, district, ward } = req.query;
+    if (!region) {
+      return res.status(400).json({ error: 'region is required' });
+    }
+    const days = Math.min(
+      Math.max(parseInt(req.query.days || '30', 10) || 30, 1),
+      365,
+    );
+    const now = new Date();
+    const back = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    // Filter venue-holding matches by location — venue is a User ref
+    // whose region/district/ward fields we populate + filter in JS
+    // (small result set makes an aggregation pipeline overkill).
+    const all = await Match.find({
+      venue: { $ne: null },
+      scheduledDate: { $gte: back },
+      status: { $nin: ['CANCELLED', 'DECLINED'] },
+    })
+      .populate('venue', 'name region district ward')
+      .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('tournament', 'name type')
+      .select('-playerStats -notes -scheduleDeclinedBy -scheduleConfirmedBy -homeConfirmedBy -awayConfirmedBy -scheduledBy -homeCoach -awayCoach')
+      .sort({ scheduledDate: 1 })
+      .lean();
+
+    const matches = all.filter(m => {
+      const v = m.venue;
+      if (!v) return false;
+      if (String(v.region || '').toLowerCase() !== String(region).toLowerCase()) {
+        return false;
+      }
+      if (district && String(v.district || '').toLowerCase() !==
+          String(district).toLowerCase()) {
+        return false;
+      }
+      if (ward && String(v.ward || '').toLowerCase() !==
+          String(ward).toLowerCase()) {
+        return false;
+      }
+      return true;
+    });
+
+    const upcoming = matches.filter(m => new Date(m.scheduledDate) >= now);
+    const recent = matches
+      .filter(m => new Date(m.scheduledDate) < now)
+      .reverse(); // newest-past first
+    return res.status(200).json({ data: { upcoming, recent } });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/matches/:id
 router.get(`${BASE}/:id`, async (req, res) => {
   try {
