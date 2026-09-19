@@ -6,6 +6,8 @@ const ScoutInvoice = require('../ScoutInvoice/scout_invoice.model');
 const User = require('../User/user.model');
 const Match = require('../Match/match.model');
 const ChatMessage = require('../Chat/chat.model');
+const Notification = require('../Notification/notification.model');
+const { sendPush } = require('../Notification/push_sender');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 
@@ -280,6 +282,36 @@ router.post(BASE, async (req, res) => {
     const populated = await ScoutReport.findById(report._id)
       .populate('scout', 'firstName lastName type accountNumber')
       .populate('player', 'firstName lastName type position accountNumber profileImage');
+
+    // Notify the player that a scout has evaluated them. Guardian
+    // mirror hook on the Notification schema fans this out to any
+    // linked guardian automatically. Mutes under the 'reports' pref.
+    try {
+      const scoutName = `${(populated.scout && populated.scout.firstName) || ''} ${(populated.scout && populated.scout.lastName) || ''}`.trim() || 'Skauti';
+      const bodyText = `${scoutName} amefanya tathmini kuhusu wewe. Fungua ripoti kuiona.`;
+      await Notification.create({
+        userId: report.player,
+        type: 'SYSTEM',
+        title: 'Tathmini mpya ya skauti',
+        body: bodyText,
+        titleKey: 'notif.scout.evaluation_submitted.title',
+        bodyKey: 'notif.scout.evaluation_submitted.body',
+        params: { scout: scoutName },
+        metadata: { kind: 'SCOUT_EVALUATION_SUBMITTED', reportId: report._id },
+      });
+      sendPush({
+        userId: report.player,
+        category: 'reports',
+        title: 'Tathmini mpya ya skauti',
+        body: bodyText,
+        titleKey: 'notif.scout.evaluation_submitted.title',
+        bodyKey: 'notif.scout.evaluation_submitted.body',
+        params: { scout: scoutName },
+        data: { kind: 'SCOUT_EVALUATION_SUBMITTED', reportId: String(report._id) },
+      }).catch(() => {});
+    } catch (e) {
+      console.log('[scout-eval-notify] failed:', e.message);
+    }
 
     // Fire-and-forget: if this was a MATCH report, check completion and
     // potentially issue the invoice + cascade notifications. Not awaited so
