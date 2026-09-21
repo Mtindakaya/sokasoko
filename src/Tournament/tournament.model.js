@@ -96,9 +96,28 @@ const TournamentSchema = new Schema(
       type: Number,
       default: 8,
     },
+    // Deprecated free-text prize. Kept so existing docs keep rendering
+    // until they're re-saved via the new create form.
     prize: {
       type: String,
       trim: true,
+    },
+    // Structured prizes: 1st place + runner-up. When `hasNoPrizes` is
+    // true, the two prize strings are ignored and clients render "N/A".
+    firstPrize: { type: String, trim: true, default: '' },
+    runnerUpPrize: { type: String, trim: true, default: '' },
+    hasNoPrizes: { type: Boolean, default: false },
+    // Optional official scout + referee attached to the tournament.
+    // Client can request specific individuals at creation time.
+    officialScout: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    officialReferee: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
     rules: {
       type: String,

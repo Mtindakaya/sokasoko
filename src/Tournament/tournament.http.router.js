@@ -57,7 +57,12 @@ router.get(`${BASE}/:id`, async (req, res) => {
 // POST /v1/tournaments
 router.post(BASE, async (req, res) => {
   try {
-    const { name, type, organizer, startDate, endDate, region, venue, maxTeams, ageGroup, categories, description, prize, rules, photo } = req.body;
+    const {
+      name, type, organizer, startDate, endDate, region, venue, maxTeams,
+      ageGroup, categories, description, prize, rules, photo,
+      firstPrize, runnerUpPrize, hasNoPrizes,
+      officialScout, officialReferee,
+    } = req.body;
     if (!name || !type || !organizer || !startDate || !endDate) {
       return res.status(400).json({ error: 'name, type, organizer, startDate and endDate are required' });
     }
@@ -104,6 +109,11 @@ router.post(BASE, async (req, res) => {
     const tournament = await Tournament.create({
       name, type, organizer, startDate, endDate, region, venue, maxTeams,
       ageGroup, categories, description, prize, rules, photo,
+      firstPrize: firstPrize || '',
+      runnerUpPrize: runnerUpPrize || '',
+      hasNoPrizes: !!hasNoPrizes,
+      officialScout: officialScout || null,
+      officialReferee: officialReferee || null,
       // New tournaments start private — organizer publishes when ready.
       isPublished: false,
     });
