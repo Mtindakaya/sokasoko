@@ -81,6 +81,11 @@ const TournamentSchema = new Schema(
       type: String,
       trim: true,
     },
+    district: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     venue: {
       type: Schema.Types.ObjectId,
       ref: 'Venue',
@@ -107,18 +112,17 @@ const TournamentSchema = new Schema(
     firstPrize: { type: String, trim: true, default: '' },
     runnerUpPrize: { type: String, trim: true, default: '' },
     hasNoPrizes: { type: Boolean, default: false },
-    // Optional official scout + referee attached to the tournament.
-    // Client can request specific individuals at creation time.
-    officialScout: {
+    // Optional official scouts + referees attached to the tournament.
+    // Organizer can nominate multiple of each at creation time (same
+    // pattern used when scheduling a match).
+    officialScouts: [{
       type: Schema.Types.ObjectId,
       ref: 'User',
-      default: null,
-    },
-    officialReferee: {
+    }],
+    officialReferees: [{
       type: Schema.Types.ObjectId,
       ref: 'User',
-      default: null,
-    },
+    }],
     rules: {
       type: String,
       trim: true,

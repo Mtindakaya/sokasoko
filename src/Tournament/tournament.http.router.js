@@ -61,7 +61,7 @@ router.post(BASE, async (req, res) => {
       name, type, organizer, startDate, endDate, region, venue, maxTeams,
       ageGroup, categories, description, prize, rules, photo,
       firstPrize, runnerUpPrize, hasNoPrizes,
-      officialScout, officialReferee,
+      officialScouts, officialReferees, district,
     } = req.body;
     if (!name || !type || !organizer || !startDate || !endDate) {
       return res.status(400).json({ error: 'name, type, organizer, startDate and endDate are required' });
@@ -109,11 +109,12 @@ router.post(BASE, async (req, res) => {
     const tournament = await Tournament.create({
       name, type, organizer, startDate, endDate, region, venue, maxTeams,
       ageGroup, categories, description, prize, rules, photo,
+      district: district || '',
       firstPrize: firstPrize || '',
       runnerUpPrize: runnerUpPrize || '',
       hasNoPrizes: !!hasNoPrizes,
-      officialScout: officialScout || null,
-      officialReferee: officialReferee || null,
+      officialScouts: Array.isArray(officialScouts) ? officialScouts : [],
+      officialReferees: Array.isArray(officialReferees) ? officialReferees : [],
       // New tournaments start private — organizer publishes when ready.
       isPublished: false,
     });
