@@ -11,7 +11,16 @@ const SCHEMA_OPTIONS = {
   emitIndexErrors: true,
 };
 
-const TOURNAMENT_TYPES = ['LEAGUE', 'CUP', 'KNOCKOUT', 'ROUND_ROBIN', 'FRIENDLY'];
+// GROUP_THEN_KNOCKOUT covers the common youth-cup format used by
+// Chipkizi Cup et al: round-robin groups feed a knockout bracket.
+const TOURNAMENT_TYPES = [
+  'LEAGUE',
+  'CUP',
+  'KNOCKOUT',
+  'ROUND_ROBIN',
+  'GROUP_THEN_KNOCKOUT',
+  'FRIENDLY',
+];
 const TOURNAMENT_STATUS = ['DRAFT', 'OPEN', 'ONGOING', 'COMPLETED', 'CANCELLED'];
 const AGE_GROUPS = ['U10', 'U12', 'U14', 'U16', 'U18', 'U21', 'SENIOR', 'OPEN'];
 const GENDERS = ['MALE', 'FEMALE', 'MIXED'];
@@ -105,6 +114,16 @@ const TournamentSchema = new Schema(
       default: 'PREMIUM',
       index: true,
     },
+    // Publish gate. Organizer preps the tournament privately (default
+    // false); flipping to true lists it in the public tournament
+    // directory and enables registration. Owner always sees their
+    // own drafts regardless of this flag.
+    isPublished: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    publishedAt: { type: Date, default: null },
   },
   SCHEMA_OPTIONS
 );

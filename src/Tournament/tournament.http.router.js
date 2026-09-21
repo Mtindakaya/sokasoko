@@ -10,13 +10,20 @@ const router = express.Router();
 const BASE = `/v${API_VERSION.split('.')[0]}/tournaments`;
 
 // GET /v1/tournaments
+// Public list hides unpublished drafts. When `organizer` is on the
+// query we return every tournament for that user (their own drafts
+// included), so the organizer can manage private prep from the app.
+// `includeUnpublished=true` also opts in (admin / owner tooling).
 router.get(BASE, async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, type, organizer } = req.query;
+    const { page = 1, limit = 20, status, type, organizer, includeUnpublished } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (type) filter.type = type;
     if (organizer) filter.organizer = organizer;
+    if (!organizer && String(includeUnpublished) !== 'true') {
+      filter.isPublished = true;
+    }
 
     const tournaments = await Tournament.find(filter)
       .populate('organizer', 'firstName lastName type academyName companyName')
@@ -50,7 +57,7 @@ router.get(`${BASE}/:id`, async (req, res) => {
 // POST /v1/tournaments
 router.post(BASE, async (req, res) => {
   try {
-    const { name, type, organizer, startDate, endDate, region, venue, maxTeams, ageGroup, description, prize, rules } = req.body;
+    const { name, type, organizer, startDate, endDate, region, venue, maxTeams, ageGroup, categories, description, prize, rules, photo } = req.body;
     if (!name || !type || !organizer || !startDate || !endDate) {
       return res.status(400).json({ error: 'name, type, organizer, startDate and endDate are required' });
     }
@@ -94,7 +101,12 @@ router.post(BASE, async (req, res) => {
       }
     } catch (_) { /* fall through */ }
 
-    const tournament = await Tournament.create({ name, type, organizer, startDate, endDate, region, venue, maxTeams, ageGroup, description, prize, rules });
+    const tournament = await Tournament.create({
+      name, type, organizer, startDate, endDate, region, venue, maxTeams,
+      ageGroup, categories, description, prize, rules, photo,
+      // New tournaments start private — organizer publishes when ready.
+      isPublished: false,
+    });
     return res.status(201).json({ data: tournament });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -136,6 +148,25 @@ router.patch(`${BASE}/:id`, async (req, res) => {
     const tournament = await Tournament.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     return res.status(200).json({ data: tournament });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /v1/tournaments/:id/publish  body: { publish: bool }
+// Organizer-only toggle. On first publish, stamps publishedAt.
+router.patch(`${BASE}/:id/publish`, async (req, res) => {
+  try {
+    const { publish } = req.body || {};
+    if (typeof publish !== 'boolean') {
+      return res.status(400).json({ error: 'publish (bool) required' });
+    }
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Tournament not found' });
+    t.isPublished = publish;
+    if (publish && !t.publishedAt) t.publishedAt = new Date();
+    await t.save();
+    return res.status(200).json({ data: t });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
