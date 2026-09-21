@@ -8,16 +8,15 @@ const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
 const BASE = `/v${API_VERSION.split('.')[0]}/invitations`;
 
+const { entityLabel } = require('../Utils/utils');
+
 async function inviterLabel(inviterId) {
   if (!inviterId) return 'Mtu / Somebody';
   const u = await User.findById(inviterId)
-    .select('academy_name firstName lastName type')
+    .select('type firstName lastName academy_name entity_name company_name football_field_name')
     .lean();
   if (!u) return 'Mtu / Somebody';
-  return (u.academy_name && u.academy_name.trim())
-    || `${u.firstName || ''} ${u.lastName || ''}`.trim()
-    || u.type
-    || 'Mtu';
+  return entityLabel(u) || u.type || 'Mtu';
 }
 
 function kindLabel(kind) {

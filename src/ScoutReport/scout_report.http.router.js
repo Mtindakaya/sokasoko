@@ -6,6 +6,7 @@ const ScoutInvoice = require('../ScoutInvoice/scout_invoice.model');
 const User = require('../User/user.model');
 const Match = require('../Match/match.model');
 const ChatMessage = require('../Chat/chat.model');
+const { entityLabel } = require('../Utils/utils');
 const Notification = require('../Notification/notification.model');
 const { sendPush } = require('../Notification/push_sender');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
@@ -69,8 +70,8 @@ async function resolveRequestedTeam(match, assignment) {
 async function maybeIssueInvoice({ scoutId, matchId, io }) {
   try {
     const match = await Match.findById(matchId)
-      .populate('homeTeam', 'firstName lastName academy_name')
-      .populate('awayTeam', 'firstName lastName academy_name')
+      .populate('homeTeam', 'firstName lastName type academy_name entity_name company_name football_field_name')
+      .populate('awayTeam', 'firstName lastName type academy_name entity_name company_name football_field_name')
       .lean();
     if (!match) return;
 
@@ -143,8 +144,8 @@ async function maybeIssueInvoice({ scoutId, matchId, io }) {
     });
 
     const scoutName = `${scoutUser.firstName || ''} ${scoutUser.lastName || ''}`.trim() || 'The scout';
-    const homeName = (match.homeTeam && (match.homeTeam.academy_name || `${match.homeTeam.firstName || ''} ${match.homeTeam.lastName || ''}`.trim())) || 'Home';
-    const awayName = (match.awayTeam && (match.awayTeam.academy_name || `${match.awayTeam.firstName || ''} ${match.awayTeam.lastName || ''}`.trim())) || 'Away';
+    const homeName = entityLabel(match.homeTeam) || 'Home';
+    const awayName = entityLabel(match.awayTeam) || 'Away';
 
     // Step 1: invoice message to the requester.
     const invoiceMsg = [
@@ -469,14 +470,14 @@ router.post(`${INVOICE_BASE}/:id/mark-paid`, async (req, res) => {
       return res.status(200).json({ data: invoice });
     }
     const match = await Match.findById(invoice.match)
-      .populate('homeTeam', 'firstName lastName academy_name')
-      .populate('awayTeam', 'firstName lastName academy_name')
+      .populate('homeTeam', 'firstName lastName type academy_name entity_name company_name football_field_name')
+      .populate('awayTeam', 'firstName lastName type academy_name entity_name company_name football_field_name')
       .lean();
     const scoutUser = await User.findById(invoice.scout)
       .select('firstName lastName')
       .lean();
-    const homeName = (match && match.homeTeam && (match.homeTeam.academy_name || `${match.homeTeam.firstName || ''} ${match.homeTeam.lastName || ''}`.trim())) || 'Home';
-    const awayName = (match && match.awayTeam && (match.awayTeam.academy_name || `${match.awayTeam.firstName || ''} ${match.awayTeam.lastName || ''}`.trim())) || 'Away';
+    const homeName = entityLabel(match && match.homeTeam) || 'Home';
+    const awayName = entityLabel(match && match.awayTeam) || 'Away';
     await markInvoicePaid(invoice, {
       match,
       scoutUser,

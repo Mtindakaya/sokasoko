@@ -3,6 +3,7 @@ const { getString } = require('@lykmapipo/env');
 const OrgStaffLink = require('./org_staff.model');
 const User = require('../User/user.model');
 const Notification = require('../Notification/notification.model');
+const { entityLabel } = require('../Utils/utils');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
@@ -43,7 +44,7 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     }
 
     const [org, guardian] = await Promise.all([
-      User.findById(orgId).select('type firstName lastName academy_name').lean(),
+      User.findById(orgId).select('type firstName lastName academy_name entity_name company_name football_field_name').lean(),
       User.findById(guardianId).select('type firstName lastName').lean(),
     ]);
     if (!org) return res.status(404).json({ error: 'org not found' });
@@ -147,14 +148,10 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
     // to reach out to the person to detach).
     const existingActive = await OrgStaffLink.findOne({
       staff: guardianId, status: 'ACTIVE',
-    }).populate('org', 'firstName lastName academy_name company_name entity_name').lean();
+    }).populate('org', 'firstName lastName type academy_name entity_name company_name football_field_name').lean();
     if (existingActive) {
       const otherOrg = existingActive.org || {};
-      const otherOrgName = otherOrg.academy_name
-        || otherOrg.company_name
-        || otherOrg.entity_name
-        || `${otherOrg.firstName || ''} ${otherOrg.lastName || ''}`.trim()
-        || 'taasisi nyingine';
+      const otherOrgName = entityLabel(otherOrg) || 'taasisi nyingine';
       const staffName =
         `${guardian.firstName || ''} ${guardian.lastName || ''}`.trim()
         || 'Huyu mtumiaji';
@@ -197,9 +194,7 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
 
     // Bell notification to the guardian.
     try {
-      const orgName = org.academy_name
-        || `${org.firstName || ''} ${org.lastName || ''}`.trim()
-        || 'Taasisi';
+      const orgName = entityLabel(org) || 'Taasisi';
       await Notification.create({
         userId: guardianId,
         title: 'Ombi la kuwa mfanyakazi',

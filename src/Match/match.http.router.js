@@ -8,6 +8,7 @@ const ChatMessage = require('../Chat/chat.model');
 const Notification = require('../Notification/notification.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
 const { Subscription } = require('../Subscription/subscription.model');
+const { entityLabel } = require('../Utils/utils');
 const { busyUserIds, venueBusy, busyTeamIds } = require('./conflict.helper');
 const { notifyMatchAction } = require('./match_notifications');
 const { canManageTeam, canManageMatch } = require('./match_access');
@@ -482,10 +483,9 @@ router.post(BASE, async (req, res) => {
         const busy = await busyTeamIds(teamIds, scheduledDate);
         if (busy.size) {
           const users = await User.find({ _id: { $in: [...busy] } })
-            .select('firstName lastName academy_name').lean();
+            .select('firstName lastName type academy_name entity_name company_name football_field_name').lean();
           const names = users
-            .map((u) => (u.academy_name && u.academy_name.trim())
-              || `${u.firstName || ''} ${u.lastName || ''}`.trim())
+            .map((u) => entityLabel(u))
             .filter(Boolean)
             .join(', ');
           return res.status(409).json({
@@ -519,11 +519,10 @@ router.post(BASE, async (req, res) => {
     if (refSlots.length) {
       try {
         const [home, away] = await Promise.all([
-          User.findById(homeTeam).select('academy_name firstName lastName').lean(),
-          User.findById(awayTeam).select('academy_name firstName lastName').lean(),
+          User.findById(homeTeam).select('firstName lastName type academy_name entity_name company_name football_field_name').lean(),
+          User.findById(awayTeam).select('firstName lastName type academy_name entity_name company_name football_field_name').lean(),
         ]);
-        const teamLabel = (u) => (u?.academy_name || `${u?.firstName || ''} ${u?.lastName || ''}`.trim()) || 'a team';
-        const matchLabel = `${teamLabel(home)} vs ${teamLabel(away)}`;
+        const matchLabel = `${entityLabel(home) || 'a team'} vs ${entityLabel(away) || 'a team'}`;
         for (const s of refSlots) {
           await Notification.create({
             userId: s.id,
@@ -998,12 +997,11 @@ router.post(`${BASE}/:id/referee-response`, async (req, res) => {
     // Notify the scheduler so they don't have to poll.
     try {
       const [home, away, ref] = await Promise.all([
-        User.findById(match.homeTeam).select('academy_name firstName lastName').lean(),
-        User.findById(match.awayTeam).select('academy_name firstName lastName').lean(),
+        User.findById(match.homeTeam).select('firstName lastName type academy_name entity_name company_name football_field_name').lean(),
+        User.findById(match.awayTeam).select('firstName lastName type academy_name entity_name company_name football_field_name').lean(),
         User.findById(currentRef).select('firstName lastName').lean(),
       ]);
-      const teamLabel = (u) => (u?.academy_name || `${u?.firstName || ''} ${u?.lastName || ''}`.trim()) || 'a team';
-      const matchLabel = `${teamLabel(home)} vs ${teamLabel(away)}`;
+      const matchLabel = `${entityLabel(home) || 'a team'} vs ${entityLabel(away) || 'a team'}`;
       const refName = ref ? `${ref.firstName || ''} ${ref.lastName || ''}`.trim() : 'A referee';
       const roleLabel = slot === 'main' ? 'Mwamuzi Mkuu' : slot === 'ar1' ? 'Msaidizi 1' : 'Msaidizi 2';
       const accepted = action === 'accept';
@@ -1055,7 +1053,7 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
     const [match, scout, requester] = await Promise.all([
       Match.findById(req.params.id),
       User.findById(scoutId).select('type firstName lastName costPerGame costPerPlayer'),
-      User.findById(requestedBy).select('type firstName lastName school academy'),
+      User.findById(requestedBy).select('type firstName lastName school academy academy_name entity_name company_name football_field_name'),
     ]);
     if (!match) return res.status(404).json({ error: 'Match not found' });
     if (!scout || (scout.type !== 'SCOUT' && scout.type !== 'COACH')) {
@@ -1132,7 +1130,7 @@ router.post(`${BASE}/:id/request-scout`, async (req, res) => {
 
     // Chat notification from requester → scout so it shows up in the scout's
     // Messages inbox alongside the standard match-scout heads-up.
-    const requesterName = `${requester.firstName || ''} ${requester.lastName || ''}`.trim() || 'A user';
+    const requesterName = entityLabel(requester) || 'A user';
     const roleLabel = isPlayerOnTeam ? 'player' : 'team';
     try {
       await ChatMessage.create({

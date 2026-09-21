@@ -721,7 +721,33 @@ module.exports = function createChatRouter(io) {
           $project: {
             type: { $literal: 'direct' },
             partnerId: '$_id',
-            partnerName: { $concat: [{ $ifNull: ['$partner.firstName', ''] }, ' ', { $ifNull: ['$partner.lastName', ''] }] },
+            // Org-aware display name. Org accounts carry the creator's
+            // firstName/lastName as searchable person fields, so a blind
+            // first+last concat leaks that name into the chat inbox.
+            // Fallback ladder mirrors Utils/utils.entityLabel().
+            partnerName: {
+              $let: {
+                vars: {
+                  acad: { $ifNull: ['$partner.academy_name', ''] },
+                  ent:  { $ifNull: ['$partner.entity_name', ''] },
+                  comp: { $ifNull: ['$partner.company_name', ''] },
+                  fld:  { $ifNull: ['$partner.football_field_name', ''] },
+                  fn:   { $ifNull: ['$partner.firstName', ''] },
+                  ln:   { $ifNull: ['$partner.lastName', ''] },
+                },
+                in: {
+                  $switch: {
+                    branches: [
+                      { case: { $ne: ['$$acad', ''] }, then: '$$acad' },
+                      { case: { $ne: ['$$ent',  ''] }, then: '$$ent' },
+                      { case: { $ne: ['$$comp', ''] }, then: '$$comp' },
+                      { case: { $ne: ['$$fld',  ''] }, then: '$$fld' },
+                    ],
+                    default: { $trim: { input: { $concat: ['$$fn', ' ', '$$ln'] } } },
+                  },
+                },
+              },
+            },
             partnerPhoto: '$partner.photo',
             partnerType: '$partner.type',
             lastMessage: 1,

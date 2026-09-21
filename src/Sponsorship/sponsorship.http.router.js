@@ -17,6 +17,7 @@
 const express = require('express');
 const { uploadFor } = require('../Utils/uploader');
 const User = require('../User/user.model');
+const { entityLabel } = require('../Utils/utils');
 const Sponsorship = require('./sponsorship.model');
 const SponsorshipRequest = require('./sponsorship_request.model');
 const SponsorshipComment = require('./sponsorship_comment.model');
@@ -93,10 +94,10 @@ router.post(`${BASE}/sponsorships`, uploadFor(), async (req, res) => {
 
     // Best-effort notification to the beneficiary.
     try {
-      const s = await User.findById(sponsor).select('firstName lastName entity_name isAnonymous').lean();
+      const s = await User.findById(sponsor).select('type firstName lastName academy_name entity_name company_name football_field_name isAnonymous').lean();
       const sponsorName = s?.isAnonymous
         ? 'Mdhamini'
-        : (s?.entity_name?.trim() || `${s?.firstName || ''} ${s?.lastName || ''}`.trim() || 'Mdhamini');
+        : (entityLabel(s) || 'Mdhamini');
       await Notification.create({
         userId: beneficiary,
         title: 'Umepokea mchango',
@@ -227,9 +228,8 @@ router.post(`${BASE}/sponsorships/:id/comments`, async (req, res) => {
     // Notify sponsor.
     try {
       const author = await User.findById(b.author)
-        .select('firstName lastName academy_name entity_name company_name').lean();
-      const name = author?.academy_name || author?.entity_name || author?.company_name
-        || `${author?.firstName || ''} ${author?.lastName || ''}`.trim() || 'Mnufaika';
+        .select('type firstName lastName academy_name entity_name company_name football_field_name').lean();
+      const name = entityLabel(author) || 'Mnufaika';
       await Notification.create({
         userId: s.sponsor,
         title: kind === 'COMPLAINT' ? 'Malalamiko mapya' : 'Maoni mapya',
@@ -289,13 +289,11 @@ router.post(`${BASE}/sponsorship-requests`, async (req, res) => {
     // Notify sponsor.
     try {
       const [requester, benef] = await Promise.all([
-        User.findById(b.requester).select('firstName lastName academy_name entity_name').lean(),
-        User.findById(b.beneficiary).select('firstName lastName academy_name entity_name').lean(),
+        User.findById(b.requester).select('type firstName lastName academy_name entity_name company_name football_field_name').lean(),
+        User.findById(b.beneficiary).select('type firstName lastName academy_name entity_name company_name football_field_name').lean(),
       ]);
-      const requesterName = requester?.academy_name || requester?.entity_name
-        || `${requester?.firstName || ''} ${requester?.lastName || ''}`.trim() || 'Mtumiaji';
-      const benefName = benef?.academy_name || benef?.entity_name
-        || `${benef?.firstName || ''} ${benef?.lastName || ''}`.trim() || 'mtu';
+      const requesterName = entityLabel(requester) || 'Mtumiaji';
+      const benefName = entityLabel(benef) || 'mtu';
       await Notification.create({
         userId: b.sponsor,
         title: 'Ombi la udhamini',
