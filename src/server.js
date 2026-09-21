@@ -37,6 +37,7 @@ const createChatRouter = require('./Chat/chat.http.router');
 const attachChat = require('./Chat/chat.socket');
 const FeedRouter = require('./Feed/feed.http.router');
 const TournamentRegistrationRouter = require('./TournamentRegistration/tournament_registration.http.router');
+const TournamentTeamRegistrationRouter = require('./TournamentTeamRegistration/tournament_team_registration.http.router');
 const OpenTournamentRouter = require('./OpenTournament/open_tournament.http.router');
 const ReportRequestRouter = require('./ReportRequest/report_request.http.router');
 const NotificationRouter = require('./Notification/notification.http.router');
@@ -179,6 +180,7 @@ connect(MONGODB_URI, (error) => {
   app.use(ScoutCvRouter);
   app.use(FeedRouter);
   app.use(TournamentRegistrationRouter);
+  app.use(TournamentTeamRegistrationRouter);
   app.use(OpenTournamentRouter);
   app.use(ReportRequestRouter);
   app.use(NotificationRouter);
