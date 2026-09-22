@@ -444,6 +444,82 @@ router.post(`${BASE}/:id/reject`, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// PATCH /v1/live-sessions/:id/audience  body: { actor, audience,
+//   audienceUsers? }
+// Host-only. Lets the host backfill or change the audience while the
+// session is REQUESTED or APPROVED (blocked once LIVE/ENDED/CANCELLED).
+// Solves the "Select later" gap where a SPECIFIC session with an empty
+// audienceUsers list was invisible to everyone but the host and had no
+// way to be edited. When the session was already APPROVED and the
+// audience just became non-empty, fires the standard invite fan-out so
+// the newly-picked audience gets pinged.
+// ─────────────────────────────────────────────────────────────────────────
+router.patch(`${BASE}/:id/audience`, async (req, res) => {
+  try {
+    const { actor, audience, audienceUsers } = req.body || {};
+    const s = await LiveSession.findById(req.params.id);
+    if (!s) return res.status(404).json({ error: 'Not found' });
+    if (String(s.host) !== String(actor)) {
+      return res.status(403).json({
+        error: 'Ni mwenye kipindi tu anayeweza kubadilisha wasikilizaji.',
+        errorKey: 'live_session.err.audience_edit_forbidden',
+      });
+    }
+    if (!['REQUESTED', 'APPROVED'].includes(s.status)) {
+      return res.status(409).json({
+        error: `Huwezi kubadilisha wasikilizaji baada ya hali ya ${s.status}.`,
+        errorKey: 'live_session.err.audience_edit_locked',
+      });
+    }
+    const nextAud = audience === 'SPECIFIC' ? 'SPECIFIC' : 'GENERAL';
+    const nextUsers = (nextAud === 'SPECIFIC' && Array.isArray(audienceUsers))
+      ? audienceUsers.slice(0, 500)
+      : [];
+    const wasEmpty = s.audience === 'SPECIFIC'
+      && (!s.audienceUsers || s.audienceUsers.length === 0);
+    const nowFilled = nextAud === 'GENERAL'
+      || (nextAud === 'SPECIFIC' && nextUsers.length > 0);
+    s.audience = nextAud;
+    s.audienceUsers = nextUsers;
+    await s.save();
+
+    res.json({ data: s });
+
+    // If this is a filled-in APPROVED session that previously had no
+    // audience, fire the standard invite fan-out now so the audience
+    // learns about the session (mirrors the /approve path).
+    if (s.status === 'APPROVED' && wasEmpty && nowFilled) {
+      resolveInvitees(s).then((invitees) => {
+        fanOutNotifications({
+          label: 'audience.backfill',
+          invitees,
+          payloadFor: (uid) => ({
+            userId: uid,
+            type: 'SYSTEM',
+            title: 'Alika Kwenye Kipindi cha Moja kwa Moja',
+            body: `Umealikwa kwenye kipindi "${s.title}".`,
+            titleKey: 'notif.live_session.invite_title',
+            bodyKey: 'notif.live_session.invite_body',
+            params: { title: s.title },
+            metadata: {
+              kind: 'LIVE_SESSION_INVITE',
+              liveSessionId: s._id.toString(),
+              hostId: s.host.toString(),
+              scheduledFor: s.scheduledFor.toISOString(),
+            },
+          }),
+        });
+      }).catch((e) => {
+        console.warn('[LIVE_SESSION audience.backfill] resolve failed:', e.message);
+      });
+    }
+    return;
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Host actions — POST /:id/start, /:id/end, /:id/cancel, /:id/recording
 // ─────────────────────────────────────────────────────────────────────────
 router.post(`${BASE}/:id/start`, async (req, res) => {
