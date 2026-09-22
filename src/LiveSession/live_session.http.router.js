@@ -247,7 +247,12 @@ router.get(`${BASE}/mine`, async (req, res) => {
   try {
     const host = req.query.host;
     if (!host) return res.status(400).json({ error: 'host required' });
+    // Populate audienceUsers with the fields needed to render the
+    // "current invitees" chips + tap-through on the host's own
+    // Zangu list.
     const list = await LiveSession.find({ host })
+      .populate('audienceUsers',
+        'firstName lastName type academy_name entity_name company_name football_field_name profileImage accountNumber')
       .sort({ scheduledFor: -1 })
       .limit(100)
       .lean();
@@ -381,7 +386,7 @@ router.post(`${BASE}/:id/approve`, async (req, res) => {
         payloadFor: (uid) => ({
           userId: uid,
           type: 'SYSTEM',
-          title: 'Alika Kwenye Kipindi cha Moja kwa Moja',
+          title: 'Mualiko Kwenye Kipindi cha Moja kwa Moja',
           body: `Umealikwa kwenye kipindi "${s.title}".`,
           titleKey: 'notif.live_session.invite_title',
           bodyKey: 'notif.live_session.invite_body',
@@ -496,7 +501,7 @@ router.patch(`${BASE}/:id/audience`, async (req, res) => {
           payloadFor: (uid) => ({
             userId: uid,
             type: 'SYSTEM',
-            title: 'Alika Kwenye Kipindi cha Moja kwa Moja',
+            title: 'Mualiko Kwenye Kipindi cha Moja kwa Moja',
             body: `Umealikwa kwenye kipindi "${s.title}".`,
             titleKey: 'notif.live_session.invite_title',
             bodyKey: 'notif.live_session.invite_body',
