@@ -225,6 +225,10 @@ const UserSchema = new Schema(
     vendor_type: { type: String, trim: true },
     company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
+    // One-shot marker for the FA-directed "new entity registered"
+    // notification. Set once the entity first has region + district
+    // populated so we don't re-notify on every profile update.
+    districtNotifiedAt: { type: Date, default: null },
     // Age levels the entity fields teams for (U10, U12, ... SENIOR).
     // Used on ACADEMY / CLUB / SCHOOL cards + info-zaidi sections.
     // Free-form array so we can extend without a schema migration.
@@ -619,6 +623,25 @@ UserSchema.methods.setAccountNumber = async function setAccountNumber(criteria) 
   await mongoose.model('User').findByIdAndUpdate(this._id, { $set: { accountNumber: criteria } });
   this.accountNumber = criteria;
 };
+
+// Fire FA-directed notification exactly once, the first time an
+// ACADEMY/CLUB/SCHOOL user has region set. Lazy require to avoid
+// circular deps (fa_notifier resolves 'User' via mongoose.model).
+UserSchema.post('save', async function faEntityRegistered(doc) {
+  try {
+    if (!['ACADEMY', 'CLUB', 'SCHOOL'].includes(doc.type)) return;
+    if (!doc.region) return;
+    if (doc.districtNotifiedAt) return;
+    const { notifyFaOfNewEntity } = require('../FootballAssociation/fa_notifier');
+    await notifyFaOfNewEntity(doc);
+    await doc.constructor.updateOne(
+      { _id: doc._id, districtNotifiedAt: null },
+      { $set: { districtNotifiedAt: new Date() } },
+    );
+  } catch (err) {
+    console.log('[user.post-save fa notify] failed:', err.message);
+  }
+});
 
 mongoose.plugin(actions);
 

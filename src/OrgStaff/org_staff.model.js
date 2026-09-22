@@ -53,6 +53,27 @@ OrgStaffLinkSchema.index(
   { unique: true, partialFilterExpression: { status: 'PENDING' } }
 );
 
+// FA notification: when a staff link goes ACTIVE (staff accepted the
+// invite), let the FAs in the org's district know about the change.
+// Fires once per acceptance via acceptedAt idempotency in the caller.
+OrgStaffLinkSchema.post('save', async function faStaffChange(doc) {
+  try {
+    if (doc.status !== 'ACTIVE') return;
+    // Only fire on the accept transition — acceptedAt just got set and
+    // the doc is fresh enough that we can use $wasNew || isModified.
+    // Post('save') doesn't expose isModified; rely on acceptedAt being
+    // newly set (within the last 60s) to avoid re-firing on subsequent
+    // updates that don't change link status.
+    if (!doc.acceptedAt) return;
+    const ageMs = Date.now() - new Date(doc.acceptedAt).getTime();
+    if (ageMs > 60_000) return;
+    const { notifyFaOfStaffChange } = require('../FootballAssociation/fa_notifier');
+    await notifyFaOfStaffChange(doc);
+  } catch (err) {
+    console.log('[org_staff.post-save fa notify] failed:', err.message);
+  }
+});
+
 mongoose.plugin(actions);
 
 module.exports = model('OrgStaffLink', OrgStaffLinkSchema);
