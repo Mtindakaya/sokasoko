@@ -225,6 +225,16 @@ const UserSchema = new Schema(
     vendor_type: { type: String, trim: true },
     company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
+    // Age levels the entity fields teams for (U10, U12, ... SENIOR).
+    // Used on ACADEMY / CLUB / SCHOOL cards + info-zaidi sections.
+    // Free-form array so we can extend without a schema migration.
+    supportedAgeLevels: [{ type: String, trim: true }],
+    // Genders the entity fields teams for. Any subset of MALE / FEMALE.
+    // Rendered as Me / Mk / Me · Mk on the profile card.
+    supportedGenders: [{
+      type: String,
+      enum: ['MALE', 'FEMALE'],
+    }],
     // CLUB-specific fields. academy_name / academy_registration /
     // academy_description double as club_name / TFF-reg / club-description
     // (labels change in the mobile UI); these two are club-only.

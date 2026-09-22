@@ -43,14 +43,33 @@ router.get(`${BASE}/district-directory`, async (req, res) => {
     }
 
     const entities = await User.find(filter)
-      .select('firstName lastName type academy_name entity_name company_name football_field_name accountNumber profileImage region district createdAt')
+      .select('firstName lastName type academy_name entity_name company_name football_field_name accountNumber profileImage region district createdAt supportedAgeLevels supportedGenders')
       .sort({ createdAt: -1 })
       .skip((Number(page) - 1) * Number(limit))
       .limit(Number(limit))
       .lean();
 
+    // District-wide counts (independent of the current type filter so
+    // the header shows the full picture even when the user is looking
+    // at, say, just Academies).
+    const statsFilter = { region: filter.region };
+    if (filter.district) statsFilter.district = filter.district;
+    const countsAgg = await User.aggregate([
+      {
+        $match: {
+          ...statsFilter,
+          type: { $in: ['ACADEMY', 'CLUB', 'SCHOOL'] },
+        },
+      },
+      { $group: { _id: '$type', n: { $sum: 1 } } },
+    ]);
+    const stats = { ACADEMY: 0, CLUB: 0, SCHOOL: 0 };
+    for (const row of countsAgg) {
+      stats[row._id] = row.n;
+    }
+
     if (!entities.length) {
-      return res.status(200).json({ data: [] });
+      return res.status(200).json({ data: [], stats });
     }
 
     const ids = entities.map((e) => e._id);
@@ -85,10 +104,12 @@ router.get(`${BASE}/district-directory`, async (req, res) => {
       region: e.region,
       district: e.district,
       registeredAt: e.createdAt,
+      supportedAgeLevels: e.supportedAgeLevels || [],
+      supportedGenders: e.supportedGenders || [],
       leadership: leadershipByOrg.get(String(e._id)) || [],
     }));
 
-    return res.status(200).json({ data: rows });
+    return res.status(200).json({ data: rows, stats });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
