@@ -209,12 +209,17 @@ router.get(BASE, async (req, res) => {
 
 // GET /v1/matches/for-district
 // District-scoped fixture calendar. Powers the Football Association
-// "Ratiba ya Wilaya" screen — every match whose venue lives in the
-// caller's region + district, split into upcoming and recent buckets.
+// "Ratiba za Mechi" screen. A match is included when EITHER
+//   (a) the venue (football field) is in the FA's region + district, OR
+//   (b) either team is a registered ACADEMY / CLUB / SCHOOL in that
+//       same region + district.
+// This way an away fixture played outside the district still shows on
+// the home FA's calendar, and a match without a venue set still shows
+// if the teams belong locally.
 // Query params:
-//   region    — required, matches venue.region (case-insensitive).
-//   district  — optional; when set, further narrows by venue.district.
-//   ward      — optional; further narrows by venue.ward.
+//   region    — required, case-insensitive.
+//   district  — optional; when set, further narrows.
+//   ward      — optional; further narrows.
 //   days      — how far back "recent" reaches (default 30).
 // Response: { data: { upcoming: [...], recent: [...] } }.
 router.get(`${BASE}/for-district`, async (req, res) => {
@@ -230,38 +235,44 @@ router.get(`${BASE}/for-district`, async (req, res) => {
     const now = new Date();
     const back = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-    // Filter venue-holding matches by location — venue is a User ref
-    // whose region/district/ward fields we populate + filter in JS
-    // (small result set makes an aggregation pipeline overkill).
+    // Wider fetch — no venue-not-null constraint since a match may
+    // qualify via team location alone. We populate everything we
+    // need to make the filter decision in JS (small result set).
     const all = await Match.find({
-      venue: { $ne: null },
       scheduledDate: { $gte: back },
       status: { $nin: ['CANCELLED', 'DECLINED'] },
     })
       .populate('venue', 'name region district ward')
-      .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
-      .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage region district ward')
+      .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage region district ward')
       .populate('tournament', 'name type')
       .select('-playerStats -notes -scheduleDeclinedBy -scheduleConfirmedBy -homeConfirmedBy -awayConfirmedBy -scheduledBy -homeCoach -awayCoach')
       .sort({ scheduledDate: 1 })
       .lean();
 
-    const matches = all.filter(m => {
-      const v = m.venue;
-      if (!v) return false;
-      if (String(v.region || '').toLowerCase() !== String(region).toLowerCase()) {
+    const targetRegion = String(region).toLowerCase();
+    const targetDistrict = district ? String(district).toLowerCase() : null;
+    const targetWard = ward ? String(ward).toLowerCase() : null;
+
+    const partyMatches = (o) => {
+      if (!o) return false;
+      if (String(o.region || '').toLowerCase() !== targetRegion) return false;
+      if (targetDistrict &&
+          String(o.district || '').toLowerCase() !== targetDistrict) {
         return false;
       }
-      if (district && String(v.district || '').toLowerCase() !==
-          String(district).toLowerCase()) {
-        return false;
-      }
-      if (ward && String(v.ward || '').toLowerCase() !==
-          String(ward).toLowerCase()) {
+      if (targetWard &&
+          String(o.ward || '').toLowerCase() !== targetWard) {
         return false;
       }
       return true;
-    });
+    };
+
+    const matches = all.filter(m =>
+      partyMatches(m.venue) ||
+      partyMatches(m.homeTeam) ||
+      partyMatches(m.awayTeam)
+    );
 
     const upcoming = matches.filter(m => new Date(m.scheduledDate) >= now);
     const recent = matches
