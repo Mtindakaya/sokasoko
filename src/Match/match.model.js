@@ -64,6 +64,18 @@ const MatchSchema = new Schema(
       ref: 'Venue',
       default: null,
     },
+    // Manual venue path — used when the field isn't registered in the
+    // Venue collection. Organizer types the name and picks location
+    // (region required so the FA calendar filter still works). At
+    // least ONE of `venue` or `manualVenue.name` must be set at save
+    // time — enforced in the POST /matches handler and the pre-save
+    // hook below.
+    manualVenue: {
+      name:     { type: String, trim: true, default: '' },
+      region:   { type: String, trim: true, default: '' },
+      district: { type: String, trim: true, default: '' },
+      ward:     { type: String, trim: true, default: '' },
+    },
     tournament: {
       type: Schema.Types.ObjectId,
       ref: 'Tournament',
@@ -221,6 +233,19 @@ const MatchSchema = new Schema(
   },
   SCHEMA_OPTIONS
 );
+
+// Venue is required — either a registered venue ref OR a manual
+// name + region. Enforced here so any create/patch path is covered.
+MatchSchema.pre('save', function (next) {
+  const hasRegistered = !!this.venue;
+  const mv = this.manualVenue || {};
+  const hasManual = (mv.name || '').trim().length > 0
+    && (mv.region || '').trim().length > 0;
+  if (!hasRegistered && !hasManual) {
+    return next(new Error('VENUE_REQUIRED'));
+  }
+  next();
+});
 
 // Auto-mark as completed and generate matchId when both teams confirm
 MatchSchema.pre('save', async function (next) {

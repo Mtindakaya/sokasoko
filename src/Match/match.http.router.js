@@ -270,6 +270,7 @@ router.get(`${BASE}/for-district`, async (req, res) => {
 
     const matches = all.filter(m =>
       partyMatches(m.venue) ||
+      partyMatches(m.manualVenue) ||
       partyMatches(m.homeTeam) ||
       partyMatches(m.awayTeam)
     );
@@ -312,7 +313,7 @@ router.get(`${BASE}/:id`, async (req, res) => {
 // POST /v1/matches — schedule a match
 router.post(BASE, async (req, res) => {
   try {
-    const { homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee, ageLevel, gender } = req.body;
+    const { homeTeam, awayTeam, venue, manualVenue, tournament, scheduledDate, notes, scheduledBy, referee, ageLevel, gender } = req.body;
     if (!homeTeam || !awayTeam || !scheduledDate) {
       return res.status(400).json({
         error: 'Tafadhali chagua timu mbili na tarehe ya mechi.',
@@ -323,6 +324,18 @@ router.post(BASE, async (req, res) => {
       return res.status(400).json({
         error: 'Timu ya nyumbani na ya ugenini haiwezi kuwa moja.',
         errorKey: 'matches.error.same_team',
+      });
+    }
+    // Venue required — either a registered venue ID or a manual entry
+    // with at least a name + region. Client shows either the dropdown
+    // OR a name+region/district/ward form.
+    const mv = manualVenue || {};
+    const hasManualVenue = (mv.name || '').trim().length > 0
+      && (mv.region || '').trim().length > 0;
+    if (!venue && !hasManualVenue) {
+      return res.status(400).json({
+        error: 'Tafadhali chagua uwanja au andika jina la uwanja pamoja na mkoa.',
+        errorKey: 'matches.error.venue_required',
       });
     }
     const blocked = await orphanedPlayerBlock(scheduledBy);
@@ -511,6 +524,14 @@ router.post(BASE, async (req, res) => {
     const match = await Match.create({
       homeTeam, awayTeam, venue, tournament, scheduledDate, notes, scheduledBy, referee,
       ageLevel, gender,
+      manualVenue: hasManualVenue
+        ? {
+            name: (mv.name || '').trim(),
+            region: (mv.region || '').trim(),
+            district: (mv.district || '').trim(),
+            ward: (mv.ward || '').trim(),
+          }
+        : undefined,
       assistantReferee1, assistantReferee2,
       // Every assigned ref slot starts PENDING — the ref must accept
       // or decline from the Verifications screen.
