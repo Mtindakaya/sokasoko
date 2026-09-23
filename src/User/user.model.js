@@ -225,6 +225,12 @@ const UserSchema = new Schema(
     vendor_type: { type: String, trim: true },
     company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
+    // Password reset flow — short-lived 6-digit code hashed with
+    // bcrypt (same salt-rounds as password) so the raw code never
+    // sits in the DB. Cleared after successful reset or expiry
+    // (15 min TTL).
+    passwordResetCode: { type: String, default: null },
+    passwordResetExpiresAt: { type: Date, default: null },
     // One-shot marker for the FA-directed "new entity registered"
     // notification. Set once the entity first has region + district
     // populated so we don't re-notify on every profile update.
