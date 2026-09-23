@@ -1,7 +1,7 @@
 # SokaSoko Platform — Product Requirements Document
 
-**Version:** 3.0  
-**Last Updated:** 2026-09-19  
+**Version:** 3.1  
+**Last Updated:** 2026-09-23  
 **Platform:** Mobile (Flutter/Android) + Admin CMS (React) + Backend API (Node.js/Express/MongoDB) — iOS via TestFlight (Path A, in progress)
 
 ---
@@ -64,7 +64,8 @@ SokaSoko is a football management and discovery ecosystem purpose-built for East
 ### 3.2 MATCH MANAGEMENT
 
 #### Requirements
-- **Scheduling:** Team (Academy/Club/School/Coach) schedules match by selecting home team, away team, date/time, venue, and optionally: tournament, referee, assistant referees, scout, age level, gender
+- **Scheduling:** Team (Academy/Club/School/Coach) schedules match by selecting home team, away team, date/time, venue (required — see below), and optionally: tournament, referee, assistant referees, scout, age level, gender
+- **Venue Requirement:** Every match MUST have a venue. Two paths — either pick from the registered Venue collection, OR fill a manual entry (name + region required; district + ward optional). Enforced by a pre-save hook and the POST /matches validator
 - **Confirmation:** Away team must confirm or decline the schedule with reason. Score entry blocked until schedule is confirmed
 - **Reschedule:** Either team may request reschedule; away team must re-confirm
 - **Match Status Flow:** SCHEDULED → CONFIRMED → ONGOING → COMPLETED / CANCELLED (matchId `TFH-M-XXXXXX` auto-issued on COMPLETED)
@@ -389,14 +390,30 @@ Each user type has STANDARD (free) + one or more paid tiers (GOLD / PLATINUM / E
 
 ---
 
-### 3.19 FOOTBALL ASSOCIATION (VYAMA) & DISTRICT CALENDAR
+### 3.19 FOOTBALL ASSOCIATION (VYAMA)
 
-#### Requirements
+#### 3.19.1 Account & Governance
 - **FA Account Type:** Federations, regional / district FAs, TFF, MoFA, sports registrars registered as `FOOTBALL_ASSOCIATION`
-- **Governance Staff Roles:** Extended OrgStaff role set for FA governance
+- **Governance Staff Roles:** Extended OrgStaff role set for FA governance (CHAIRPERSON / SECRETARY / ACCOUNTANT)
 - **Association Sub-Type:** `association_type` discriminator on FA profile
-- **District Calendar:** FA-only Ratiba ya Wilaya screen auto-filters matches by the FA's registered region + district. Two tabs — Zijazo (upcoming) + Zilizopita (recent, with final score). No per-user configuration
 - **Free Tier Capped:** FA accounts sit on FREE tier by default with trials + clinics enabled; not subscription-eligible in v1
+
+#### 3.19.2 Ratiba za Mechi (Match Schedule)
+- FA-only screen listing every match relevant to the FA's district
+- **Inclusion rule:** match shows when EITHER the venue is in the FA's region+district (registered venue OR manual venue's region field) OR either team is a registered ACADEMY/CLUB/SCHOOL in that region+district
+- Two tabs — Zijazo (upcoming) + Zilizopita (recent, with final score). No per-user configuration; auto-loads
+
+#### 3.19.3 Takwimu Wilaya (District Directory / Stats)
+- Companion FA-only screen. Lists Academies / Clubs / Schools registered in the FA's district with public-only fields
+- **Muhtasari block** at top — counts of Akademi / Klabu / Shule for the district
+- **Type filter chips** (Yote / Akademi / Klabu / Shule)
+- Each row: entity name + logo + type chip + accountNumber + registration date
+- **Leadership panel** underneath each row — public names + roles (OWNER / MANAGER / SECRETARY / COACH) drawn from ACTIVE OrgStaffLinks. Contact info intentionally NOT surfaced; FA looks up the person via search if they need more
+- **Consent model:** entity's obligation — signup carries an amber disclosure that leadership names will appear in the FA directory; entity informs its own staff before registering them
+
+#### 3.19.4 FA Auto-Notifications
+- New ACADEMY / CLUB / SCHOOL registering in the FA's district → "Taasisi mpya wilayani" bell (once per entity via `districtNotifiedAt` marker)
+- Staff invite accepted → "Mabadiliko ya wafanyakazi" bell to matching FAs (60-second `acceptedAt` age-check prevents re-fires)
 
 ---
 
@@ -479,6 +496,101 @@ Per-user `notificationPrefs`:
 - **APK Direct Distribution:** For pre-Internal-Testing hand-off to select testers
 - **QA Scripts:** Manual test scripts under `sokasokoo/docs/QA_*.md` (score cycle, district calendar, notification settings, scout evaluation, push Phase B, academy/club registration, match lifecycle, Kiswahili checklist)
 - **Version Footer:** Beta version tag shown on profile so testers can reference in bug reports
+
+---
+
+### 3.26 TOURNAMENT V2 (Phase 1 shipped)
+
+Extension of §3.4 aimed at general-purpose youth cups (target pitch: Chipkizi Cup 2025 in December).
+
+#### Requirements
+- **Types:** `LEAGUE / CUP / KNOCKOUT / ROUND_ROBIN / GROUP_THEN_KNOCKOUT / FRIENDLY`. GROUP_THEN_KNOCKOUT is the common youth format (round-robin groups → knockout bracket)
+- **Categories:** `categories[]` on Tournament — multi-select gender × age combos (one tournament can hold many, e.g. Wanaume U14 + Wanawake U16 + Wote OPEN)
+- **Structured Prizes:** `firstPrize`, `runnerUpPrize` (strings), `hasNoPrizes` (bool). N/A toggle hides the two fields
+- **Location:** `region` (dropdown) + `district` (dropdown filtered by region) — no free text
+- **Official Scouts + Referees:** `officialScouts[]`, `officialReferees[]` — arrays, multi-select at creation
+- **Publish Gate:** `isPublished` (default false) + `publishedAt`. Organizer preps privately, flips to public via ⋮ menu on their own card
+- **Owner-visible drafts:** `GET /v1/tournaments?organizer=<id>` returns own drafts; public list hides `isPublished=false`
+- **Team Registrations (`TournamentTeamRegistration`):** teams apply per category → organizer reviews (Approve / Reject with reason / team can Withdraw). On approve → team lands in `Tournament.teams[]`. Notifications on request received + approve/reject
+- **Roadmap (not yet shipped):** bracket auto-generation, live standings, public spectator page, entry payment, live scoring, roster locking
+
+---
+
+### 3.27 ENTITY AGE + GENDER COVERAGE
+
+Applies to ACADEMY / CLUB / SCHOOL accounts.
+
+#### Requirements
+- **`supportedAgeLevels[]`** — free-form age tags (U10 / U12 / … / SENIOR) the entity fields teams for
+- **`supportedGenders[]`** — subset of `MALE` / `FEMALE`. Rendered as Me / Mk chip on the profile card top
+- **Set at signup form_two** — FilterChip multi-select. Kept the 3-form structure per user preference
+- **Editable on Edit Profile** — same pickers
+- **Displayed on `Info Zaidi`** — "Vikundi vya umri" row lists all supported ages
+
+---
+
+### 3.28 ORG-AWARE NAMING (Backend + Client)
+
+Prevents leaking the creator's personal name for org accounts.
+
+#### Requirements
+- **`entityLabel(u)` helper** in `src/Utils/utils.js` — checks `academy_name` → `entity_name` → `company_name` → `football_field_name` → personal name. Used on every notification body, inbox row, staff invite copy, scout invoice, sponsorship comment/request, and the chat conversations aggregation (`partnerName` built via `$let`/`$switch` with the same ladder)
+- **`localizedGender(context, code)`** + **`localizedFoot(context, code)`** helpers on client (`lib/utils.dart`) — every raw gender / preferred-foot dropdown across signup + edit + search filters localizes to Kike/Kiume + Kushoto/Kulia/Yote
+- **Match notification split** — same-team recipients see the acting staff's personal name ("Coach John amepanga…"); opposing-team recipients see the actor's TEAM name ("Yanga amepanga…"). `resolveActorSide` on the backend decides via team-match or ACTIVE OrgStaffLink
+
+---
+
+### 3.29 GEO INPUT — MTAA / SHEHIA + DISTRICT DROPDOWNS
+
+#### Requirements
+- **Location dropdowns everywhere** — regions.json → dropdown; districts.json → filtered by region (with " Region" / " District" suffix normalisation); wards from wards.json
+- **Shehia switch (Zanzibar):** `MtaaDropdown` watches sibling region control. When region resolves to any of the five Zanzibar regions (Kaskazini/Kusini Unguja, Mjini Magharibi, Kaskazini/Kusini Pemba, with/without suffix), the label / popup title / empty-state warning swap from "Serikali ya Mtaa" to "Shehia"
+
+---
+
+### 3.30 SCORES & MATCH LIFECYCLE V2
+
+Extends §3.2.
+
+#### Requirements
+- **Strict Home → Away → Home Workflow** (shipped 2026-09-19): HOME saves → both confirmations reset → AWAY confirms → HOME closes → COMPLETED + matchId `TFH-M-XXXXXX`. HOME edit after AWAY confirm resets AWAY's flag
+- **Score Access:** team account + ACTIVE OrgStaffLink staff in OWNER / MANAGER / COACH / SECRETARY roles (SECRETARY added as 4th)
+- **Enter Result header:** team names (not the creator's personal name)
+- **Fan-out on every action:** schedule / confirm / decline / result save / confirm / close / cancel / reschedule → all authorized users on both teams, minus actor. Guardian mirror cascades
+- **Favourites (§3.22):** score-close on any favourited team fires a "Timu yako imemaliza mechi" fan-out to followers (deduped against team/staff recipients)
+- **Filter chip order** on Scores: Yote · Leo · Vipendwa · Karibuni · Zilizopita
+
+---
+
+### 3.31 LIVE SESSION AUDIENCE EDIT
+
+Fixes the "Select audience later" dead-end.
+
+#### Requirements
+- **PATCH `/v1/live-sessions/:id/audience`** — host-only, allowed while REQUESTED or APPROVED. Accepts `{ audience, audienceUsers[] }`
+- **Backfill fan-out:** if session was APPROVED and audience just transitioned from empty → filled, re-runs the standard invite fan-out so the newly-picked audience gets pinged
+- **Client affordance:** amber person-add icon on the host's Zangu card when session is APPROVED + SPECIFIC + empty. Opens a bottom sheet: pick "Kila mtu SokaSoko" (flips to GENERAL) or "Wateule maalum" (search modal, pre-populated with existing invitees, add/remove chips)
+- **Locked:** once LIVE / ENDED / CANCELLED
+
+---
+
+### 3.32 AUTHENTICATION — Password Reset & Change
+
+#### 3.32.1 Forgot Password (Unauth)
+- **`POST /v1/auth/forgot-password`** — body `{ identifier }` (phone or email)
+- Generates 6-digit code, hashes with bcrypt, stores on `User.passwordResetCode` + `passwordResetExpiresAt` (15-min TTL)
+- Sends via SMS (Beem, existing sender) when phone is available; email transport stubbed (logs to console) until SMTP wires
+- **Silent-200** regardless of whether the identifier is registered — prevents account enumeration
+- **`POST /v1/auth/reset-password`** — body `{ identifier, code, newPassword }`. Verifies hashed code + expiry, sets fresh bcrypt hash, clears reset fields
+- Client: two-step ForgotPasswordScreen reachable via "Umesahau nywila?" link on sign-in. Inline `errorText` on invalid code / mismatched password
+
+#### 3.32.2 Change Password (Auth)
+- **`POST /v1/users/:id/change-password`** — body `{ currentPassword, newPassword }`. Verifies current via `User.comparePassword` before mutating
+- Client: ChangePasswordScreen accessed via **Badili Nywila** in the profile ⋮ menu
+- Common: minimum 6-character password, bilingual `errorKey` on every 4xx
+
+#### 3.32.3 Admin Reset
+- `scripts/reset-password.js <accountNumber> <newPassword>` — one-off Render-shell reset when the user can't self-serve (e.g. lost phone AND email)
 
 ---
 
@@ -580,6 +692,20 @@ Per-user `notificationPrefs`:
 ## 8. KNOWN ISSUES & BACKLOG
 
 See `AUDIT_REPORT.md` for full list. Snapshot as of 2026-09-19:
+
+### Shipped in 3.1 (Sept 19–23 2026)
+- [x] Match venue required (registered OR manual) + district calendar filter includes venue OR team location
+- [x] Tournament v2 Phase 1 (GROUP_THEN_KNOCKOUT type + publish gate + multi-category + structured prizes + team registration)
+- [x] Takwimu Wilaya (FA district directory) + auto-notifications for new entity + staff changes
+- [x] Entity age/gender coverage on ACADEMY / CLUB / SCHOOL
+- [x] Org-aware naming sweep (backend entityLabel + client localizedGender/Foot)
+- [x] Shehia label switch on Zanzibar regions in MtaaDropdown
+- [x] Live session audience backfill (PATCH /:id/audience + "Ongeza wasikilizaji" affordance)
+- [x] Forgot Password + Change Password flows (SMS OTP)
+- [x] Guardian consent dialog spacing + inline errorText
+- [x] Add-player validation toast fix (only fires on invalid submit)
+- [x] Rename "Vippindi/Alika Kwenye Kipindi" → "Mualiko Kwenye Kipindi"
+- [x] Notification menu items renamed (Ratiba ya Wilaya → Ratiba za Mechi; Vyombo vya Wilaya → Takwimu Wilaya)
 
 ### Shipped Since v2
 - [x] Notification schema migrated to `titleKey`/`bodyKey`/`params` (bilingual)
