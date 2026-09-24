@@ -158,13 +158,20 @@ const anonymizeGuardian = (user, requestingUserId, requesterIsAdmin) => {
     masked.profileImage =
       'https://sokasoko.s3.us-west-2.amazonaws.com/avatar.png';
   }
-  // Rule 1 — always strip DOB + location for guardians.
+  // Rule 1 — always strip DOB + location + personal attributes for
+  // guardians. Only Jina, Accuont Number and Contact Info survive on
+  // the wire (contact info is separate fields the guardian sets
+  // explicitly — nothing to strip here).
   masked.dob = null;
   masked.age = undefined;
   masked.region = '';
   masked.district = '';
   masked.ward = '';
   masked.street = '';
+  masked.gender = '';
+  masked.nationality = '';
+  masked.educationLevel = '';
+  masked.short_bio = '';
   return masked;
 };
 
@@ -810,7 +817,11 @@ router.get(PATH_SINGLE, getByIdFor({
         }).catch(() => {});
       }
       if (!canView) return done(null, stripRestrictedFields(user));
-      return done(null, anonymizeSponsor(user, requestingUserId));
+      return done(null,
+          anonymizeGuardian(
+              anonymizeSponsor(user, requestingUserId),
+              requestingUserId,
+              false));
     });
   },
 }));
