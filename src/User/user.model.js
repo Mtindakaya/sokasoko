@@ -544,6 +544,30 @@ UserSchema.index({ guardian: 1, type: 1, guardianOrphaned: 1 });
 UserSchema.index({ type: 1, createdAt: -1 });
 UserSchema.index({ accountNumber: 1 });
 
+// Guardian hideName safeguard — the mask returns firstName='Mlezi'
+// on public GET when hideName is on. Old clients (pre-viewerId fix)
+// pre-populated their Edit form with that masked value and then
+// saved it, permanently overwriting the guardian's real firstName
+// in Mongo. This guard rejects any incoming save that would write
+// 'Mlezi' as the firstName on a GUARDIAN — future writes must carry
+// the real name.
+UserSchema.pre('save', function guardianNameSafeguard(next) {
+  if (this.type === 'GUARDIAN' && this.isModified('firstName')) {
+    const val = String(this.firstName || '').trim();
+    if (val.toLowerCase() === 'mlezi') {
+      // Revert to the pre-image so the DB value isn't corrupted.
+      this.firstName = this._original_firstName || this.firstName;
+      // If we can't recover the previous value (new doc / no cache),
+      // clear it so the guardian is forced to re-enter — better a
+      // blank name than a permanent 'Mlezi' sentinel.
+      if ((this.firstName || '').toLowerCase() === 'mlezi') {
+        this.firstName = '';
+      }
+    }
+  }
+  next();
+});
+
 // Auto-set free trial dates on first save for PLAYER and SCOUT
 UserSchema.pre('save', function preValidate(done) {
   if (this.isNew && (this.type === 'PLAYER' || this.type === 'SCOUT')) {
