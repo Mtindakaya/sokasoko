@@ -218,6 +218,12 @@ const UserSchema = new Schema(
     // stripped. The record itself is unchanged — admins and the sponsor
     // themselves still see everything. Reversible any time.
     isAnonymous: { type: Boolean, default: false },
+    // GUARDIAN privacy — "listed but name hidden". When true and
+    // isAnonymous is false, public GET returns the record but name is
+    // replaced with a generic label and profileImage is stripped. Only
+    // owner + admin see the real values. Independent of isAnonymous
+    // (which hides the entire record from search + list).
+    hideName: { type: Boolean, default: false },
     academy_name: { type: String, trim: true },
     entity_name: { type: String, trim: true },
     company_name: { type: String, trim: true },

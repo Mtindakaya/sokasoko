@@ -120,6 +120,54 @@ const anonymizeSponsor = (user, requestingUserId) => {
   });
 };
 
+// GUARDIAN privacy — three rules applied to any outgoing payload:
+//   1. Guardians never expose DOB or location fields on public GET.
+//      DOB is used only for the 18+ age gate at signup; year of birth
+//      is enough. Location fields are always stripped from the wire.
+//   2. If isAnonymous=true and the viewer isn't the guardian themselves,
+//      return a minimal record (accountNumber + type + anonymous flag).
+//   3. If hideName=true (and not anonymous), name + profileImage are
+//      replaced with a generic label. Rest of the record renders normally.
+// Owner + admin always see the full record.
+const anonymizeGuardian = (user, requestingUserId, requesterIsAdmin) => {
+  if (!user) return user;
+  const obj = _.isFunction(user.toObject) ? user.toObject() : user;
+  if (obj.type !== 'GUARDIAN') return obj;
+  const isOwner = requestingUserId && String(requestingUserId) === String(obj._id);
+  if (isOwner || requesterIsAdmin) return obj;
+
+  // Rule 2 — fully anonymous.
+  if (obj.isAnonymous) {
+    return {
+      _id: obj._id,
+      type: 'GUARDIAN',
+      accountNumber: obj.accountNumber,
+      isAnonymous: true,
+      firstName: 'Anonymous',
+      lastName: '',
+      profileImage: 'https://sokasoko.s3.us-west-2.amazonaws.com/avatar.png',
+    };
+  }
+
+  // Rule 3 — name hidden (visible profile but no name).
+  const masked = _.assign({}, obj);
+  if (obj.hideName) {
+    masked.firstName = 'Mlezi';
+    masked.lastName = '';
+    masked.middleName = '';
+    masked.profileImage =
+      'https://sokasoko.s3.us-west-2.amazonaws.com/avatar.png';
+  }
+  // Rule 1 — always strip DOB + location for guardians.
+  masked.dob = null;
+  masked.age = undefined;
+  masked.region = '';
+  masked.district = '';
+  masked.ward = '';
+  masked.street = '';
+  return masked;
+};
+
 const canViewFullProfile = async (requestingUserId, targetUser) => {
   if (_.get(targetUser, 'type') !== 'PLAYER') return true;
   if (!requestingUserId) return false;
@@ -352,7 +400,7 @@ router.get(PATH_LIST, async (req, res) => {
     // name in their own results.
     const requestingUserId = req.query.viewerId;
     for (let i = 0; i < data.length; i++) {
-      data[i] = anonymizeSponsor(data[i], requestingUserId);
+      data[i] = anonymizeGuardian(anonymizeSponsor(data[i], requestingUserId), requestingUserId, false);
     }
 
     await attachPrimaryVideoUrls(data);
@@ -584,7 +632,7 @@ router.get(PATH_SEARCH, async (request, response) => {
       .lean();
 
     for (let i = 0; i < data.length; i++) {
-      data[i] = anonymizeSponsor(data[i], requestingUserId);
+      data[i] = anonymizeGuardian(anonymizeSponsor(data[i], requestingUserId), requestingUserId, false);
     }
 
     await attachPrimaryVideoUrls(data);
