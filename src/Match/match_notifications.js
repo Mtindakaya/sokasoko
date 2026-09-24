@@ -293,6 +293,16 @@ function renderCopy(kind, p, extras) {
         bodyKey: 'notif.match.completed.body',
         params: { match: matchLabel },
       };
+    case 'MATCH_LINEUP_SET':
+      return {
+        title: 'Lineup imewekwa',
+        body:
+          `${actorLabel} ameweka lineup ya mechi ${matchLabel}. ` +
+          `Fungua mechi kuiona.`,
+        titleKey: 'notif.match.lineup_set.title',
+        bodyKey: 'notif.match.lineup_set.body',
+        params: { actor: actorLabel, match: matchLabel },
+      };
     case 'MATCH_CANCELLED':
       return {
         title: 'Mechi imefutwa',

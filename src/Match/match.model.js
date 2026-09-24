@@ -152,6 +152,29 @@ const MatchSchema = new Schema(
       default: null,
     },
     playerStats: [PlayerStatSchema],
+    // Per-team lineup submitted before / during the match. Optional
+    // at scheduling; can be added / edited any time except when the
+    // match is CANCELLED. starters holds the first XI (cap 22 to
+    // cover friendly formats that split into two full sides across
+    // 60+60 minutes); subs is uncapped (soft cap 40 in the router).
+    lineups: {
+      home: {
+        starters: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+        subs: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+        submittedAt: { type: Date, default: null },
+        submittedBy: {
+          type: Schema.Types.ObjectId, ref: 'User', default: null,
+        },
+      },
+      away: {
+        starters: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+        subs: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+        submittedAt: { type: Date, default: null },
+        submittedBy: {
+          type: Schema.Types.ObjectId, ref: 'User', default: null,
+        },
+      },
+    },
     notes: {
       type: String,
       trim: true,

@@ -302,6 +302,10 @@ router.get(`${BASE}/:id`, async (req, res) => {
       .populate('scout', 'firstName lastName accountNumber type profileImage')
       .populate('scouts.scout', 'firstName lastName accountNumber type profileImage')
       .populate('tempScouts', 'firstName lastName accountNumber type profileImage')
+      .populate('lineups.home.starters', 'firstName lastName accountNumber profileImage position')
+      .populate('lineups.home.subs', 'firstName lastName accountNumber profileImage position')
+      .populate('lineups.away.starters', 'firstName lastName accountNumber profileImage position')
+      .populate('lineups.away.subs', 'firstName lastName accountNumber profileImage position')
       .lean();
     if (!match) return res.status(404).json({ error: 'Match not found' });
     return res.status(200).json({ data: match });
@@ -593,6 +597,74 @@ router.post(BASE, async (req, res) => {
     });
 
     return res.status(201).json({ data: match });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/matches/:id/lineup  body: { team: 'HOME'|'AWAY',
+//   starters: [playerId], subs: [playerId], actorId }
+// Coach / staff sets or replaces the starting XI + subs for their
+// team. Optional at scheduling; can be added / edited anytime the
+// match isn't CANCELLED. Public — visible to any viewer.
+router.post(`${BASE}/:id/lineup`, async (req, res) => {
+  try {
+    const { team, starters, subs, actorId } = req.body || {};
+    if (!['HOME', 'AWAY'].includes(team)) {
+      return res.status(400).json({
+        error: 'team must be HOME or AWAY',
+        errorKey: 'matches.lineup.err.side',
+      });
+    }
+    const stArr = Array.isArray(starters) ? starters : [];
+    const subArr = Array.isArray(subs) ? subs : [];
+    if (stArr.length > 22) {
+      return res.status(400).json({
+        error: 'Wachezaji wa kuanza ni zaidi ya 22.',
+        errorKey: 'matches.lineup.err.starters_cap',
+      });
+    }
+    if (subArr.length > 40) {
+      return res.status(400).json({
+        error: 'Wafuasi ni wengi mno.',
+        errorKey: 'matches.lineup.err.subs_cap',
+      });
+    }
+    const match = await Match.findById(req.params.id);
+    if (!match) return res.status(404).json({ error: 'Match not found' });
+    if (match.status === 'CANCELLED') {
+      return res.status(409).json({
+        error: 'Huwezi kubadili lineup ya mechi iliyofutwa.',
+        errorKey: 'matches.lineup.err.cancelled',
+      });
+    }
+    const teamId = team === 'HOME' ? match.homeTeam : match.awayTeam;
+    if (actorId && !(await canManageTeam(actorId, teamId))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kuweka lineup kwa timu hii.',
+        errorKey: 'matches.error.action_forbidden',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
+    }
+    const side = team === 'HOME' ? 'home' : 'away';
+    match.lineups = match.lineups || {};
+    match.lineups[side] = {
+      starters: stArr,
+      subs: subArr,
+      submittedAt: new Date(),
+      submittedBy: actorId || null,
+    };
+    match.markModified('lineups');
+    await match.save();
+
+    // Fan-out to both teams' authorized staff so opposing scouts see
+    // the lineup drop. Uses the same helper as the other match
+    // actions so notification prefs + guardian mirror all work.
+    notifyMatchAction({
+      match, kind: 'MATCH_LINEUP_SET', actorId, extras: { side: team },
+    }).catch(() => {});
+
+    return res.status(200).json({ data: match });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
