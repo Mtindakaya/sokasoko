@@ -222,18 +222,27 @@ router.post(
 //      into 10+ seconds. This is a lean find with an explicit skinny
 //      populate — sub-second regardless of team size.
 // Query params:
-//   level=U15  — optional age filter (matches Academy.level)
+//   level=U15               — optional age filter (matches Academy.level)
+//   status=VERIFIED|PENDING|REJECTED|PENDING_OR_REJECTED
+//     Defaults to VERIFIED (the "on the roster" case). Pass PENDING or
+//     REJECTED to power the follow-up-invitations tab; the composite
+//     PENDING_OR_REJECTED covers both in one call.
 router.get('/academys/roster/:academyId', async (req, res) => {
   try {
-    const filter = {
-      addedBy: req.params.academyId,
-      verificationStatus: 'VERIFIED',
-    };
+    const rawStatus = (req.query.status || 'VERIFIED').toString().toUpperCase();
+    const filter = { addedBy: req.params.academyId };
+    if (rawStatus === 'PENDING_OR_REJECTED') {
+      filter.verificationStatus = { $in: ['PENDING', 'REJECTED'] };
+    } else if (['VERIFIED', 'PENDING', 'REJECTED'].includes(rawStatus)) {
+      filter.verificationStatus = rawStatus;
+    } else {
+      filter.verificationStatus = 'VERIFIED';
+    }
     if (req.query.level && req.query.level !== 'ALL') {
       filter.level = req.query.level;
     }
     const rows = await Academy.find(filter)
-      .select('player level createdAt addedBy')
+      .select('player level createdAt addedBy verificationStatus')
       .populate(
         'player',
         'firstName lastName profileImage accountNumber position dob type',
