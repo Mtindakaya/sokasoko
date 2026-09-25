@@ -302,10 +302,10 @@ router.get(`${BASE}/:id`, async (req, res) => {
       .populate('scout', 'firstName lastName accountNumber type profileImage')
       .populate('scouts.scout', 'firstName lastName accountNumber type profileImage')
       .populate('tempScouts', 'firstName lastName accountNumber type profileImage')
-      .populate('lineups.home.starters', 'firstName lastName accountNumber profileImage position')
-      .populate('lineups.home.subs', 'firstName lastName accountNumber profileImage position')
-      .populate('lineups.away.starters', 'firstName lastName accountNumber profileImage position')
-      .populate('lineups.away.subs', 'firstName lastName accountNumber profileImage position')
+      .populate('lineups.home.starters.player', 'firstName lastName accountNumber profileImage position')
+      .populate('lineups.home.subs.player', 'firstName lastName accountNumber profileImage position')
+      .populate('lineups.away.starters.player', 'firstName lastName accountNumber profileImage position')
+      .populate('lineups.away.subs.player', 'firstName lastName accountNumber profileImage position')
       .lean();
     if (!match) return res.status(404).json({ error: 'Match not found' });
     return res.status(200).json({ data: match });
@@ -616,8 +616,16 @@ router.post(`${BASE}/:id/lineup`, async (req, res) => {
         errorKey: 'matches.lineup.err.side',
       });
     }
-    const stArr = Array.isArray(starters) ? starters : [];
-    const subArr = Array.isArray(subs) ? subs : [];
+    // Accept either the new shape [{player, position}] or the legacy
+    // bare-ID shape [id] for backward compat with pre-position clients.
+    const normalise = (arr) => (Array.isArray(arr) ? arr : []).map((v) => {
+      if (v && typeof v === 'object') {
+        return { player: v.player, position: (v.position || '').toString().trim() };
+      }
+      return { player: v, position: '' };
+    }).filter((r) => r.player);
+    const stArr = normalise(starters);
+    const subArr = normalise(subs);
     if (stArr.length > 22) {
       return res.status(400).json({
         error: 'Wachezaji wa kuanza ni zaidi ya 22.',

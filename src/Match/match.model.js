@@ -154,21 +154,38 @@ const MatchSchema = new Schema(
     playerStats: [PlayerStatSchema],
     // Per-team lineup submitted before / during the match. Optional
     // at scheduling; can be added / edited any time except when the
-    // match is CANCELLED. starters holds the first XI (cap 22 to
-    // cover friendly formats that split into two full sides across
-    // 60+60 minutes); subs is uncapped (soft cap 40 in the router).
+    // match is CANCELLED. Each starter / sub carries a per-match
+    // position (independent of the player's profile position — a
+    // natural CB might play RB today). starters cap 22 (covers 60+60
+    // friendlies); subs uncapped in schema, soft cap 40 in the router.
     lineups: {
       home: {
-        starters: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-        subs: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+        starters: [{
+          player: { type: Schema.Types.ObjectId, ref: 'User' },
+          position: { type: String, trim: true, default: '' },
+          _id: false,
+        }],
+        subs: [{
+          player: { type: Schema.Types.ObjectId, ref: 'User' },
+          position: { type: String, trim: true, default: '' },
+          _id: false,
+        }],
         submittedAt: { type: Date, default: null },
         submittedBy: {
           type: Schema.Types.ObjectId, ref: 'User', default: null,
         },
       },
       away: {
-        starters: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-        subs: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+        starters: [{
+          player: { type: Schema.Types.ObjectId, ref: 'User' },
+          position: { type: String, trim: true, default: '' },
+          _id: false,
+        }],
+        subs: [{
+          player: { type: Schema.Types.ObjectId, ref: 'User' },
+          position: { type: String, trim: true, default: '' },
+          _id: false,
+        }],
         submittedAt: { type: Date, default: null },
         submittedBy: {
           type: Schema.Types.ObjectId, ref: 'User', default: null,
