@@ -87,6 +87,26 @@ router.post(`${BASE}/users/:orgId/staff/invite`, async (req, res) => {
         error: 'SECRETARY is not a SCHOOL role',
       });
     }
+    // Coach role can only be filled by a registered COACH account —
+    // or, per product policy, by a person who already holds an
+    // ACTIVE SPORTS_TEACHER link at a school (sports teachers count
+    // as coaches). Blocks academies from labelling a random Guardian
+    // as "Kocha" when they haven't actually registered as a coach.
+    if (role === 'COACH' && guardian.type !== 'COACH') {
+      const teacherLink = await OrgStaffLink.findOne({
+        staff: guardianId,
+        role: 'SPORTS_TEACHER',
+        status: 'ACTIVE',
+      }).select('_id').lean();
+      if (!teacherLink) {
+        return res.status(400).json({
+          error:
+            'Nafasi ya Kocha inaweza kupewa Kocha aliyesajiliwa tu (au mwalimu wa michezo).',
+          errorKey: 'staff.err.coach_type_required',
+          reason: 'STAFF_COACH_TYPE_REQUIRED',
+        });
+      }
+    }
     // FA orgs don't use the OWNER / MANAGER / COACH shape — those
     // roles map to Academy/Club leadership and would confuse the
     // governance taxonomy. Reject them here so the client can't
