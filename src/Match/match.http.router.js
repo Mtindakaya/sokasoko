@@ -715,6 +715,73 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
     if (homeScore !== undefined && homeScore !== null) match.homeScore = homeScore;
     if (awayScore !== undefined && awayScore !== null) match.awayScore = awayScore;
 
+    // Goal-tally reconciliation. If the final score is known for a
+    // side, the sum of that side's player-scorer goals must not
+    // exceed the team score. Own goals credited to the other team
+    // are counted against the opposing side. This catches the
+    // "score 3-1 but 6 players credited with goals" data quality
+    // bug that used to slip through silently.
+    const finalHome = match.homeScore;
+    const finalAway = match.awayScore;
+    if (
+      (finalHome !== undefined && finalHome !== null) ||
+      (finalAway !== undefined && finalAway !== null)
+    ) {
+      // Combine the existing playerStats with any new ones the caller
+      // is adding so partial saves still validate against the whole
+      // picture.
+      const combined = [...(match.playerStats || [])];
+      if (Array.isArray(playerStats)) {
+        playerStats.forEach((incoming) => {
+          if (!incoming || !incoming.player) {
+            combined.push(incoming);
+            return;
+          }
+          const idx = combined.findIndex(
+            (s) => s.player && String(s.player) === String(incoming.player),
+          );
+          if (idx >= 0) combined[idx] = { ...combined[idx], ...incoming };
+          else combined.push(incoming);
+        });
+      }
+      const homeTeamId = match.homeTeam && String(match.homeTeam);
+      const awayTeamId = match.awayTeam && String(match.awayTeam);
+      let homeGoals = 0;
+      let awayGoals = 0;
+      for (const s of combined) {
+        const tid = s && s.team ? String(s.team) : null;
+        const g = Number(s && s.goals) || 0;
+        if (g <= 0) continue;
+        // Own goals credit the opposing side's score.
+        const isOwn = !!(s && s.isOwnGoal);
+        if (tid === homeTeamId) {
+          if (isOwn) awayGoals += g; else homeGoals += g;
+        } else if (tid === awayTeamId) {
+          if (isOwn) homeGoals += g; else awayGoals += g;
+        }
+      }
+      if (finalHome !== undefined && finalHome !== null && homeGoals > finalHome) {
+        return res.status(400).json({
+          error: `Jumla ya mabao ya wachezaji (${homeGoals}) inazidi matokeo ya timu ya nyumbani (${finalHome}). Rekebisha wachezaji au matokeo.`,
+          errorKey: 'matches.error.home_goals_exceed_score',
+          reason: 'MATCH_SCORE_GOAL_MISMATCH',
+          side: 'HOME',
+          summed: homeGoals,
+          score: finalHome,
+        });
+      }
+      if (finalAway !== undefined && finalAway !== null && awayGoals > finalAway) {
+        return res.status(400).json({
+          error: `Jumla ya mabao ya wachezaji (${awayGoals}) inazidi matokeo ya timu ya ugenini (${finalAway}). Rekebisha wachezaji au matokeo.`,
+          errorKey: 'matches.error.away_goals_exceed_score',
+          reason: 'MATCH_SCORE_GOAL_MISMATCH',
+          side: 'AWAY',
+          summed: awayGoals,
+          score: finalAway,
+        });
+      }
+    }
+
     if (playerStats && playerStats.length > 0) {
       // For tournament matches, verify each REGISTERED player is approved
       // before adding stats. Guest players (no player id) skip this check.
