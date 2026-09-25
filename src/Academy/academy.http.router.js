@@ -213,6 +213,44 @@ router.post(
   })
 );
 
+// GET /v1/academys/roster/:academyId — fast confirmed-players-only list
+// for the AcademyPlayers screen + Weka Lineup picker. Two bugs solved:
+//   1. The old flow used getFor + filter[addedBy] with no status
+//      filter, so PENDING invites (players who haven't accepted yet)
+//      appeared on the roster.
+//   2. getFor ran an autopopulate + count that turned a 1-row lookup
+//      into 10+ seconds. This is a lean find with an explicit skinny
+//      populate — sub-second regardless of team size.
+// Query params:
+//   level=U15  — optional age filter (matches Academy.level)
+router.get('/academys/roster/:academyId', async (req, res) => {
+  try {
+    const filter = {
+      addedBy: req.params.academyId,
+      verificationStatus: 'VERIFIED',
+    };
+    if (req.query.level && req.query.level !== 'ALL') {
+      filter.level = req.query.level;
+    }
+    const rows = await Academy.find(filter)
+      .select('player level createdAt addedBy')
+      .populate(
+        'player',
+        'firstName lastName profileImage accountNumber position dob type',
+      )
+      .populate(
+        'addedBy',
+        'academy_name company_name entity_name firstName lastName',
+      )
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean();
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/academys/pending/:playerId — invitations awaiting the player's
 // verification. Populates addedBy for the client to show "X invited you".
 router.get('/academys/pending/:playerId', async (req, res) => {
