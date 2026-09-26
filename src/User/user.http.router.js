@@ -247,7 +247,17 @@ router.get(PATH_LIST, async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(parseInt(req.query.limit) || 20, 500);
     const filter = { suspend: { $ne: true }, isSystemAgent: { $ne: true } };
-    if (req.query.type) filter.type = req.query.type;
+    // Guardian filter widens to include secondary guardians —
+    // individual accounts (COACH/PLAYER/etc.) that flipped
+    // hasGuardianship on. See User.canEnableGuardianship.
+    if (req.query.type === 'GUARDIAN') {
+      filter.$or = [
+        { type: 'GUARDIAN' },
+        { hasGuardianship: true },
+      ];
+    } else if (req.query.type) {
+      filter.type = req.query.type;
+    }
     if (req.query.school) filter.school = req.query.school;
     if (req.query.gender) filter.gender = req.query.gender;
     // Admin-only lookups (e.g. CMS "createdBy" dropdown). Accept both the
@@ -555,7 +565,15 @@ router.get(PATH_SEARCH, async (request, response) => {
     : [];
   const inferredType = explicitType ? null : typeFromKeyword(query);
   let typeFilter = {};
-  if (explicitType) {
+  // Guardian queries widen to include secondary guardians (see
+  // canEnableGuardianship). Applies to explicit ?type=GUARDIAN and
+  // to keyword-inferred 'GUARDIAN' (e.g. searching "mlezi").
+  const guardianFilter = {
+    $or: [{ type: 'GUARDIAN' }, { hasGuardianship: true }],
+  };
+  if (explicitType === 'GUARDIAN' || inferredType === 'GUARDIAN') {
+    typeFilter = guardianFilter;
+  } else if (explicitType) {
     typeFilter = { type: explicitType };
   } else if (inferredType) {
     typeFilter = { type: inferredType };
@@ -1267,6 +1285,36 @@ router.put('/users/:id/notification-prefs', async (req, res) => {
     u.notificationPrefs = next;
     await u.save();
     return res.status(200).json({ data: u.notificationPrefs });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/guardianship  body { enabled: bool }
+// Toggle secondary guardianship on the caller's own account. Backend
+// re-checks eligibility (canEnableGuardianship) so a stale client
+// can't flip the flag on an ACADEMY / entity vendor / etc.
+router.post('/users/:id/guardianship', async (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled (bool) required' });
+    }
+    const u = await User.findById(req.params.id)
+      .select('_id type sponsor_type vendor_type hasGuardianship');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    if (!User.canEnableGuardianship(u)) {
+      return res.status(403).json({
+        error: 'Aina yako ya akaunti haiwezi kuwezesha ulezi wa pili.',
+        errorKey: 'guardianship.err.ineligible',
+        reason: 'GUARDIANSHIP_INELIGIBLE_TYPE',
+      });
+    }
+    u.hasGuardianship = enabled;
+    await u.save();
+    return res.status(200).json({
+      data: { _id: u._id, hasGuardianship: u.hasGuardianship },
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

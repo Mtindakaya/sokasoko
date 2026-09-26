@@ -231,6 +231,15 @@ const UserSchema = new Schema(
     vendor_type: { type: String, trim: true },
     company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
+    // Secondary guardianship — flips a non-GUARDIAN individual
+    // account (COACH / PLAYER / REFEREE / SCOUT / AGENT, or a
+    // sponsor_type=Individual sponsor, or a vendor_type=Individual /
+    // Consultant vendor) into a dual-role account: they keep their
+    // primary type and its stats, but also gain guardian abilities
+    // (add wards, receive mirrored notifs, appear in guardian
+    // filters). Org / business types stay excluded — see
+    // canEnableGuardianship() below.
+    hasGuardianship: { type: Boolean, default: false, index: true },
     // Password reset flow — short-lived 6-digit code hashed with
     // bcrypt (same salt-rounds as password) so the raw code never
     // sits in the DB. Cleared after successful reset or expiry
@@ -681,7 +690,26 @@ UserSchema.post('save', async function faEntityRegistered(doc) {
 
 mongoose.plugin(actions);
 
+// Eligibility gate for secondary guardianship. Individual person
+// accounts qualify; org / business accounts do not. Sponsor + vendor
+// also need their sub-type to be the individual variant. Used by
+// both the client (to show/hide the toggle) and the backend
+// (to reject saves from ineligible accounts).
+const GUARDIANSHIP_ELIGIBLE_TYPES = new Set([
+  'COACH', 'PLAYER', 'REFEREE', 'SCOUT', 'AGENT',
+]);
+function canEnableGuardianship(user) {
+  if (!user) return false;
+  if (user.type === 'GUARDIAN') return false; // primary guardian already
+  if (GUARDIANSHIP_ELIGIBLE_TYPES.has(user.type)) return true;
+  if (user.type === 'SPONSOR' && user.sponsor_type === 'Individual') return true;
+  if (user.type === 'VENDOR' && user.vendor_type === 'Individual / Consultant') return true;
+  return false;
+}
+
 module.exports = model('User', UserSchema);
+module.exports.canEnableGuardianship = canEnableGuardianship;
+module.exports.GUARDIANSHIP_ELIGIBLE_TYPES = GUARDIANSHIP_ELIGIBLE_TYPES;
 module.exports.FREE_TRIAL_DAYS = FREE_TRIAL_DAYS;
 module.exports.GRACE_PERIOD_DAYS = GRACE_PERIOD_DAYS;
 module.exports.NOTIFY_BEFORE_DAYS = NOTIFY_BEFORE_DAYS;
