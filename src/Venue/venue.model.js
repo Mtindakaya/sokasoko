@@ -13,6 +13,19 @@ const SCHEMA_OPTIONS = {
 
 const SURFACE_TYPES = ['NATURAL_GRASS', 'ARTIFICIAL_TURF', 'CLAY', 'CONCRETE', 'SAND'];
 const VENUE_STATUS = ['ACTIVE', 'INACTIVE', 'UNDER_MAINTENANCE'];
+// Physical field format — describes the pitch itself, not who plays
+// on it. An academy training U10s on a full 11-a-side pitch still
+// records the field as ELEVEN_A_SIDE. MULTI = the same pitch is
+// marked out for more than one format.
+const FIELD_SIZES = [
+  'FIVE_A_SIDE',
+  'SEVEN_A_SIDE',
+  'NINE_A_SIDE',
+  'ELEVEN_A_SIDE',
+  'MULTI',
+  'FUTSAL',
+  'UNKNOWN',
+];
 
 const VenueSchema = new Schema(
   {
@@ -55,6 +68,12 @@ const VenueSchema = new Schema(
       type: String,
       enum: SURFACE_TYPES,
       default: 'NATURAL_GRASS',
+    },
+    fieldSize: {
+      type: String,
+      enum: FIELD_SIZES,
+      default: 'UNKNOWN',
+      index: true,
     },
     status: {
       type: String,
@@ -108,3 +127,4 @@ mongoose.plugin(actions);
 module.exports = model('Venue', VenueSchema);
 module.exports.SURFACE_TYPES = SURFACE_TYPES;
 module.exports.VENUE_STATUS = VENUE_STATUS;
+module.exports.FIELD_SIZES = FIELD_SIZES;

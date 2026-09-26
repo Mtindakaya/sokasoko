@@ -231,6 +231,24 @@ const UserSchema = new Schema(
     vendor_type: { type: String, trim: true },
     company_description: { type: String, trim: true },
     academy_registration: { type: String, trim: true },
+    // Home football field for ACADEMY / CLUB accounts. Populated
+    // from the "Uwanja wa Nyumbani" step during signup. Either:
+    //   - homeVenue points at a curated Venue row (org picked from
+    //     the ward's registered fields list)
+    //   - homeVenueSuggestion points at a VenueSuggestion pending
+    //     admin verification (org typed a name that didn't match
+    //     any existing venue). Once admin approves, the suggestion
+    //     is promoted to a real Venue and homeVenue is rewired.
+    homeVenue: {
+      type: Schema.Types.ObjectId,
+      ref: 'Venue',
+      default: null,
+    },
+    homeVenueSuggestion: {
+      type: Schema.Types.ObjectId,
+      ref: 'VenueSuggestion',
+      default: null,
+    },
     // Secondary guardianship — flips a non-GUARDIAN individual
     // account (COACH / PLAYER / REFEREE / SCOUT / AGENT, or a
     // sponsor_type=Individual sponsor, or a vendor_type=Individual /
