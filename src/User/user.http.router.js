@@ -1310,6 +1310,24 @@ router.post('/users/:id/guardianship', async (req, res) => {
         reason: 'GUARDIANSHIP_INELIGIBLE_TYPE',
       });
     }
+    // Blocking disable — if the user is currently the guardian of any
+    // active wards, they must remove or reassign every ward first.
+    // Silent-disable would orphan those minor accounts (guardianOrphaned
+    // gates chat / match / scout / profile visibility per the guardian
+    // lifecycle memory).
+    if (!enabled && u.hasGuardianship) {
+      const wardCount = await User.countDocuments({ guardian: u._id });
+      if (wardCount > 0) {
+        return res.status(409).json({
+          error:
+            `Huwezi kuzima ulezi bado — una wachezaji / waamuzi ${wardCount} chini yako. ` +
+            `Waondoe au wahamishe kwanza kupitia orodha ya wachezaji.`,
+          errorKey: 'guardianship.err.has_wards',
+          reason: 'GUARDIANSHIP_HAS_WARDS',
+          wardCount,
+        });
+      }
+    }
     u.hasGuardianship = enabled;
     await u.save();
     return res.status(200).json({
