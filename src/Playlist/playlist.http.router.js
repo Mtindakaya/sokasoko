@@ -437,6 +437,27 @@ router.get('/challenges/open', async (req, res) => {
   }
 });
 
+// GET /v1/challenges/:id/submissions — admin CMS list of every Media
+// tagged with this challenge. Populates the submitting player's
+// display fields so the CMS table can render name + account + type
+// without a second call. Sort newest-first.
+router.get('/challenges/:id/submissions', async (req, res) => {
+  try {
+    const Media = require('../Media/media.model');
+    const rows = await Media.find({ challenge: req.params.id })
+      .select('title description url type player createdBy challengeSubmittedAt likes commentsCount voteCount createdAt')
+      .populate('player',
+        'firstName lastName academy_name academyName company_name entity_name accountNumber type profileImage')
+      .populate('createdBy',
+        'firstName lastName accountNumber type profileImage')
+      .sort({ challengeSubmittedAt: -1, createdAt: -1 })
+      .lean();
+    return res.status(200).json({ data: rows, total: rows.length });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/playlists/active/brief — the currently-running brief for
 // Home / carousel rendering. Returns null when no brief is active.
 router.get('/playlists/active/brief', async (req, res) => {
