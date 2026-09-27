@@ -56,6 +56,16 @@ const PlaylistSchema = new Schema(
         'CLUB', 'SPONSOR', 'AGENT', 'REFEREE', 'SCOUT', 'FIELD_OWNER',
       ],
     }],
+    // Per-phase sponsor overrides. Falls back to `sponsor` (the main
+    // challenge sponsor) when a stage entry is null. Room for four
+    // discrete sales SKUs — a sponsor can back only the brief
+    // announcement, only the winners reveal, or the whole cycle.
+    stageSponsors: {
+      brief: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      submissions: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      voting: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      winners: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    },
     // Podium — populated by POST /v1/challenges/:id/close-voting.
     // Voting is scored 0..10 per Media.votes entry; winner = highest
     // average, runnersUp = next 2. Ties break on total vote count.
