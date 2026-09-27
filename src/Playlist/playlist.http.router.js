@@ -499,6 +499,7 @@ router.post('/challenges/:id/promote-finalists', async (req, res) => {
 router.post('/challenges/:id/close-voting', async (req, res) => {
   try {
     const Media = require('../Media/media.model');
+    const User = require('../User/user.model');
     const playlist = await Playlist.findById(req.params.id);
     if (!playlist) {
       return res.status(404).json({
@@ -513,8 +514,38 @@ router.post('/challenges/:id/close-voting', async (req, res) => {
         errorKey: 'challenge.err.no_finalists_to_close',
       });
     }
+    // Re-close cleanup — if this playlist had a prior podium, clear
+    // the badge on those Media and decrement the User counters so
+    // the new podium starts from a clean slate. Safe when called on
+    // a first-time close (finds no matches, no-ops).
+    const priorPodium = await Media.find({ wonChallenge: playlist._id })
+      .select('_id player createdBy podiumRank')
+      .lean();
+    if (priorPodium.length) {
+      const winnerUserDecs = new Map();
+      const podiumUserDecs = new Map();
+      for (const m of priorPodium) {
+        const uid = (m.player || m.createdBy || '').toString();
+        if (!uid) continue;
+        podiumUserDecs.set(uid, (podiumUserDecs.get(uid) || 0) + 1);
+        if (m.podiumRank === 1) {
+          winnerUserDecs.set(uid, (winnerUserDecs.get(uid) || 0) + 1);
+        }
+      }
+      await Media.updateMany(
+        { wonChallenge: playlist._id },
+        { $set: { wonChallenge: null, podiumRank: 0, wonAt: null } },
+      );
+      await Promise.all([
+        ...Array.from(winnerUserDecs.entries()).map(([uid, n]) =>
+          User.updateOne({ _id: uid }, { $inc: { challengeWinsCount: -n } })),
+        ...Array.from(podiumUserDecs.entries()).map(([uid, n]) =>
+          User.updateOne({ _id: uid }, { $inc: { challengePodiumCount: -n } })),
+      ]);
+    }
+
     const finalists = await Media.find({ _id: { $in: finalistIds } })
-      .select('votes')
+      .select('votes player createdBy')
       .lean();
     // Rank: highest average score, ties broken by total vote count.
     // Medias with zero votes rank last but are still included so admin
@@ -523,7 +554,12 @@ router.post('/challenges/:id/close-voting', async (req, res) => {
       const votes = Array.isArray(m.votes) ? m.votes : [];
       const totalScore = votes.reduce((s, v) => s + (v.score || 0), 0);
       const avg = votes.length ? totalScore / votes.length : 0;
-      return { id: m._id.toString(), avg, count: votes.length };
+      return {
+        id: m._id.toString(),
+        userId: (m.player || m.createdBy || '').toString() || null,
+        avg,
+        count: votes.length,
+      };
     }).sort((a, b) => (b.avg - a.avg) || (b.count - a.count));
 
     playlist.winner = ranked[0] ? ranked[0].id : null;
@@ -532,6 +568,34 @@ router.post('/challenges/:id/close-voting', async (req, res) => {
     playlist.votingEnabled = false;
     playlist.globalOverride = false;
     await playlist.save();
+
+    // Stamp badge on each podium Media + increment user counters.
+    const now = new Date();
+    const podiumOps = [];
+    const winnerIncs = new Map();
+    const podiumIncs = new Map();
+    ranked.slice(0, 3).forEach((r, idx) => {
+      const rank = idx + 1;
+      podiumOps.push(
+        Media.updateOne(
+          { _id: r.id },
+          { $set: { wonChallenge: playlist._id, podiumRank: rank, wonAt: now } },
+        ),
+      );
+      if (r.userId) {
+        podiumIncs.set(r.userId, (podiumIncs.get(r.userId) || 0) + 1);
+        if (rank === 1) {
+          winnerIncs.set(r.userId, (winnerIncs.get(r.userId) || 0) + 1);
+        }
+      }
+    });
+    await Promise.all([
+      ...podiumOps,
+      ...Array.from(winnerIncs.entries()).map(([uid, n]) =>
+        User.updateOne({ _id: uid }, { $inc: { challengeWinsCount: n } })),
+      ...Array.from(podiumIncs.entries()).map(([uid, n]) =>
+        User.updateOne({ _id: uid }, { $inc: { challengePodiumCount: n } })),
+    ]);
 
     const populated = await Playlist.findById(playlist._id)
       .populate({

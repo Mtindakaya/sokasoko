@@ -240,7 +240,7 @@ router.get(PATH_LIST, async (req, res) => {
     // compound index this is the difference between multi-second and
     // sub-100ms responses for a busy user.
     const data = await Media.find(filter)
-      .select('title description url type order likes commentsCount voteCount player createdBy createdAt updatedAt')
+      .select('title description url type order likes commentsCount voteCount player createdBy createdAt updatedAt wonChallenge podiumRank wonAt')
       .populate('createdBy', 'firstName lastName profileImage')
       .populate('player', 'firstName lastName profileImage')
       .sort({ order: 1, createdAt: 1 })

@@ -50,6 +50,18 @@ const MediaSchema = new Schema(
       index: true,
     },
     challengeSubmittedAt: { type: Date, default: null },
+    // Podium — denormalized from Playlist.winner/runnersUp during
+    // POST /v1/challenges/:id/close-voting. Kept here so any Media
+    // tile (profile carousel, feed, search) can render the winner
+    // badge without joining Playlist. podiumRank: 1=🥇, 2=🥈, 3=🥉.
+    wonChallenge: {
+      type: Schema.Types.ObjectId,
+      ref: 'Playlist',
+      default: null,
+      index: true,
+    },
+    podiumRank: { type: Number, default: 0, min: 0, max: 3 },
+    wonAt: { type: Date, default: null },
   },
   {
     id: false,

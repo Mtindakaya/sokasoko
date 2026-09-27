@@ -258,6 +258,12 @@ const UserSchema = new Schema(
     // filters). Org / business types stay excluded — see
     // canEnableGuardianship() below.
     hasGuardianship: { type: Boolean, default: false, index: true },
+    // Shindano podium counters — incremented in close-voting when the
+    // player's submission wins or lands in the podium. Kept as
+    // aggregates so Info Zaidi can render "Ameshinda mara N" without
+    // a Media aggregation query on every profile load.
+    challengeWinsCount: { type: Number, default: 0, min: 0 },
+    challengePodiumCount: { type: Number, default: 0, min: 0 },
     // Password reset flow — short-lived 6-digit code hashed with
     // bcrypt (same salt-rounds as password) so the raw code never
     // sits in the DB. Cleared after successful reset or expiry
