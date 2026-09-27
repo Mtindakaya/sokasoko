@@ -56,6 +56,16 @@ const PlaylistSchema = new Schema(
         'CLUB', 'SPONSOR', 'AGENT', 'REFEREE', 'SCOUT', 'FIELD_OWNER',
       ],
     }],
+    // Podium — populated by POST /v1/challenges/:id/close-voting.
+    // Voting is scored 0..10 per Media.votes entry; winner = highest
+    // average, runnersUp = next 2. Ties break on total vote count.
+    winner: {
+      type: Schema.Types.ObjectId,
+      ref: 'Media',
+      default: null,
+    },
+    runnersUp: [{ type: Schema.Types.ObjectId, ref: 'Media' }],
+    winnersDeclaredAt: { type: Date, default: null },
     scheduledSessions: [
       {
         startTime: { type: String, required: true }, // "HH:MM" 24-hour

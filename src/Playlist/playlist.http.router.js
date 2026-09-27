@@ -488,6 +488,71 @@ router.post('/challenges/:id/promote-finalists', async (req, res) => {
   }
 });
 
+// POST /v1/challenges/:id/close-voting
+// Round 2 → done. Loads every finalist (Playlist.videos), averages
+// the 0..10 score per Media.votes entry, and stamps a top-3 podium
+// (winner + up to 2 runnersUp) on the Playlist. Ties break on total
+// vote count. Flips votingEnabled + globalOverride off so the
+// finalists stop taking over the carousel — the winner is still
+// discoverable via the playlist detail + the winner badge on the
+// player's profile.
+router.post('/challenges/:id/close-voting', async (req, res) => {
+  try {
+    const Media = require('../Media/media.model');
+    const playlist = await Playlist.findById(req.params.id);
+    if (!playlist) {
+      return res.status(404).json({
+        error: 'Challenge not found',
+        errorKey: 'challenge.err.not_found',
+      });
+    }
+    const finalistIds = (playlist.videos || []).map((v) => v.toString());
+    if (!finalistIds.length) {
+      return res.status(409).json({
+        error: 'No finalists on this challenge — promote a shortlist first.',
+        errorKey: 'challenge.err.no_finalists_to_close',
+      });
+    }
+    const finalists = await Media.find({ _id: { $in: finalistIds } })
+      .select('votes')
+      .lean();
+    // Rank: highest average score, ties broken by total vote count.
+    // Medias with zero votes rank last but are still included so admin
+    // sees who never got a vote (useful signal for next challenge).
+    const ranked = finalists.map((m) => {
+      const votes = Array.isArray(m.votes) ? m.votes : [];
+      const totalScore = votes.reduce((s, v) => s + (v.score || 0), 0);
+      const avg = votes.length ? totalScore / votes.length : 0;
+      return { id: m._id.toString(), avg, count: votes.length };
+    }).sort((a, b) => (b.avg - a.avg) || (b.count - a.count));
+
+    playlist.winner = ranked[0] ? ranked[0].id : null;
+    playlist.runnersUp = ranked.slice(1, 3).map((r) => r.id);
+    playlist.winnersDeclaredAt = new Date();
+    playlist.votingEnabled = false;
+    playlist.globalOverride = false;
+    await playlist.save();
+
+    const populated = await Playlist.findById(playlist._id)
+      .populate({
+        path: 'winner',
+        populate: { path: 'player',
+          select: 'firstName lastName academy_name academyName company_name entity_name accountNumber type profileImage' },
+      })
+      .populate({
+        path: 'runnersUp',
+        populate: { path: 'player',
+          select: 'firstName lastName academy_name academyName company_name entity_name accountNumber type profileImage' },
+      });
+    return res.status(200).json({
+      data: populated,
+      ranking: ranked,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/challenges/:id/submissions — admin CMS list of every Media
 // tagged with this challenge. Populates the submitting player's
 // display fields so the CMS table can render name + account + type
