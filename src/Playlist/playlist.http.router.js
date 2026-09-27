@@ -437,6 +437,57 @@ router.get('/challenges/open', async (req, res) => {
   }
 });
 
+// POST /v1/challenges/:id/promote-finalists  body: { mediaIds: [...] }
+// Round 1 → Round 2 transition. Writes the chosen submissions onto
+// Playlist.videos, flips votingEnabled=true, and turns globalOverride
+// on so the finalists take over the audience carousel. IDs must all
+// belong to submissions for this challenge — mixing in an unrelated
+// Media gets rejected before any state changes.
+router.post('/challenges/:id/promote-finalists', async (req, res) => {
+  try {
+    const Media = require('../Media/media.model');
+    const ids = Array.isArray(req.body && req.body.mediaIds)
+      ? req.body.mediaIds.filter(Boolean)
+      : [];
+    if (!ids.length) {
+      return res.status(400).json({
+        error: 'mediaIds must be a non-empty array',
+        errorKey: 'challenge.err.no_finalists',
+      });
+    }
+    const playlist = await Playlist.findById(req.params.id);
+    if (!playlist) {
+      return res.status(404).json({
+        error: 'Challenge not found',
+        errorKey: 'challenge.err.not_found',
+      });
+    }
+    // Every id must be a submission for THIS challenge — prevents
+    // admin fat-fingering a Media ID that belongs to another playlist.
+    const matching = await Media.find({
+      _id: { $in: ids },
+      challenge: playlist._id,
+    }).select('_id').lean();
+    if (matching.length !== ids.length) {
+      return res.status(400).json({
+        error: 'Some IDs are not submissions for this challenge',
+        errorKey: 'challenge.err.finalist_mismatch',
+        expected: ids.length,
+        matched: matching.length,
+      });
+    }
+    playlist.videos = ids;
+    playlist.votingEnabled = true;
+    playlist.globalOverride = true;
+    await playlist.save();
+    const populated = await Playlist.findById(playlist._id)
+      .populate('videos');
+    return res.status(200).json({ data: populated });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/challenges/:id/submissions — admin CMS list of every Media
 // tagged with this challenge. Populates the submitting player's
 // display fields so the CMS table can render name + account + type
