@@ -22,9 +22,14 @@ const _normalise = (s) => String(s || '').trim().toLowerCase()
 // GET /v1/venues
 router.get(BASE, async (req, res) => {
   try {
-    const { page = 1, limit = 20, region, status, query } = req.query;
+    const { page = 1, limit = 20, region, district, ward, status, query } = req.query;
     const filter = {};
-    if (region) filter.region = region;
+    // Region/district/ward are equality-matched but case-tolerant so
+    // clients don't have to worry about "Arusha" vs "Arusha Region".
+    const eqRx = (v) => new RegExp(`^${String(v).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    if (region) filter.region = eqRx(region);
+    if (district) filter.district = eqRx(district);
+    if (ward) filter.ward = eqRx(ward);
     if (status) filter.status = status;
     else filter.status = 'ACTIVE';
 
