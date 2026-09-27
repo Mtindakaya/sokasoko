@@ -300,6 +300,10 @@ router.get(PATH_LIST, async (req, res) => {
     if (req.query.district) filter.district = req.query.district;
     if (req.query.ward) filter.ward = req.query.ward;
     if (req.query.street) filter.street = req.query.street;
+    // Reverse Uwanja wa Nyumbani lookup — every org whose homeVenue
+    // points at a given Venue. Powers the "Home Teams" section on the
+    // mobile VenueDetail screen (mirrors ACADEMY/CLUB/SCHOOL only).
+    if (req.query.homeVenue) filter.homeVenue = req.query.homeVenue;
 
     // Free-text keyword search. Two surfaces are searched and unioned:
     //   1) bio-shaped fields on the User (short_bio, company_*, etc.)
