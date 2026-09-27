@@ -5,6 +5,7 @@ const Venue = require('./venue.model');
 const VenueSuggestion = require('./venue_suggestion.model');
 const User = require('../User/user.model');
 const { requireAdminKey } = require('../middleware/adminAuth');
+const { uploadFor } = require('../Utils/uploader');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -21,13 +22,30 @@ const _normalise = (s) => String(s || '').trim().toLowerCase()
 // GET /v1/venues
 router.get(BASE, async (req, res) => {
   try {
-    const { page = 1, limit = 20, region, status } = req.query;
+    const { page = 1, limit = 20, region, status, query } = req.query;
     const filter = {};
     if (region) filter.region = region;
     if (status) filter.status = status;
     else filter.status = 'ACTIVE';
 
+    // Keyword search — matches on name/region/district/ward so a
+    // single input covers "Uhuru", "Ilala", "Kariakoo" etc. Case-
+    // insensitive prefix + substring; short enough to skip the text
+    // index and still be sub-100ms on the current dataset.
+    if (query && String(query).trim().length >= 2) {
+      const q = String(query).trim();
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { name: rx },
+        { region: rx },
+        { district: rx },
+        { ward: rx },
+        { serikaliYaMtaa: rx },
+      ];
+    }
+
     let venues = await Venue.find(filter)
+      .populate('owners', 'firstName lastName academy_name entity_name company_name football_field_name accountNumber type')
       .sort({ name: 1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
@@ -96,7 +114,8 @@ router.get(`${BASE}/in-ward`, async (req, res) => {
 // GET /v1/venues/:id
 router.get(`${BASE}/:id`, async (req, res) => {
   try {
-    const venue = await Venue.findById(req.params.id);
+    const venue = await Venue.findById(req.params.id)
+      .populate('owners', 'firstName lastName academy_name entity_name company_name football_field_name accountNumber type');
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
     return res.status(200).json({ data: venue });
   } catch (err) {
@@ -104,22 +123,27 @@ router.get(`${BASE}/:id`, async (req, res) => {
   }
 });
 
-// POST /v1/venues
-router.post(BASE, async (req, res) => {
+// POST /v1/venues — uploadFor() converts any file[fieldname=photo]
+// to a URL string on req.body.photo, so the CMS can send multipart
+// (photo file) or JSON (photo URL string) interchangeably.
+router.post(BASE, uploadFor(), async (req, res) => {
   try {
-    const { name, region, district, ward, street, capacity, surfaceType, description, createdBy } = req.body;
+    const { name, region, district, ward, street, capacity, surfaceType, fieldSize, description, createdBy, photo } = req.body;
     if (!name || !region || !district) {
       return res.status(400).json({ error: 'name, region and district are required' });
     }
-    const venue = await Venue.create({ name, region, district, ward, street, capacity, surfaceType, description, createdBy });
+    const venue = await Venue.create({
+      name, region, district, ward, street, capacity, surfaceType, fieldSize, description, createdBy, photo,
+    });
     return res.status(201).json({ data: venue });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-// PATCH /v1/venues/:id
-router.patch(`${BASE}/:id`, async (req, res) => {
+// PATCH /v1/venues/:id — same uploadFor() shim: multipart photo
+// upload lands on req.body.photo as the resolved URL.
+router.patch(`${BASE}/:id`, uploadFor(), async (req, res) => {
   try {
     const venue = await Venue.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
