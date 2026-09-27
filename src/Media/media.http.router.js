@@ -21,6 +21,7 @@ const PATH_SEARCH = '/medias/search';
 const Media = require('./media.model');
 const Comment = require('./comment.model');
 const User = require('../User/user.model');
+const Playlist = require('../Playlist/playlist.model');
 const ChatMessage = require('../Chat/chat.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 const { SubscriptionUsage } = require('../Subscription/subscription_usage.model');
@@ -319,6 +320,130 @@ router.post(
       return Media.post(body, done);
     },
   })
+);
+
+// POST /v1/medias/challenge-submission — challenge-tagged Media upload.
+// Kept separate from the generic POST /v1/medias so the challenge
+// validation + auto-promote-to-#0 logic can run outside the lykmapipo
+// postFor pipeline that swallows the created doc.
+//
+// Body: { title, description, url, type, player, challenge }
+//   - challenge = Playlist._id whose brief is past expiresAt
+//   - player    = User._id whose profile carousel receives the video
+//                 (defaults to createdBy)
+//
+// Enforces:
+//   - challenge points at an ACTIVE Playlist with a published brief
+//   - the brief window has closed (brief.expiresAt <= now)
+//   - player has not already submitted to this challenge (sparse
+//     unique index catches races too — 409 on duplicate)
+//
+// On success:
+//   - the new Media lands at order=0
+//   - every existing Media of that player has order += 1 so the
+//     submission is #0 in the profile carousel
+router.post(
+  '/medias/challenge-submission',
+  uploadFor(),
+  refuseOrphanedPlayerUpload,
+  meterAcademyPostCap,
+  async (req, res) => {
+    try {
+      const { title, description, url, type, challenge } = req.body;
+      const player = req.body.player || req.body.createdBy;
+      const createdBy = req.body.createdBy || player;
+      if (!challenge) {
+        return res.status(400).json({
+          error: 'challenge is required',
+          errorKey: 'challenge.err.missing',
+        });
+      }
+      if (!player) {
+        return res.status(400).json({
+          error: 'player is required',
+          errorKey: 'challenge.err.missing_player',
+        });
+      }
+      const playlist = await Playlist.findById(challenge).lean();
+      if (!playlist) {
+        return res.status(404).json({
+          error: 'Challenge not found',
+          errorKey: 'challenge.err.not_found',
+        });
+      }
+      const brief = playlist.brief || {};
+      if (!brief.publishedAt) {
+        return res.status(409).json({
+          error: 'Challenge is not open for submissions.',
+          errorKey: 'challenge.err.not_open',
+        });
+      }
+      const now = new Date();
+      if (brief.expiresAt && new Date(brief.expiresAt) > now) {
+        return res.status(409).json({
+          error: 'Brief phase is still running. Submissions open when the brief expires.',
+          errorKey: 'challenge.err.brief_phase',
+        });
+      }
+      if (!playlist.isActive) {
+        return res.status(409).json({
+          error: 'Challenge has been closed by admin.',
+          errorKey: 'challenge.err.closed',
+        });
+      }
+      // Reject double-submission early with a nice message; the sparse
+      // unique index is the ultimate guard against races.
+      const existing = await Media.findOne({ player, challenge })
+        .select('_id')
+        .lean();
+      if (existing) {
+        return res.status(409).json({
+          error: 'You have already submitted a video for this challenge.',
+          errorKey: 'challenge.err.already_submitted',
+        });
+      }
+      // Shift every existing Media for this player down one slot so
+      // the new submission lands at 0. Both createdBy and player
+      // are indexed; the compound {createdBy, order, createdAt} makes
+      // this cheap even for prolific uploaders.
+      await Media.updateMany(
+        { $or: [{ createdBy: player }, { player }] },
+        { $inc: { order: 1 } },
+      );
+      let media;
+      try {
+        media = await Media.create({
+          title: title || 'Challenge submission',
+          description: description || '',
+          url,
+          type: type || 'Link',
+          order: 0,
+          player,
+          createdBy,
+          challenge,
+          challengeSubmittedAt: now,
+        });
+      } catch (e) {
+        // Duplicate key from the sparse unique index — race with a
+        // parallel submit. Roll back the order shift so the carousel
+        // doesn't develop a permanent gap at #0.
+        if (e && e.code === 11000) {
+          await Media.updateMany(
+            { $or: [{ createdBy: player }, { player }] },
+            { $inc: { order: -1 } },
+          );
+          return res.status(409).json({
+            error: 'You have already submitted a video for this challenge.',
+            errorKey: 'challenge.err.already_submitted',
+          });
+        }
+        throw e;
+      }
+      return res.status(201).json({ data: media });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  },
 );
 
 router.patch(

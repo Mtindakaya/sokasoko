@@ -39,6 +39,17 @@ const MediaSchema = new Schema(
     // animation for known clips).
     videoWidth: { type: Number, default: 0 },
     videoHeight: { type: Number, default: 0 },
+    // Shindano — when set, this Media is the player's submission for a
+    // specific Playlist-with-brief challenge. Enforced 1-per-player via
+    // the sparse unique compound index below. Populated on create and
+    // never mutated (submission is one-shot).
+    challenge: {
+      type: Schema.Types.ObjectId,
+      ref: 'Playlist',
+      default: null,
+      index: true,
+    },
+    challengeSubmittedAt: { type: Date, default: null },
   },
   {
     id: false,
@@ -57,6 +68,15 @@ MediaSchema.index({
 // both filter by createdBy and order by (order asc, createdAt asc).
 MediaSchema.index({ createdBy: 1, order: 1, createdAt: 1 });
 MediaSchema.index({ player: 1 });
+// One submission per player per challenge. Sparse so non-challenge
+// Media (99% of rows) doesn't collide on {player:null, challenge:null}.
+MediaSchema.index(
+  { player: 1, challenge: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { challenge: { $type: 'objectId' } },
+  },
+);
 
 MediaSchema.pre('save', function preValidate(done) {
   return this.preValidate(done);

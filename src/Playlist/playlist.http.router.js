@@ -415,6 +415,28 @@ router.get('/playlists/briefs', async (req, res) => {
   }
 });
 
+// GET /v1/challenges/open — playlists whose brief has finished the
+// preview window and are now accepting player submissions. Mobile
+// Create Media reads this to populate the Shindano dropdown.
+// Definition: brief.publishedAt is set AND brief.expiresAt <= now
+// AND playlist is still active (admin hasn't closed it entirely).
+router.get('/challenges/open', async (req, res) => {
+  try {
+    const now = new Date();
+    const rows = await Playlist.find({
+      isActive: true,
+      'brief.publishedAt': { $ne: null },
+      'brief.expiresAt': { $lte: now },
+    })
+      .select('title description brief sponsor')
+      .populate('sponsor', 'firstName lastName academy_name entity_name company_name profileImage')
+      .sort({ 'brief.expiresAt': -1 });
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/playlists/active/brief — the currently-running brief for
 // Home / carousel rendering. Returns null when no brief is active.
 router.get('/playlists/active/brief', async (req, res) => {
