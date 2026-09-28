@@ -209,6 +209,11 @@ const UserSchema = new Schema(
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },
     street: String,
+    // TCRA postcode — 5-digit ward-level code (2 = region, 3 = district,
+    // 5 = ward). Optional; auto-populated from the geo dataset when the
+    // user picks a ward at signup / edit. Kept as a plain string
+    // (leading zeros preserved).
+    postalCode: { type: String, trim: true, default: '' },
     email: { type: String, trim: true },
     contact_number: { type: String, trim: true },
     facebook: { type: String, trim: true },

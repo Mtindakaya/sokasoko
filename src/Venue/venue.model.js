@@ -60,6 +60,10 @@ const VenueSchema = new Schema(
       type: String,
       trim: true,
     },
+    // TCRA postcode — 5-digit ward-level code (2 = region, 3 = district,
+    // 5 = ward). Optional; matches the User.postalCode field so venues
+    // and orgs use the same source of truth.
+    postalCode: { type: String, trim: true, default: '' },
     capacity: {
       type: Number,
       default: 0,
