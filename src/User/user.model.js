@@ -195,14 +195,17 @@ const UserSchema = new Schema(
     emancipationRemindedAt:  { type: Date, default: null },
     emancipationSnoozedUntil:{ type: Date, default: null, index: true },
     suspend: { type: Boolean, default: false },
-    // Soft-delete timestamp — set by the admin deletion workflow
-    // after a DeletionRequest is processed. PII (posts, messages,
-    // files, contact info) gets purged; the User row itself sticks
-    // around so referential integrity holds — opposing teams keep
-    // their match records intact, but clients render the account
-    // greyed and taps route to "Akaunti haipo tena" instead of the
-    // profile.
+    // Soft-delete timestamp — set once the 48h grace window has
+    // passed and purgeUserPII has run. Marks the row as tombstoned:
+    // referential integrity holds (opposing teams keep their match
+    // records) but clients render the account greyed and route taps
+    // to "Akaunti haipo tena" instead of the stripped-out profile.
     deletedAt: { type: Date, default: null, index: true },
+    // Deletion scheduled — stamped to (now + 48h) when the user
+    // confirms the account-delete dialog. Purge runs lazily on the
+    // next login/profile-view once this is past. User can cancel
+    // during the window by signing back in.
+    deletionScheduledAt: { type: Date, default: null, index: true },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },
     street: String,

@@ -375,8 +375,15 @@ router.get('/account-deletion', (_req, res) => {
 // Accept the form submission. Adding a local urlencoded parser because
 // the framework body-parser stack targets JSON APIs; this HTML form
 // posts application/x-www-form-urlencoded.
+// 48h grace window before PII purge — user can cancel by signing
+// back in during this period. purgeIfExpired (called from login +
+// profile-view paths) runs the actual purge once the window has
+// passed.
+const DELETION_GRACE_MS = 48 * 60 * 60 * 1000;
+
 router.post('/account-deletion', express.urlencoded({ extended: false }), async (req, res) => {
   try {
+    const User = require('../User/user.model');
     const identifier = (req.body.identifier || '').toString().trim();
     const contactBack = (req.body.contactBack || '').toString().trim();
     const reason = (req.body.reason || '').toString().trim();
@@ -393,6 +400,41 @@ router.post('/account-deletion', express.urlencoded({ extended: false }), async 
     const doc = await DeletionRequest.create({
       identifier, contactBack, reason, ipHash,
     });
+    // Match identifier → User and stamp the 48h window. Best-effort:
+    // failure here doesn't block the request (the DeletionRequest
+    // row is the audit record either way). Admin can still process
+    // manually if the match failed.
+    let scheduledAt = null;
+    try {
+      const user = await User.findOne({
+        $or: [
+          { phone: identifier },
+          { accountNumber: identifier },
+        ],
+      }).select('_id deletedAt deletionScheduledAt').lean();
+      if (user && !user.deletedAt) {
+        scheduledAt = new Date(Date.now() + DELETION_GRACE_MS);
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { deletionScheduledAt: scheduledAt } },
+        );
+      }
+    } catch (e) {
+      console.warn('[account-deletion] user stamp failed:', e.message);
+    }
+    // JSON response when the mobile client asks for it (Accept:
+    // application/json). HTML form response otherwise, so the
+    // public web form still works.
+    if ((req.headers.accept || '').includes('application/json')) {
+      return res.status(200).json({
+        data: {
+          ok: true,
+          requestId: doc._id.toString().slice(-8).toUpperCase(),
+          scheduledAt,
+          graceHours: DELETION_GRACE_MS / (60 * 60 * 1000),
+        },
+      });
+    }
     res.set('Content-Type', 'text/html; charset=utf-8');
     return res.send(DELETION_OK_HTML(doc._id.toString().slice(-8).toUpperCase()));
   } catch (err) {

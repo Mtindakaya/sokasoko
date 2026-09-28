@@ -1082,12 +1082,73 @@ router.post(PATH_LOGIN, (request, response) => {
         'Closed testing in progress. Your account is not on the tester list.'
       );
     }
-    return user.comparePassword(password, (error, isMatch) => {
+    return user.comparePassword(password, async (error, isMatch) => {
       if (error) return response.error(error);
-      if (isMatch) return response.ok(user);
-      return response.error('Failed to Login');
+      if (!isMatch) return response.error('Failed to Login');
+      // Deletion lifecycle guard.
+      //  - deletedAt set     → account is tombstoned; block login.
+      //  - deletionScheduledAt set + expired → run purge now, block.
+      //  - deletionScheduledAt set + pending → allow login but tag
+      //    the response so mobile can offer a Cancel dialog.
+      try {
+        const { purgeIfExpired } = require('./user.purge');
+        if (user.deletedAt) {
+          return response.error(
+            'Akaunti hii imefutwa. This account has been deleted.'
+          );
+        }
+        if (user.deletionScheduledAt) {
+          const purge = await purgeIfExpired(user._id);
+          if (purge && purge.ok) {
+            return response.error(
+              'Akaunti hii imefutwa. This account has been deleted.'
+            );
+          }
+        }
+        // Return the user with a synthetic pending-deletion hint so
+        // the mobile client can pop the Cancel dialog. Merge into a
+        // plain object so we don't fight mongoose's toJSON getters.
+        if (user.deletionScheduledAt) {
+          const plain = user.toObject({ getters: true });
+          plain.deletionPending = {
+            scheduledAt: user.deletionScheduledAt,
+            canCancel: true,
+          };
+          return response.ok(plain);
+        }
+      } catch (e) {
+        console.warn('[login] deletion-lifecycle check failed:', e.message);
+      }
+      return response.ok(user);
     });
   });
+});
+
+// POST /v1/users/:id/cancel-deletion — abort the 48h purge window.
+// Called from the mobile Cancel dialog. No-ops when there's nothing
+// scheduled; 409 if already past the window (purge already ran).
+router.post('/users/:id/cancel-deletion', async (req, res) => {
+  try {
+    const u = await User.findById(req.params.id)
+      .select('deletedAt deletionScheduledAt');
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    if (u.deletedAt) {
+      return res.status(409).json({
+        error: 'Account already deleted — nothing to cancel.',
+        errorKey: 'deletion.err.already_purged',
+      });
+    }
+    if (!u.deletionScheduledAt) {
+      return res.status(200).json({
+        data: { ok: true, alreadyCleared: true },
+      });
+    }
+    u.deletionScheduledAt = null;
+    await u.save();
+    return res.status(200).json({ data: { ok: true } });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /v1/users/:id/beta-tester — toggle beta_tester flag.
