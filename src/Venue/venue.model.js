@@ -96,6 +96,12 @@ const VenueSchema = new Schema(
         ref: 'User',
       },
     ],
+    // Free-text owner name — used when the field owner isn't on the
+    // platform as a User (e.g. an outside stadium, a ministry, a
+    // school board without a SokaSoko account). Renders alongside
+    // `owners` on the venue detail so admin can capture what they
+    // know even before the owner ever signs up.
+    ownerName: { type: String, trim: true, default: '' },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',

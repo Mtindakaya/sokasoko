@@ -279,6 +279,13 @@ router.post(`${SUGGEST_BASE}/:id/approve`, requireAdminKey, async (req, res) => 
       surfaceType: venue.surfaceType || 'NATURAL_GRASS',
       fieldSize: venue.fieldSize || s.fieldSize || 'UNKNOWN',
       description: venue.description || '',
+      // Free-text owner falls back to the suggestion's ownerName
+      // (populated when the suggesting org typed a name for an
+      // off-platform owner). Admin can override.
+      ownerName: (venue.ownerName != null
+          ? venue.ownerName
+          : (s.ownerType === 'MANUAL' ? (s.ownerName || '') : ''))
+        .toString().trim(),
       createdBy: reviewerId || null,
     };
     // Owner defaults: admin-supplied array wins; fall back to the
