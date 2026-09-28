@@ -626,6 +626,22 @@ router.post(`${BASE}/:id/lineup`, async (req, res) => {
     }).filter((r) => r.player);
     const stArr = normalise(starters);
     const subArr = normalise(subs);
+    // Dedupe guard — same player can't appear twice in starters OR
+    // once as a starter and once as a sub. Client dedupes at pick
+    // time via _isPicked but a stale form / API caller can still
+    // hit this path.
+    const seen = new Set();
+    for (const r of [...stArr, ...subArr]) {
+      const pid = (r.player || '').toString();
+      if (!pid) continue;
+      if (seen.has(pid)) {
+        return res.status(400).json({
+          error: 'Mchezaji mmoja hawezi kuwekwa mara mbili kwenye lineup.',
+          errorKey: 'matches.lineup.err.duplicate_player',
+        });
+      }
+      seen.add(pid);
+    }
     if (stArr.length > 22) {
       return res.status(400).json({
         error: 'Wachezaji wa kuanza ni zaidi ya 22.',
