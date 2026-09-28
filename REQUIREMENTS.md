@@ -1,7 +1,7 @@
 # SokaSoko Platform — Product Requirements Document
 
-**Version:** 3.1  
-**Last Updated:** 2026-09-23  
+**Version:** 3.2  
+**Last Updated:** 2026-09-28  
 **Platform:** Mobile (Flutter/Android) + Admin CMS (React) + Backend API (Node.js/Express/MongoDB) — iOS via TestFlight (Path A, in progress)
 
 ---
@@ -318,10 +318,37 @@ Each user type has STANDARD (free) + one or more paid tiers (GOLD / PLATINUM / E
 
 ### 3.12 VENUE MANAGEMENT
 
-#### Requirements
-- Venue database: name, region, district
-- Bulk import from file (admin)
-- Dropdown selection when scheduling matches
+#### Requirements — data model
+- Venue database: `name`, `region`, `district`, `ward`, `serikaliYaMtaa`, `street`, `capacity`, `surfaceType` (5 options), `fieldSize` enum (`FIVE_A_SIDE` / `SEVEN_A_SIDE` / `NINE_A_SIDE` / `ELEVEN_A_SIDE` / `MULTI` / `FUTSAL` / `UNKNOWN`), `photo`, `description`, `status` (`ACTIVE` / `INACTIVE` / `UNDER_MAINTENANCE`)
+- `owners: [User]` (max 2) — SokaSoko-account owners with reservation confirmation rights
+- `ownerName: String` — free-text owner for off-platform owners (school boards, ministries, outside stadiums)
+- Bulk CSV import from CMS (admin)
+
+#### Uwanja wa Nyumbani (Home Field) — org-side capture
+- **Reusable HomeFieldSection** on Academy / Club / School signup step 2 + edit profile
+- Dropdown of ward-scoped curated venues loaded from `GET /v1/venues/in-ward?region=&district=&ward=`
+- Levenshtein typo hint — when manual name is 75-98% similar to a curated venue, prompt "Ulimaanisha X?" as a tap-to-select chip
+- Manual entry fallback → `POST /v1/venue-suggestions` — lands in the admin review queue with:
+  - `name`, `region`, `district`, `ward`
+  - `fieldSize` (org's best guess — admin can override on approve)
+  - `ownerType` enum (`SELF` / `REF` / `MANUAL` / `UNKNOWN`) + `ownerRef` or `ownerName` accordingly
+- User account grows `homeVenue` (curated ref) + `homeVenueSuggestion` (pending ref) — mutually exclusive after admin resolution
+
+#### VenueSuggestion queue (Admin CMS)
+- New **Maombi ya Uwanja** page with status / region / district / ward filters
+- Approve modal — admin can override every Venue field (name, location, size, description) + owner assignment
+  - Owner options: **Pick existing user** (searchable multi-select) / **Enter name manually** (free-text → `Venue.ownerName`) / **No owner (link later)**
+  - Prefill from suggestion's ownerType (SELF/REF hints seed the picker; MANUAL pre-fills the free-text)
+- Approve promotes suggestion to a real Venue and auto-rewires every org whose `homeVenueSuggestion` pointed at it to `homeVenue = <newVenueId>`
+- Reject captures a reason and clears the org's pending link
+- Reviewer picker on the queue header is a searchable admin-user Select (persisted to localStorage)
+
+#### Search & discovery surfaces
+- **Top Discover search bar** — typing surfaces matching venues in a "Viwanja vinavyofanana" strip above the users grid (regex on name/region/district/ward/serikaliYaMtaa)
+- **Uwanja / Fields filter tab** — cascading location dropdowns (Region → District → Ward → Serikali ya Mtaa / Shehia) matching the Academies filter pattern
+- **VenueDetail screen** — photo, name + fieldSize pill, mkoa/wilaya/kata/Serikali ya Mtaa/street, surface, capacity, owners (linked accounts + free-text ownerName), **home teams** (every org whose homeVenue points at this field, tap → UserInfo), description
+- **Scores** — venue name on each match row is a tappable underlined link that opens VenueDetail
+- **Info Zaidi** — Uwanja wa Nyumbani row under Location section (org-only), shows curated name + owner + fieldSize gloss, or an orange "Inasubiri uhakiki" pill for pending suggestions, or a "Haujawekwa" fallback
 
 ---
 
@@ -591,6 +618,95 @@ Fixes the "Select audience later" dead-end.
 
 #### 3.32.3 Admin Reset
 - `scripts/reset-password.js <accountNumber> <newPassword>` — one-off Render-shell reset when the user can't self-serve (e.g. lost phone AND email)
+
+---
+
+### 3.33 SHINDANO — CHALLENGE CYCLE
+
+Four-phase challenge product built on the existing `Playlist` collection. Sponsor branding attaches to any (or all) phases via `Playlist.stageSponsors`.
+
+#### Phase 1 — Brief
+- Admin publishes via `POST /v1/playlists/with-brief` — attaches `brief.video` (upload or YouTube), `brief.instructions`, `brief.publishedAt`, `brief.expiresAt = publishedAt + durationDays`
+- Brief renders on Home + intermittently in the user-account carousel (weighted by `carouselWeight`) while `expiresAt > now`
+- Submissions are BLOCKED during the brief window
+- Optional sponsor via `Playlist.sponsor` (+ `sponsorBrandColor` for Platinum+ tier); per-phase override via `Playlist.stageSponsors.brief`
+
+#### Phase 2 — Submissions
+- Opens automatically when `brief.expiresAt <= now`
+- Mobile Create Media (Add File) grows a **Shindano (Hiari)** dropdown listing open challenges (`GET /v1/challenges/open`)
+- Selecting a challenge routes upload through `POST /v1/medias/challenge-submission`:
+  - Validates challenge is `isActive: true` + brief window is closed + player hasn't already submitted (sparse unique index on `Media.{player, challenge}`)
+  - Creates Media at `order: 0` and shifts every existing Media of the player `order += 1` → submission lands #1 on the profile carousel
+  - Media grows `challenge: ObjectId(ref: Playlist)` + `challengeSubmittedAt`
+- Duplicate-submission (409) surfaces `errorKey: challenge.err.already_submitted`
+- Race-safe: sparse unique index catches double-taps; parallel attempts get 409 with order-shift rollback
+
+#### Phase 3 — Voting (Round 2)
+- Admin reviews submissions via CMS **Submissions** modal (per-row button on any playlist with a published brief)
+- Ant-table row selection → **Promote N to voting** button fires `POST /v1/challenges/:id/promote-finalists { mediaIds }`
+- Endpoint validates every ID belongs to a submission for THIS playlist, sets `Playlist.videos = mediaIds` + `votingEnabled = true` + `globalOverride = true`
+- Mobile: existing vote UI activates (0-10 slider per finalist) — no new client code needed
+
+#### Phase 4 — Winners
+- Admin closes voting via **Close voting & declare winners** Popconfirm on the Submissions modal → `POST /v1/challenges/:id/close-voting`
+- Endpoint averages `Media.votes.score` per finalist (ties broken by total vote count), stamps top-3 podium:
+  - `Playlist.winner` (Media ref) + `Playlist.runnersUp` (up to 2 Media refs) + `Playlist.winnersDeclaredAt`
+  - Denormalized onto Media: `wonChallenge` (Playlist ref) + `podiumRank` (1/2/3) + `wonAt`
+  - Denormalized onto User: `challengeWinsCount` + `challengePodiumCount` (aggregate counters)
+- `votingEnabled` + `globalOverride` flip off so finalists stop taking over the carousel
+- Re-close is idempotent — prior podium's Media flags cleared + User counters decremented before fresh podium writes
+
+#### Winner Badge
+- `WinnerBadge` widget reads `podiumRank` off any Media map → renders 🥇 Mshindi wa Shindano / 🥈 Nafasi ya Pili / 🥉 Nafasi ya Tatu chip (colour-coded gold/silver/bronze)
+- Currently rendered on profile carousel; reusable — call `WinnerBadge.fromMedia(mediaMap)` on any tile
+
+#### Info Zaidi surfacing
+- New **Mafanikio ya Shindano** section (org + player profiles) — only shows when `challengePodiumCount > 0`
+- Rows: **Mara ameshinda** (wins) + **Mara amefikia podiumu** (podium finishes)
+
+#### Sponsor Demo Screen
+- `ChallengeSponsorDemoScreen` — self-contained scrollable mockup with fake sponsor + four phase cards
+- Reachable from the Brief creation screen AppBar (slideshow icon)
+- Includes an example packaging tier card (single-phase / full-cycle / 3-month) for sponsor sales pitches
+
+---
+
+### 3.34 ACCOUNT DELETION LIFECYCLE
+
+Self-service 48-hour grace window replaces the old admin-review queue with 30-day SLA. Referential integrity is preserved — opposing teams keep their match records intact after purge.
+
+#### Data model
+- `User.deletionScheduledAt: Date` — stamped when the user confirms delete
+- `User.deletedAt: Date` — stamped after purge runs (soft-delete tombstone)
+- `DeletionRequest` collection — audit trail row per request (identifier + optional contactBack + reason + ipHash)
+
+#### Flow
+1. **Confirm** — user opens Delete Account dialog on Profile, ticks the confirmation checkbox, hits Wasilisha Ombi → `POST /account-deletion` (Accept: application/json) → backend creates a DeletionRequest row AND stamps `User.deletionScheduledAt = now + 48h`
+2. **Grace window** — user is logged out immediately after confirm. Deletion has NOT yet occurred
+3. **Persistent banner** — if user signs back in during the 48h window, orange banner sits at the top of MainHome with a live "Itafutwa ndani ya masaa N" countdown + a **Sitisha** button
+4. **Cancel** — Sitisha button (banner or login-time dialog) → `POST /v1/users/:id/cancel-deletion` → clears `deletionScheduledAt`, banner disappears on next refresh
+5. **Purge** — lazily triggered from the login route (`purgeIfExpired`) OR any authenticated code path that calls the helper:
+   - `purgeUserPII(userId)` deletes Media (own + player refs), Chat messages (sender + fromUser), UserFiles (via existing `purgeUserFilesForOwner`), nulls all PII / contact fields (name, phone, email, DOB, gender, socials, location, images, bios), sets `password: '__DELETED__'`, `deletedAt: now`, `suspend: true`, clears `deletionScheduledAt`
+6. **Post-purge access** — soft-deleted profiles route to a dialog "Akaunti haipo tena · This account is no longer active" instead of navigation (`UserInfo.open` guard)
+7. **Login after purge** — sign-in returns an error "Akaunti hii imefutwa" — the tombstone can't be re-activated
+
+#### What's preserved
+- User row itself (with `deletedAt` set + suspend: true) — so `Match.homeTeam`, `Match.awayTeam`, `Tournament.teams[]`, `OrgStaffLink.user`, etc. keep populating
+- Match records, tournament placements, historical stats
+- Everything the OPPOSING team owns about their game with you
+
+#### What's deleted
+- Own posts (`Media` where createdBy or player = user)
+- Own chat messages (`ChatMessage` where senderId or fromUser = user)
+- Own files (`UserFile` where owner = user, + underlying R2 objects)
+- All PII fields (name, phone, email, DOB, gender, nationality, region/district/ward/street, socials, profile + cover images, bios, password reset codes)
+
+#### Copy
+- Delete dialog explicitly separates "what stays" (match records + opposing team history) from "what's removed" (posts + messages + files + PII)
+- "48 hour" language + cancel affordance mentioned in the same dialog
+
+#### Not yet built (before public launch)
+- Nightly cron for users who never log back in AND whose profile is never viewed — currently they sit indefinitely with `deletionScheduledAt` past. Small `scripts/purge-expired-deletions.js` calling `purgeUserPII` for `deletionScheduledAt <= now AND deletedAt IS NULL`
 
 ---
 
