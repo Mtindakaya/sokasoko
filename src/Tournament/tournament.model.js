@@ -155,6 +155,10 @@ const TournamentSchema = new Schema(
     premiumActivated: { type: Boolean, default: false, index: true },
     premiumActivatedAt: { type: Date, default: null },
     premiumFeeReceipt: { type: String, trim: true, default: '' },
+    // Sales-demo marker. Tournaments seeded by
+    // tournament.demo_seed.js carry this so a cleanup script can
+    // nuke them without touching real customer data.
+    isDemoTournament: { type: Boolean, default: false, index: true },
     tier: {
       type: String,
       enum: TOURNAMENT_TIERS,

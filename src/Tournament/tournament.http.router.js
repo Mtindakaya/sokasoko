@@ -9,6 +9,10 @@ const { requireAdminKey } = require('../middleware/adminAuth');
 const {
   generateFixturesFor, computeStandingsFor,
 } = require('./tournament.fixtures');
+const {
+  seedDemoTournament, cleanupDemoTournaments,
+} = require('./tournament.demo_seed');
+const { renderPublicPage } = require('./tournament.public_page');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -261,6 +265,49 @@ router.patch(`${BASE}/:id/publish`, async (req, res) => {
     if (publish && !t.publishedAt) t.publishedAt = new Date();
     await t.save();
     return res.status(200).json({ data: t });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /tournaments/:id/public — permanent shareable spectator page.
+// Deliberately unversioned so QR codes / printed URLs stay valid
+// past API version bumps. No auth required. Renders standings +
+// fixtures as plain HTML for parents, journalists, sponsors.
+router.get('/tournaments/:id/public', async (req, res) => {
+  try {
+    const { status, html } = await renderPublicPage(req.params.id);
+    res.status(status).set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (err) {
+    res.status(500).set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(`<h1>Server error</h1><p>${err.message}</p>`);
+  }
+});
+
+// POST /v1/tournaments/demo/seed  body: {
+//   organizer, teamCount?, categories?, completionRatio?, region?,
+//   district?, name? }
+// Admin-gated. Spins up a fully-populated 360 tournament (teams +
+// approved registrations + fixtures + ~70% completed group matches)
+// in one call so sales demos + QA skip the full manual cycle.
+// Response includes the tournament ID so admin can open the hub
+// directly.
+router.post(`${BASE}/demo/seed`, requireAdminKey, async (req, res) => {
+  try {
+    const summary = await seedDemoTournament(req.body || {});
+    return res.status(201).json({ data: summary });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// POST /v1/tournaments/demo/cleanup — nuke every demo tournament +
+// its matches + registrations + synthesised demo users. Idempotent.
+router.post(`${BASE}/demo/cleanup`, requireAdminKey, async (req, res) => {
+  try {
+    const result = await cleanupDemoTournaments();
+    return res.status(200).json({ data: result });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

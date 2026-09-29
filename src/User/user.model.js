@@ -206,6 +206,10 @@ const UserSchema = new Schema(
     // next login/profile-view once this is past. User can cancel
     // during the window by signing back in.
     deletionScheduledAt: { type: Date, default: null, index: true },
+    // Demo-account marker for synthesised throwaway teams created by
+    // tournament.demo_seed.js. Real accounts leave this false.
+    // cleanupDemoTournaments() targets these for deletion.
+    isDemoAccount: { type: Boolean, default: false, index: true },
     playlistOverride: { type: Boolean, default: false },
     themeColor: { type: String, trim: true },
     street: String,
