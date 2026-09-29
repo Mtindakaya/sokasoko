@@ -6,6 +6,9 @@ const User = require('../User/user.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
 const { uploadFor } = require('../Utils/uploader');
 const { requireAdminKey } = require('../middleware/adminAuth');
+const {
+  generateFixturesFor, computeStandingsFor,
+} = require('./tournament.fixtures');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -258,6 +261,62 @@ router.patch(`${BASE}/:id/publish`, async (req, res) => {
     if (publish && !t.publishedAt) t.publishedAt = new Date();
     await t.save();
     return res.status(200).json({ data: t });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/tournaments/:id/fixtures/generate  body: {
+//   groupCount, teamsPerGroup?, seedOrder, startDate, gapMinutes,
+//   defaultVenue, category?  }
+// SokaSoko 360-only. Reads approved TournamentTeamRegistrations,
+// creates GROUP round-robin Match docs per category + a knockout
+// bracket scaffold with nextMatchId links pre-set. Flips tournament
+// status to ONGOING. Idempotent-ish — running twice creates duplicate
+// fixtures, so admin should confirm before re-running.
+router.post(`${BASE}/:id/fixtures/generate`, async (req, res) => {
+  try {
+    const summary = await generateFixturesFor(req.params.id, req.body || {});
+    return res.status(200).json({ data: summary });
+  } catch (err) {
+    return res.status(err.status || 500).json({
+      error: err.message,
+      errorKey: err.errorKey,
+    });
+  }
+});
+
+// GET /v1/tournaments/:id/standings?gender=&ageGroup=
+// Auto-computed from completed GROUP-stage matches. Returns rows
+// grouped by category + group, sorted points → GD → GF.
+router.get(`${BASE}/:id/standings`, async (req, res) => {
+  try {
+    const { gender, ageGroup } = req.query;
+    const cat = (gender && ageGroup) ? { gender, ageGroup } : null;
+    const rows = await computeStandingsFor(req.params.id, cat);
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/tournaments/:id/fixtures?stage=&gender=&ageGroup=
+// Full fixture list with the KO-tree link (nextMatchId). Client uses
+// this to render the bracket + group tables together.
+router.get(`${BASE}/:id/fixtures`, async (req, res) => {
+  try {
+    const Match = require('../Match/match.model');
+    const filter = { tournament: req.params.id };
+    if (req.query.stage) filter.stage = req.query.stage;
+    if (req.query.gender) filter['category.gender'] = req.query.gender;
+    if (req.query.ageGroup) filter['category.ageGroup'] = req.query.ageGroup;
+    const matches = await Match.find(filter)
+      .populate('homeTeam', 'firstName lastName academyName type accountNumber profileImage')
+      .populate('awayTeam', 'firstName lastName academyName type accountNumber profileImage')
+      .populate('venue', 'name region district')
+      .sort({ stage: 1, scheduledDate: 1, bracketPosition: 1 })
+      .lean();
+    return res.status(200).json({ data: matches });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

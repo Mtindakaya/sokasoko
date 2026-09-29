@@ -82,6 +82,39 @@ const MatchSchema = new Schema(
       default: null,
       index: true,
     },
+    // SokaSoko 360 tournament fixture metadata — populated by the
+    // fixture generator on premium-activated tournaments. Regular
+    // (non-tournament) matches leave these null.
+    stage: {
+      type: String,
+      enum: [
+        'GROUP', 'ROUND_32', 'ROUND_16', 'QUARTER',
+        'SEMI', 'FINAL', 'THIRD_PLACE', null,
+      ],
+      default: null,
+      index: true,
+    },
+    // Group name for GROUP-stage matches ('A' / 'B' / 'C' etc).
+    // Empty for knockout matches.
+    groupName: { type: String, trim: true, default: '' },
+    // Position within the knockout bracket (0..N-1 numbered from top).
+    // Winners advance based on the parent bracket math (position/2 in
+    // the next round). Null for GROUP-stage.
+    bracketPosition: { type: Number, default: null },
+    // Reference to the match this fixture's winner feeds into. Set at
+    // generation time so the client can walk the bracket forward.
+    nextMatchId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Match',
+      default: null,
+    },
+    // Category this fixture belongs to (matches Tournament.categories
+    // entries — one tournament can carry multiple gender × age combos,
+    // each with its own group + knockout tree).
+    category: {
+      gender: { type: String, default: '' },
+      ageGroup: { type: String, default: '' },
+    },
     scheduledDate: {
       type: Date,
       required: [true, 'Match date is required'],
@@ -358,6 +391,38 @@ MatchSchema.post('save', async function () {
     }
   } catch (err) {
     console.log('[match] referee post-complete hook failed:', err.message);
+  }
+});
+
+// SokaSoko 360 knockout auto-advance. Fires when a bracket match
+// (stage != 'GROUP', nextMatchId set) flips to COMPLETED — writes
+// the winner into the parent match. bracketPosition parity decides
+// top-half (homeTeam) vs bottom-half (awayTeam) of the parent.
+// No-op when both teams are already populated (idempotent — safe
+// to re-run on a repeat save).
+MatchSchema.post('save', async function () {
+  // No dependency on _justCompleted (the referee hook consumes it) —
+  // check status directly + rely on parent-slot idempotency to
+  // prevent duplicate writes on repeat saves.
+  if (this.status !== 'COMPLETED') return;
+  if (!this.tournament || !this.stage || this.stage === 'GROUP') return;
+  if (!this.nextMatchId) return;
+  // Winner determination — home/away by score; draws would need
+  // penalties handling later. For now, draws don't advance.
+  let winner = null;
+  if (this.homeScore > this.awayScore) winner = this.homeTeam;
+  else if (this.awayScore > this.homeScore) winner = this.awayTeam;
+  if (!winner) return;
+  try {
+    const Model = mongoose.model('Match');
+    const parent = await Model.findById(this.nextMatchId);
+    if (!parent) return;
+    const topHalf = (this.bracketPosition || 0) % 2 === 0;
+    if (topHalf && !parent.homeTeam) parent.homeTeam = winner;
+    if (!topHalf && !parent.awayTeam) parent.awayTeam = winner;
+    await parent.save();
+  } catch (err) {
+    console.log('[match] knockout advance hook failed:', err.message);
   }
 });
 
