@@ -131,6 +131,30 @@ const TournamentSchema = new Schema(
       type: String,
       default: null,
     },
+    // Tournament branding — separate from the organizer's profile
+    // image. logoUrl + mascotUrl belong to the tournament itself;
+    // hostLogoUrl is the organizer / hosting body's logo when it
+    // differs from the organizer profile (e.g. a Chama running the
+    // tournament under its own crest).
+    logoUrl: { type: String, default: '' },
+    mascotUrl: { type: String, default: '' },
+    hostLogoUrl: { type: String, default: '' },
+    // "SokaSoko 360" premium bundle — Enterprise-only. When
+    // premiumBundle=FULL_360 AND premiumActivated=true, the advanced
+    // features light up (fixture generator, live standings table,
+    // knockout bracket rendering, public spectator page, roster
+    // locking). Until activated, the tournament runs on the basic
+    // stack (§3.26 Phase 1). Admin flips premiumActivated after the
+    // customized-fee receipt is confirmed offline.
+    premiumBundle: {
+      type: String,
+      enum: ['STANDARD', 'FULL_360'],
+      default: 'STANDARD',
+      index: true,
+    },
+    premiumActivated: { type: Boolean, default: false, index: true },
+    premiumActivatedAt: { type: Date, default: null },
+    premiumFeeReceipt: { type: String, trim: true, default: '' },
     tier: {
       type: String,
       enum: TOURNAMENT_TIERS,

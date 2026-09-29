@@ -4,6 +4,8 @@ const _ = require('lodash');
 const Tournament = require('./tournament.model');
 const User = require('../User/user.model');
 const { Subscription, FEATURE_CAPS } = require('../Subscription/subscription.model');
+const { uploadFor } = require('../Utils/uploader');
+const { requireAdminKey } = require('../middleware/adminAuth');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -54,14 +56,17 @@ router.get(`${BASE}/:id`, async (req, res) => {
   }
 });
 
-// POST /v1/tournaments
-router.post(BASE, async (req, res) => {
+// POST /v1/tournaments — uploadFor() lets logoUrl / mascotUrl /
+// hostLogoUrl arrive as multipart image files; the middleware
+// resolves them to URL strings on req.body before the handler runs.
+router.post(BASE, uploadFor(), async (req, res) => {
   try {
     const {
       name, type, organizer, startDate, endDate, region, venue, maxTeams,
       ageGroup, categories, description, prize, rules, photo,
       firstPrize, runnerUpPrize, hasNoPrizes,
       officialScouts, officialReferees, district,
+      logoUrl, mascotUrl, hostLogoUrl, premiumBundle,
     } = req.body;
     if (!name || !type || !organizer || !startDate || !endDate) {
       return res.status(400).json({ error: 'name, type, organizer, startDate and endDate are required' });
@@ -106,6 +111,22 @@ router.post(BASE, async (req, res) => {
       }
     } catch (_) { /* fall through */ }
 
+    // FULL_360 (SokaSoko 360 premium bundle) is Enterprise-only. Any
+    // non-Enterprise organizer that requests it silently downgrades
+    // to STANDARD so the client can't get around the gate by sending
+    // premiumBundle=FULL_360 in the payload. Activation is admin-
+    // driven (POST /v1/tournaments/:id/activate-premium) after the
+    // custom-fee receipt is confirmed offline.
+    let effectiveBundle = 'STANDARD';
+    if (premiumBundle === 'FULL_360') {
+      try {
+        const org = await User.findById(organizer).select('type').lean();
+        const orgType = org?.type;
+        const t = await Subscription.getEffectiveTier(organizer, orgType);
+        if (t === 'ENTERPRISE') effectiveBundle = 'FULL_360';
+      } catch (_) { /* stay STANDARD */ }
+    }
+
     const tournament = await Tournament.create({
       name, type, organizer, startDate, endDate, region, venue, maxTeams,
       ageGroup, categories, description, prize, rules, photo,
@@ -115,6 +136,11 @@ router.post(BASE, async (req, res) => {
       hasNoPrizes: !!hasNoPrizes,
       officialScouts: Array.isArray(officialScouts) ? officialScouts : [],
       officialReferees: Array.isArray(officialReferees) ? officialReferees : [],
+      logoUrl: (logoUrl || '').toString().trim(),
+      mascotUrl: (mascotUrl || '').toString().trim(),
+      hostLogoUrl: (hostLogoUrl || '').toString().trim(),
+      premiumBundle: effectiveBundle,
+      premiumActivated: false, // always starts inactive; admin flips
       // New tournaments start private — organizer publishes when ready.
       isPublished: false,
     });
@@ -154,11 +180,65 @@ router.delete(`${BASE}/:id/teams/:teamId`, async (req, res) => {
 });
 
 // PATCH /v1/tournaments/:id
-router.patch(`${BASE}/:id`, async (req, res) => {
+// PATCH /v1/tournaments/:id — uploadFor for logo swaps on edit.
+router.patch(`${BASE}/:id`, uploadFor(), async (req, res) => {
   try {
-    const tournament = await Tournament.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    // Non-admin callers cannot flip premiumBundle from STANDARD →
+    // FULL_360 via PATCH; guard the field so this stays admin-only.
+    const body = { ...req.body };
+    delete body.premiumBundle;
+    delete body.premiumActivated;
+    delete body.premiumActivatedAt;
+    delete body.premiumFeeReceipt;
+    const tournament = await Tournament.findByIdAndUpdate(req.params.id, body, { new: true });
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     return res.status(200).json({ data: tournament });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/tournaments/:id/activate-premium  body: { receiptRef, bundle? }
+// Admin activates the SokaSoko 360 bundle after receiving the
+// customized-tournament fee offline. Bundle defaults to FULL_360;
+// receiptRef is stored on premiumFeeReceipt for audit. Idempotent:
+// re-activation with a different receiptRef updates the ref +
+// timestamp without duplicating anything.
+router.post(`${BASE}/:id/activate-premium`, requireAdminKey, async (req, res) => {
+  try {
+    const { receiptRef, bundle } = req.body || {};
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Tournament not found' });
+    const orgType = (await User.findById(t.organizer).select('type').lean())?.type;
+    const orgTier = await Subscription.getEffectiveTier(t.organizer, orgType);
+    if (orgTier !== 'ENTERPRISE') {
+      return res.status(409).json({
+        error: 'Only Enterprise organizers can activate SokaSoko 360.',
+        errorKey: 'tournament.err.not_enterprise',
+        organizerTier: orgTier,
+      });
+    }
+    t.premiumBundle = (bundle === 'FULL_360' || bundle === undefined) ? 'FULL_360' : bundle;
+    t.premiumActivated = true;
+    t.premiumActivatedAt = new Date();
+    if (receiptRef) t.premiumFeeReceipt = String(receiptRef).trim();
+    await t.save();
+    return res.status(200).json({ data: t });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/tournaments/:id/deactivate-premium  body: { reason? }
+// Admin can revoke premium (e.g. fee reversed / dispute).
+router.post(`${BASE}/:id/deactivate-premium`, requireAdminKey, async (req, res) => {
+  try {
+    const t = await Tournament.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Tournament not found' });
+    t.premiumActivated = false;
+    t.premiumActivatedAt = null;
+    await t.save();
+    return res.status(200).json({ data: t });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
