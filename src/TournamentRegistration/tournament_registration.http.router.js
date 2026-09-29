@@ -44,6 +44,19 @@ router.post('/v1/tournaments/:id/registrations', upload.array('documents', 10), 
     if (!['OPEN', 'ONGOING'].includes(tournament.status)) {
       return res.status(400).json({ message: 'Tournament is not accepting registrations' });
     }
+    // Roster lock — for SokaSoko 360 tournaments, once fixtures are
+    // generated the roster is frozen. New player entries would let
+    // teams sub in ringers between the group stage and knockouts.
+    if (tournament.premiumBundle === 'FULL_360' && tournament.premiumActivated) {
+      const Match = require('../Match/match.model');
+      const hasFixtures = await Match.exists({ tournament: tournamentId });
+      if (hasFixtures) {
+        return res.status(409).json({
+          message: 'Roster imefungwa — fixtures tayari zimeandaliwa. Contact SokaSoko admin ikiwa unahitaji ubadilishaji wa dharura.',
+          errorKey: 'tournament.err.roster_locked',
+        });
+      }
+    }
 
     // Build documents array from uploaded files
     const labels = documentLabels
