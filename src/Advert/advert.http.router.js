@@ -295,6 +295,15 @@ router.delete(PATH_SINGLE, async (req, res) => {
     await Advert.findByIdAndDelete(req.params.id);
     return res.status(200).json({ ok: true });
   } catch (err) {
+    // Log the full stack to Render so we can see what actually blew up
+    // when a DELETE fails — the client only sees err.message.
+    // eslint-disable-next-line no-console
+    console.error('[DELETE /v1/adverts/:id] failed', {
+      id: req.params.id,
+      advertiser: req.query.advertiser || req.body.advertiser,
+      message: err.message,
+      stack: err.stack,
+    });
     return res.status(500).json({ error: err.message });
   }
 });
