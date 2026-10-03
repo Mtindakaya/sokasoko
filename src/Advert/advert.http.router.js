@@ -285,7 +285,10 @@ router.put(PATH_SINGLE, uploadFor(), putFor({
 // -less for adverts). Non-owners get 403.
 router.delete(PATH_SINGLE, async (req, res) => {
   try {
-    const advertiserId = req.query.advertiser || req.body.advertiser;
+    // Optional chaining because req.body is undefined on DELETE requests
+    // in this stack — raw req.body.advertiser throws TypeError before
+    // Express attaches a parsed body on verbs the body-parser skips.
+    const advertiserId = req.query?.advertiser || req.body?.advertiser;
     const ad = await Advert.findById(req.params.id).lean();
     if (!ad) return res.status(404).json({ error: 'advert not found' });
     if (advertiserId && ad.advertiser
