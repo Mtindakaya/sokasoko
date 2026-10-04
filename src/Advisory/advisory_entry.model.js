@@ -88,6 +88,30 @@ const AdvisoryEntrySchema = new Schema(
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     reviewedAt: { type: Date, default: null },
     reviewerNote: { type: String, default: '' },
+
+    // Public reach metric. Denormalised counter — the AdvisoryView
+    // collection holds per-viewer rows for analytics / compensation.
+    viewCount: { type: Number, default: 0, index: true },
+
+    // Veteran contributions are credited publicly with the contributor's
+    // name (or a curated stage name). Snapshotted at write time so an
+    // admin un-flagging the user later doesn't retroactively strip
+    // credit from already-published entries.
+    isVeteranContribution: { type: Boolean, default: false, index: true },
+    veteranDisplayName: { type: String, default: '' },
+
+    // Demographic snapshot of the contributor at the moment of
+    // submission. Non-public (public API strips these before returning
+    // the entry) — reserved for internal analytics + the data-
+    // sovereignty / monetisation research track. Snapshotting locks the
+    // numbers in time so a contributor moving city or ageing out of a
+    // bracket doesn't rewrite the historical dataset.
+    snapshotUserType: { type: String, default: '', index: true },
+    snapshotGender: { type: String, default: '' },
+    snapshotDob: { type: Date, default: null },
+    snapshotRegion: { type: String, default: '' },
+    snapshotDistrict: { type: String, default: '' },
+    snapshotWard: { type: String, default: '' },
   },
   { timestamps: true }
 );

@@ -1,6 +1,9 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { getString } = require('@lykmapipo/env');
 const AdvisoryEntry = require('./advisory_entry.model');
+const AdvisoryView = require('./advisory_view.model');
+const User = require('../User/user.model');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -32,6 +35,39 @@ router.post(BASE, async (req, res) => {
     if (channel === 'APP' && !contributor) {
       return res.status(400).json({ error: 'contributor is required for APP submissions' });
     }
+
+    // Snapshot the contributor's demographics + veteran flag at write
+    // time. Locks the identity / public-vs-anonymous decision + the
+    // demographic bucket in place so later profile edits don't rewrite
+    // the historical dataset.
+    let snapshot = {};
+    let veteranFields = { isVeteranContribution: false, veteranDisplayName: '' };
+    if (contributor) {
+      try {
+        const u = await User.findById(contributor)
+          .select('type gender dob region district ward isVeteranContributor veteranDisplayName firstName lastName')
+          .lean();
+        if (u) {
+          snapshot = {
+            snapshotUserType: u.type || '',
+            snapshotGender: u.gender || '',
+            snapshotDob: u.dob || null,
+            snapshotRegion: u.region || '',
+            snapshotDistrict: u.district || '',
+            snapshotWard: u.ward || '',
+          };
+          if (u.isVeteranContributor) {
+            veteranFields = {
+              isVeteranContribution: true,
+              veteranDisplayName:
+                (u.veteranDisplayName && u.veteranDisplayName.trim()) ||
+                `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+            };
+          }
+        }
+      } catch (_) { /* snapshot is best-effort — keep going on failure */ }
+    }
+
     const doc = await AdvisoryEntry.create({
       title,
       body,
@@ -51,6 +87,8 @@ router.post(BASE, async (req, res) => {
       status: ['RAW', 'PENDING'].includes(status)
         ? status
         : (channel === 'APP' ? 'PENDING' : 'RAW'),
+      ...snapshot,
+      ...veteranFields,
     });
     return res.status(201).json({ data: doc });
   } catch (err) {
@@ -107,6 +145,89 @@ router.get(`${BASE}/stats/:userId`, async (req, res) => {
       if (stats[k] !== undefined) stats[k] = c.n;
     }
     return res.status(200).json({ data: stats });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Public knowledge tab — "Maarifa ya Umma"
+// Routes must sit before /:id so Express doesn't cast "public" to
+// ObjectId.
+// ─────────────────────────────────────────────────────────────────────
+
+// Fields that always leak to the public listing. Identity fields
+// (firstName, lastName, accountNumber, profileImage) are added back
+// manually ONLY when the entry is a veteran contribution.
+const PUBLIC_SAFE_FIELDS = [
+  '_id', 'title', 'body', 'topic', 'position', 'ageGroup',
+  'language', 'tags', 'viewCount', 'createdAt', 'reviewedAt',
+  'snapshotUserType', 'isVeteranContribution', 'veteranDisplayName',
+];
+
+function toPublicRow(doc) {
+  const out = {};
+  for (const k of PUBLIC_SAFE_FIELDS) {
+    if (doc[k] !== undefined) out[k] = doc[k];
+  }
+  // Veteran credit — populate the lightweight contributor hint. For non-
+  // veterans we drop identity entirely and the Flutter side renders a
+  // generic "A {userType} contributed" byline.
+  if (doc.isVeteranContribution && doc.contributor) {
+    const c = doc.contributor;
+    out.contributor = {
+      _id: c._id,
+      firstName: c.firstName || '',
+      lastName: c.lastName || '',
+      profileImage: c.profileImage || '',
+      type: c.type || out.snapshotUserType || '',
+    };
+  }
+  return out;
+}
+
+// GET /v1/advisories/public?topic=X&q=search&userType=Y&page=N
+// Only APPROVED entries are listed; demographic snapshot fields are
+// stripped from the response so the client never sees contributor
+// identity for non-veteran rows.
+router.get(`${BASE}/public`, async (req, res) => {
+  try {
+    const {
+      topic, userType, q, language, limit = 20, page = 1,
+    } = req.query;
+    const filter = { status: 'APPROVED' };
+    if (topic && TOPICS.has(topic)) filter.topic = topic;
+    if (language && LANGUAGES.has(language)) filter.language = language;
+    if (userType && typeof userType === 'string' && userType.trim()) {
+      filter.snapshotUserType = userType.trim();
+    }
+    if (q && typeof q === 'string' && q.trim().length >= 2) {
+      const rx = new RegExp(
+        q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+        'i'
+      );
+      filter.$or = [{ title: rx }, { body: rx }, { tags: rx }];
+    }
+
+    const parsedLimit = Math.min(parseInt(limit, 10) || 20, 100);
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+
+    const [rows, total] = await Promise.all([
+      AdvisoryEntry.find(filter)
+        .populate('contributor', 'firstName lastName profileImage type')
+        .sort({ createdAt: -1 })
+        .skip((parsedPage - 1) * parsedLimit)
+        .limit(parsedLimit)
+        .lean(),
+      AdvisoryEntry.countDocuments(filter),
+    ]);
+    const data = rows.map(toPublicRow);
+    return res.status(200).json({
+      data,
+      total,
+      page: parsedPage,
+      pages: Math.ceil(total / parsedLimit),
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -171,6 +292,57 @@ router.post(`${BASE}/:id/review`, async (req, res) => {
     );
     if (!doc) return res.status(404).json({ error: 'Advisory not found' });
     return res.status(200).json({ data: doc });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/advisories/:id/view
+// Body: { viewer: <userId> }
+// Logs a view row + increments the denormalised Advisory.viewCount. We
+// dedupe at the (advisory, viewer, today) grain so a user refreshing the
+// detail sheet or re-opening the same entry on the same day only counts
+// once — gives honest reach numbers for veteran compensation without
+// requiring any client-side state.
+router.post(`${BASE}/:id/view`, async (req, res) => {
+  try {
+    const { viewer } = req.body || {};
+    if (!viewer) {
+      return res.status(400).json({ error: 'viewer is required' });
+    }
+    const advisoryId = req.params.id;
+    const ad = await AdvisoryEntry.findById(advisoryId)
+      .select('_id status')
+      .lean();
+    if (!ad) return res.status(404).json({ error: 'Advisory not found' });
+    if (ad.status !== 'APPROVED') {
+      return res.status(400).json({ error: 'Only approved advisories can be viewed' });
+    }
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+
+    const already = await AdvisoryView.findOne({
+      advisory: advisoryId,
+      viewer,
+      at: { $gte: start, $lt: end },
+    }).select('_id').lean();
+
+    if (!already) {
+      await AdvisoryView.create({ advisory: advisoryId, viewer, at: new Date() });
+      await AdvisoryEntry.updateOne(
+        { _id: advisoryId },
+        { $inc: { viewCount: 1 } }
+      );
+    }
+    const refreshed = await AdvisoryEntry.findById(advisoryId)
+      .select('viewCount')
+      .lean();
+    return res.status(200).json({
+      data: { viewCount: refreshed ? refreshed.viewCount : 0, counted: !already },
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

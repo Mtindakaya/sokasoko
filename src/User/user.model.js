@@ -575,6 +575,22 @@ const UserSchema = new Schema(
       type: Date,
       default: null,
     },
+
+    // --- Advisory contributor status ---
+    // Admin-flipped flag that opts a user into the "veteran contributor"
+    // credit on the public advisory tab — their name (or curated stage
+    // name via veteranDisplayName) appears on each approved entry.
+    // Non-veterans contribute anonymously (userType only, no identity).
+    isVeteranContributor: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    veteranDisplayName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
   },
   SCHEMA_OPTIONS
 );
