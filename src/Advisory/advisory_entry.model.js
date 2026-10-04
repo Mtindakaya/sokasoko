@@ -93,6 +93,15 @@ const AdvisoryEntrySchema = new Schema(
     // collection holds per-viewer rows for analytics / compensation.
     viewCount: { type: Number, default: 0, index: true },
 
+    // Public engagement — heart tap on the Maarifa ya Umma tab. We keep
+    // the actual voter ids as an array so the API can tell a viewer
+    // whether they've already liked, and so the aggregate reflects a
+    // deduped unique-user count. likeCount is denormalised for the
+    // listing cards so we don't need to count array lengths at query
+    // time once the collection grows.
+    likedBy: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    likeCount: { type: Number, default: 0, index: true },
+
     // Veteran contributions are credited publicly with the contributor's
     // name (or a curated stage name). Snapshotted at write time so an
     // admin un-flagging the user later doesn't retroactively strip

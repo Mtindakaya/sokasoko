@@ -161,14 +161,23 @@ router.get(`${BASE}/stats/:userId`, async (req, res) => {
 // manually ONLY when the entry is a veteran contribution.
 const PUBLIC_SAFE_FIELDS = [
   '_id', 'title', 'body', 'topic', 'position', 'ageGroup',
-  'language', 'tags', 'viewCount', 'createdAt', 'reviewedAt',
+  'language', 'tags', 'viewCount', 'likeCount', 'createdAt', 'reviewedAt',
   'snapshotUserType', 'isVeteranContribution', 'veteranDisplayName',
 ];
 
-function toPublicRow(doc) {
+function toPublicRow(doc, viewerId) {
   const out = {};
   for (const k of PUBLIC_SAFE_FIELDS) {
     if (doc[k] !== undefined) out[k] = doc[k];
+  }
+  // Fallback — legacy approved entries (pre-snapshot) don't have
+  // snapshotUserType. Backfill from the live contributor.type so the
+  // byline on the public tab still reads "A player contributed:" instead
+  // of "Anonymous contribution". Still identity-safe: only the TYPE
+  // leaks, never the firstName / lastName / accountNumber.
+  if ((!out.snapshotUserType || !out.snapshotUserType.trim())
+      && doc.contributor && doc.contributor.type) {
+    out.snapshotUserType = doc.contributor.type;
   }
   // Veteran credit — populate the lightweight contributor hint. For non-
   // veterans we drop identity entirely and the Flutter side renders a
@@ -182,6 +191,15 @@ function toPublicRow(doc) {
       profileImage: c.profileImage || '',
       type: c.type || out.snapshotUserType || '',
     };
+  }
+  // Per-viewer liked flag. We don't ship the full likedBy array (would
+  // leak viewer identities + bloat the payload) — just the one bit the
+  // UI needs to render the heart's filled / outlined state.
+  if (viewerId && Array.isArray(doc.likedBy)) {
+    const vs = String(viewerId);
+    out.viewerLiked = doc.likedBy.some((id) => String(id) === vs);
+  } else {
+    out.viewerLiked = false;
   }
   return out;
 }
@@ -211,6 +229,10 @@ router.get(`${BASE}/public`, async (req, res) => {
 
     const parsedLimit = Math.min(parseInt(limit, 10) || 20, 100);
     const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const viewerId = typeof req.query.viewer === 'string'
+        && req.query.viewer.trim()
+      ? req.query.viewer.trim()
+      : null;
 
     const [rows, total] = await Promise.all([
       AdvisoryEntry.find(filter)
@@ -221,7 +243,7 @@ router.get(`${BASE}/public`, async (req, res) => {
         .lean(),
       AdvisoryEntry.countDocuments(filter),
     ]);
-    const data = rows.map(toPublicRow);
+    const data = rows.map((d) => toPublicRow(d, viewerId));
     return res.status(200).json({
       data,
       total,
@@ -342,6 +364,49 @@ router.post(`${BASE}/:id/view`, async (req, res) => {
       .lean();
     return res.status(200).json({
       data: { viewCount: refreshed ? refreshed.viewCount : 0, counted: !already },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/advisories/:id/like
+// Body: { viewer: <userId>, like?: boolean }
+// Toggles the viewer's like on an approved advisory. likeCount is kept
+// in sync with the length of likedBy so the public listing doesn't need
+// to compute the array length at query time. Idempotent on both sides —
+// liking an already-liked entry is a no-op, same for unlike.
+router.post(`${BASE}/:id/like`, async (req, res) => {
+  try {
+    const { viewer, like } = req.body || {};
+    if (!viewer) {
+      return res.status(400).json({ error: 'viewer is required' });
+    }
+    const ad = await AdvisoryEntry.findById(req.params.id)
+      .select('_id status likedBy likeCount')
+      .lean();
+    if (!ad) return res.status(404).json({ error: 'Advisory not found' });
+    if (ad.status !== 'APPROVED') {
+      return res.status(400).json({ error: 'Only approved advisories accept likes' });
+    }
+    const already = (ad.likedBy || [])
+      .some((id) => String(id) === String(viewer));
+    const desired = typeof like === 'boolean' ? like : !already;
+    if (desired === already) {
+      return res.status(200).json({
+        data: { liked: already, likeCount: ad.likeCount || 0 },
+      });
+    }
+    const update = desired
+      ? { $addToSet: { likedBy: viewer }, $inc: { likeCount: 1 } }
+      : { $pull: { likedBy: viewer }, $inc: { likeCount: -1 } };
+    await AdvisoryEntry.updateOne({ _id: ad._id }, update);
+    const refreshed = await AdvisoryEntry.findById(ad._id)
+      .select('likeCount')
+      .lean();
+    const likeCount = refreshed ? Math.max(0, refreshed.likeCount || 0) : 0;
+    return res.status(200).json({
+      data: { liked: desired, likeCount },
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
