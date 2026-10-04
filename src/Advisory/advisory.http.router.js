@@ -4,6 +4,7 @@ const { getString } = require('@lykmapipo/env');
 const AdvisoryEntry = require('./advisory_entry.model');
 const AdvisoryView = require('./advisory_view.model');
 const User = require('../User/user.model');
+const { requireAdminKey } = require('../middleware/adminAuth');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -255,6 +256,45 @@ router.get(`${BASE}/public`, async (req, res) => {
   }
 });
 
+// GET /v1/advisories/queue — admin-only moderation queue. Returns PENDING
+// (default) or any requested status, with contributor populated so the
+// CMS can display who sent what. Sits before /:id so Express doesn't
+// cast "queue" to ObjectId.
+router.get(`${BASE}/queue`, requireAdminKey, async (req, res) => {
+  try {
+    const {
+      status = 'PENDING', topic, language, limit = 50, page = 1,
+    } = req.query;
+    const filter = {};
+    if (STATUSES.has(status) || status === 'RAW') filter.status = status;
+    else filter.status = 'PENDING';
+    if (topic && TOPICS.has(topic)) filter.topic = topic;
+    if (language && LANGUAGES.has(language)) filter.language = language;
+
+    const parsedLimit = Math.min(parseInt(limit, 10) || 50, 200);
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+
+    const [data, total] = await Promise.all([
+      AdvisoryEntry.find(filter)
+        .populate('contributor', 'firstName lastName accountNumber type profileImage region district')
+        .populate('reviewedBy', 'firstName lastName')
+        .sort({ createdAt: -1 })
+        .skip((parsedPage - 1) * parsedLimit)
+        .limit(parsedLimit)
+        .lean(),
+      AdvisoryEntry.countDocuments(filter),
+    ]);
+    return res.status(200).json({
+      data,
+      total,
+      page: parsedPage,
+      pages: Math.ceil(total / parsedLimit),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/advisories/:id
 router.get(`${BASE}/:id`, async (req, res) => {
   try {
@@ -290,26 +330,28 @@ router.patch(`${BASE}/:id`, async (req, res) => {
   }
 });
 
-// POST /v1/advisories/:id/review — moderator triages / approves / rejects.
-// Triaging a RAW entry to PENDING is a valid transition (typically done
-// after transcribing a WhatsApp voice note into title + body).
-router.post(`${BASE}/:id/review`, async (req, res) => {
+// POST /v1/advisories/:id/review — admin-only. Triages / approves /
+// rejects. Triaging a RAW entry to PENDING is a valid transition
+// (typically done after transcribing a WhatsApp voice note into
+// title + body).
+router.post(`${BASE}/:id/review`, requireAdminKey, async (req, res) => {
   try {
     const { status, reviewedBy, reviewerNote } = req.body;
     if (!['PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED'].includes(status)) {
       return res.status(400).json({ error: 'status must be PENDING, APPROVED, REJECTED, or ARCHIVED' });
     }
-    if (!reviewedBy) {
-      return res.status(400).json({ error: 'reviewedBy is required' });
-    }
+    // reviewedBy is optional — the admin key already identifies the
+    // caller as privileged. CMS requests have no logged-in user id;
+    // in-app admin flows can still attribute by passing their own id.
+    const update = {
+      status,
+      reviewedAt: new Date(),
+      reviewerNote: reviewerNote || '',
+    };
+    if (reviewedBy) update.reviewedBy = reviewedBy;
     const doc = await AdvisoryEntry.findByIdAndUpdate(
       req.params.id,
-      {
-        status,
-        reviewedBy,
-        reviewedAt: new Date(),
-        reviewerNote: reviewerNote || '',
-      },
+      update,
       { new: true }
     );
     if (!doc) return res.status(404).json({ error: 'Advisory not found' });
