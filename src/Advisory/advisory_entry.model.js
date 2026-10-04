@@ -109,6 +109,14 @@ const AdvisoryEntrySchema = new Schema(
     isVeteranContribution: { type: Boolean, default: false, index: true },
     veteranDisplayName: { type: String, default: '' },
 
+    // Opt-out of identity on the public tab. Default is false (identity
+    // revealed) — contributors who actively tick the "anonymous" box on
+    // the submission form flip this to true and the public endpoint
+    // strips name + profile image + account number before responding.
+    // Veteran contributions bypass this flag (the whole point of the
+    // veteran credit is the attribution).
+    isAnonymous: { type: Boolean, default: false, index: true },
+
     // Demographic snapshot of the contributor at the moment of
     // submission. Non-public (public API strips these before returning
     // the entry) — reserved for internal analytics + the data-

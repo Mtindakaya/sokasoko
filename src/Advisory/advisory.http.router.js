@@ -27,6 +27,9 @@ router.post(BASE, async (req, res) => {
       title, body, topic, position, ageGroup, language, tags,
       contributor, sourceChannel, priority, rawAssetUrl,
       contributorName, contributorContact, status,
+      // Opt-out of public identity. Accept either `isAnonymous` or
+      // `anonymous` from the Flutter form payload.
+      isAnonymous, anonymous,
     } = req.body;
     if (!title || !body) {
       return res.status(400).json({ error: 'title and body are required' });
@@ -88,6 +91,7 @@ router.post(BASE, async (req, res) => {
       status: ['RAW', 'PENDING'].includes(status)
         ? status
         : (channel === 'APP' ? 'PENDING' : 'RAW'),
+      isAnonymous: (isAnonymous === true) || (anonymous === true),
       ...snapshot,
       ...veteranFields,
     });
@@ -159,11 +163,13 @@ router.get(`${BASE}/stats/:userId`, async (req, res) => {
 
 // Fields that always leak to the public listing. Identity fields
 // (firstName, lastName, accountNumber, profileImage) are added back
-// manually ONLY when the entry is a veteran contribution.
+// manually when either (a) the entry is a veteran contribution, or
+// (b) the contributor DID NOT opt into anonymity (isAnonymous !== true).
 const PUBLIC_SAFE_FIELDS = [
   '_id', 'title', 'body', 'topic', 'position', 'ageGroup',
   'language', 'tags', 'viewCount', 'likeCount', 'createdAt', 'reviewedAt',
-  'snapshotUserType', 'isVeteranContribution', 'veteranDisplayName',
+  'snapshotUserType', 'snapshotRegion', 'isVeteranContribution',
+  'veteranDisplayName', 'isAnonymous',
 ];
 
 function toPublicRow(doc, viewerId) {
@@ -180,10 +186,19 @@ function toPublicRow(doc, viewerId) {
       && doc.contributor && doc.contributor.type) {
     out.snapshotUserType = doc.contributor.type;
   }
-  // Veteran credit — populate the lightweight contributor hint. For non-
-  // veterans we drop identity entirely and the Flutter side renders a
-  // generic "A {userType} contributed" byline.
-  if (doc.isVeteranContribution && doc.contributor) {
+  // Byline rules in order of precedence:
+  //   1. Veteran contribution → always show veteranDisplayName + the
+  //      contributor's live identity. Veterans bypass isAnonymous
+  //      (they're being credited intentionally).
+  //   2. Non-veteran, isAnonymous !== true → show live identity + region
+  //      so the viewer can tap through to the profile.
+  //   3. Non-veteran + isAnonymous === true → strip identity entirely;
+  //      the client renders "A {userType} contributed" from
+  //      snapshotUserType.
+  const explicitlyAnonymous = doc.isAnonymous === true;
+  const shouldRevealIdentity = doc.contributor
+    && (doc.isVeteranContribution || !explicitlyAnonymous);
+  if (shouldRevealIdentity) {
     const c = doc.contributor;
     out.contributor = {
       _id: c._id,
@@ -191,6 +206,7 @@ function toPublicRow(doc, viewerId) {
       lastName: c.lastName || '',
       profileImage: c.profileImage || '',
       type: c.type || out.snapshotUserType || '',
+      region: c.region || out.snapshotRegion || '',
     };
   }
   // Per-viewer liked flag. We don't ship the full likedBy array (would
@@ -237,7 +253,7 @@ router.get(`${BASE}/public`, async (req, res) => {
 
     const [rows, total] = await Promise.all([
       AdvisoryEntry.find(filter)
-        .populate('contributor', 'firstName lastName profileImage type')
+        .populate('contributor', 'firstName lastName profileImage type region')
         .sort({ createdAt: -1 })
         .skip((parsedPage - 1) * parsedLimit)
         .limit(parsedLimit)
