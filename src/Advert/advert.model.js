@@ -20,11 +20,21 @@ const AdvertSchema = new Schema({
   // stays on the Subscription record.
   advertiserTier: {
     type: String,
-    enum: ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE'],
+    enum: ['STANDARD', 'GOLD', 'PLATINUM', 'ENTERPRISE', 'HOUSE'],
   },
   startDate: { type: Date },
   endDate: { type: Date },
+  // Targeting axes. Empty array = no restriction at that axis (broadcast).
+  // Non-empty = viewer's corresponding attribute must be included.
+  // All five axes are AND'd together at sample time.
   targetAudience: { type: [String], default: [] },
+  targetGender: { type: [String], default: [] },
+  targetRegions: { type: [String], default: [] },
+  targetDistricts: { type: [String], default: [] },
+  targetWards: { type: [String], default: [] },
+  // House ads are created by CMS admin, attributed to the SokaSoko
+  // Official user, and bypass vendor tier caps on geo depth / region count.
+  isHouseAd: { type: Boolean, default: false, index: true },
   impressionCount: { type: Number, default: 0 },
   clickCount: { type: Number, default: 0 },
 }, { timestamps: true });
@@ -37,14 +47,23 @@ AdvertSchema.methods.preValidate = function preValidate(done) {
   if (_.isEmpty(this.description)) {
     this.description = this.title;
   }
-  // targetAudience may arrive as a JSON string from multipart FormData
-  if (typeof this.targetAudience === 'string') {
-    try {
-      this.targetAudience = JSON.parse(this.targetAudience);
-    } catch (_) {
-      this.targetAudience = [];
+  // Any targeting array may arrive as a JSON string from multipart FormData.
+  const arrayFields = [
+    'targetAudience',
+    'targetGender',
+    'targetRegions',
+    'targetDistricts',
+    'targetWards',
+  ];
+  arrayFields.forEach((field) => {
+    if (typeof this[field] === 'string') {
+      try {
+        this[field] = JSON.parse(this[field]);
+      } catch (_) {
+        this[field] = [];
+      }
     }
-  }
+  });
   return done();
 };
 

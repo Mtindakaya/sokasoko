@@ -1,6 +1,9 @@
 const express = require('express');
 const Media = require('../Media/media.model');
 const Advert = require('../Advert/advert.model');
+const AdvertImpression = require('../Advert/advertImpression.model');
+const User = require('../User/user.model');
+const { audienceMatchClause, pickWeightedSample } = require('../Advert/audience');
 const mongoose = require('mongoose');
 
 const router = express.Router();
@@ -16,11 +19,17 @@ router.get('/v1/feed', async (req, res) => {
 
   try {
     const now = new Date();
-    // Tier-weighted ad pool. Fetch a wider set (up to 24 candidates),
-    // score by advertiserTier, then take the top 6 for page 1. Keep at
-    // least one non-Platinum+ slot open so Standard/Gold ads still get
-    // exposure — otherwise the paid perk drowns out newcomers.
-    const AD_TIER_WEIGHT = { ENTERPRISE: 4, PLATINUM: 3, GOLD: 2, STANDARD: 1 };
+    // Resolve the viewer up-front so the ad query can filter by their
+    // type/gender/region/district/ward. Viewer-less requests (unauthed)
+    // get only broadcast ads (empty targeting arrays on all axes).
+    const viewer = uid
+      ? await User.findById(uid).select('type gender region district ward').lean()
+      : null;
+    const audienceClauses = audienceMatchClause(viewer);
+    // Weighted-random tier bias (ENTERPRISE 12, PLATINUM/HOUSE 8, GOLD 4,
+    // STANDARD 1). Enterprise ads surface ~12x more often than Standard
+    // per impression — the paid perk is visible in frequency, not just
+    // rank order. Fetch a wider pool (up to 24) then sample 6.
     const [allDocs, boostedDocs, total, adCandidates] = await Promise.all([
       // Cap the shuffle pool so we don't drag every Media doc into memory
       // just to slice a 10-item page. 500 is deep enough to feel random
@@ -46,6 +55,7 @@ router.get('/v1/feed', async (req, res) => {
             $and: [
               { $or: [{ startDate: { $lte: now } }, { startDate: null }, { startDate: { $exists: false } }] },
               { $or: [{ endDate:   { $gte: now } }, { endDate:   null }, { endDate:   { $exists: false } }] },
+              ...audienceClauses,
             ],
           })
             .sort({ createdAt: -1 })
@@ -69,15 +79,21 @@ router.get('/v1/feed', async (req, res) => {
       : allDocs;
     const mediaDocs = assembled.slice(skip, skip + limitInt);
 
-    // Rank ad candidates by tier (highest first) then recency. Take 6.
-    const adverts = (adCandidates || [])
-      .sort((a, b) => {
-        const wa = AD_TIER_WEIGHT[a.advertiserTier] || 1;
-        const wb = AD_TIER_WEIGHT[b.advertiserTier] || 1;
-        if (wb !== wa) return wb - wa;
-        return new Date(b.createdAt) - new Date(a.createdAt);
-      })
-      .slice(0, 6);
+    // Weighted-random sampling. Each slot drawn with probability
+    // proportional to tier weight, without replacement.
+    const adverts = pickWeightedSample(adCandidates || [], 6);
+
+    // Fire-and-forget impression logs — never await the writes so a slow
+    // insert can't delay the feed response. One row per surfaced ad.
+    if (adverts.length) {
+      const rows = adverts.map((a) => ({
+        advert: a._id,
+        viewer: uid || null,
+        surface: 'FEED',
+      }));
+      AdvertImpression.insertMany(rows, { ordered: false })
+        .catch((err) => console.error('[Feed] impression log failed:', err.message));
+    }
 
     let posts = mediaDocs.map((m) => {
       const creator = m.createdBy || {};

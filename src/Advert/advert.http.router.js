@@ -18,8 +18,64 @@ const PATH_SCHEMA = '/adverts/schema/';
 const CurrentAdvertTimer = '/currentAdvertTimer';
 
 const Advert = require('./advert.model');
+const AdvertImpression = require('./advertImpression.model');
 const User = require('../User/user.model');
 const { Subscription } = require('../Subscription/subscription.model');
+const { audienceMatchClause, pickWeightedSample } = require('./audience');
+
+// Tier caps on geo targeting. House ads bypass entirely (CMS admin
+// path). PLATINUM + ENTERPRISE can go all four levels. GOLD/STANDARD
+// are regional-only with region-count caps so lower tiers can't buy
+// nationwide reach for the price of a cheaper plan.
+const TIER_GEO_CAPS = {
+  ENTERPRISE: { regions: Infinity, allowDeep: true },
+  PLATINUM:   { regions: Infinity, allowDeep: true },
+  GOLD:       { regions: 10,       allowDeep: false },
+  STANDARD:   { regions: 2,        allowDeep: false },
+};
+
+// Returns { ok: true } or { ok: false, status, body } so the caller
+// can bail out with the same response shape across create + update.
+function validateTargeting(tier, body) {
+  const caps = TIER_GEO_CAPS[tier];
+  if (!caps) return { ok: true };
+  const regions = Array.isArray(body.targetRegions) ? body.targetRegions : [];
+  const districts = Array.isArray(body.targetDistricts) ? body.targetDistricts : [];
+  const wards = Array.isArray(body.targetWards) ? body.targetWards : [];
+  if (regions.length > caps.regions) {
+    return { ok: false, status: 403, body: {
+      error: `Your tier (${tier}) can target at most ${caps.regions} region(s). You selected ${regions.length}.`,
+      reason: 'ADVERT_TIER_REGION_CAP',
+      tier,
+      cap: caps.regions,
+      selected: regions.length,
+    } };
+  }
+  if (!caps.allowDeep && (districts.length || wards.length)) {
+    return { ok: false, status: 403, body: {
+      error: `Your tier (${tier}) can only target at the region level. Upgrade to PLATINUM for district or ward targeting.`,
+      reason: 'ADVERT_TIER_DEPTH_DISALLOWED',
+      tier,
+    } };
+  }
+  return { ok: true };
+}
+
+// Normalise multipart array fields (always stringified JSON on wire)
+// in place so downstream mongoose + tier validation see real arrays.
+function coerceTargetArrays(body) {
+  const fields = ['targetAudience', 'targetGender', 'targetRegions', 'targetDistricts', 'targetWards'];
+  for (const f of fields) {
+    if (typeof body[f] === 'string') {
+      try {
+        const parsed = JSON.parse(body[f]);
+        body[f] = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        body[f] = [];
+      }
+    }
+  }
+}
 
 const router = new Router({ version: API_VERSION });
 
@@ -73,37 +129,69 @@ router.get(PATH_SINGLE, getByIdFor({
 }));
 
 // GET /v1/adverts
-// ?active=true  → only return ads within their date window
-// ?type=PLAYER  → also filter by targetAudience (ignored when empty audience array)
+// ?active=true   → only return ads within their date window
+// ?viewer=<uid>  → full viewer-targeted filter (type + gender + region
+//                  + district + ward) using the viewer's profile; use
+//                  this for the profile carousel so audience targeting
+//                  is honoured server-side. Also weight-samples the
+//                  result and logs CAROUSEL impressions.
+// ?type=X        → legacy single-axis filter (user type only); kept for
+//                  the old advert.dart screen until it migrates.
 router.get(PATH_LIST, async (req, res) => {
   try {
     const active = req.query.active === 'true';
+    const viewerId = req.query.viewer;
     const userType = req.query.type;
 
-    let filter = {};
+    const filter = {};
+    const clauses = [];
 
     if (active) {
       const now = new Date();
-      const dateFilter = {
-        $and: [
-          { $or: [{ startDate: { $lte: now } }, { startDate: null }, { startDate: { $exists: false } }] },
-          { $or: [{ endDate: { $gte: now } }, { endDate: null }, { endDate: { $exists: false } }] },
-        ],
-      };
-
-      if (userType) {
-        dateFilter.$and.push({
-          $or: [
-            { targetAudience: { $exists: false } },
-            { targetAudience: { $size: 0 } },
-            { targetAudience: userType },
-          ],
-        });
-      }
-      filter = dateFilter;
+      clauses.push(
+        { $or: [{ startDate: { $lte: now } }, { startDate: null }, { startDate: { $exists: false } }] },
+        { $or: [{ endDate: { $gte: now } }, { endDate: null }, { endDate: { $exists: false } }] },
+      );
     }
 
+    let viewer = null;
+    if (viewerId) {
+      viewer = await User.findById(viewerId).select('type gender region district ward').lean();
+      clauses.push(...audienceMatchClause(viewer));
+    } else if (userType) {
+      // Legacy single-axis path — kept for backward compat with the
+      // old advert.dart screen. Only enforces user-type targeting.
+      clauses.push({
+        $or: [
+          { targetAudience: { $exists: false } },
+          { targetAudience: { $size: 0 } },
+          { targetAudience: userType },
+        ],
+      });
+    }
+
+    if (clauses.length) filter.$and = clauses;
+
     const adverts = await Advert.find(filter).sort({ createdAt: -1 }).lean();
+
+    // When the client is a viewer-targeted carousel call, weight-sample
+    // the result so tier bias is visible in the carousel too and log
+    // impressions. Legacy ?type= path returns the raw list to preserve
+    // old client behaviour.
+    if (viewerId) {
+      const sampled = pickWeightedSample(adverts, Math.min(10, adverts.length));
+      if (sampled.length) {
+        const rows = sampled.map((a) => ({
+          advert: a._id,
+          viewer: viewer ? viewer._id : null,
+          surface: 'CAROUSEL',
+        }));
+        AdvertImpression.insertMany(rows, { ordered: false })
+          .catch((err) => console.error('[Advert] carousel impression log failed:', err.message));
+      }
+      return res.status(200).json({ data: sampled });
+    }
+
     return res.status(200).json({ data: adverts });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -139,12 +227,19 @@ router.post(PATH_LIST, uploadFor(), async (req, res) => {
     const body = req.body || {};
     const advertiserId = body.advertiser || body.userId;
 
-    // Vendor path — requires ownership, VENDOR type, and honours the
-    // per-tier concurrentAdverts cap.
-    // House-ad path — no advertiser supplied (CMS admin create). Skips
-    // the tier gate entirely; the ad is treated as an official SokaSoko
-    // placement and shows to every targeted audience.
-    if (advertiserId) {
+    // Parse targeting arrays early — tier validation needs real arrays.
+    coerceTargetArrays(body);
+
+    // Vendor path — requires ownership, VENDOR type, honours the
+    // per-tier concurrentAdverts cap AND the new geo-targeting caps.
+    // House-ad path — body.isHouseAd=true (CMS admin create). Skips
+    // every tier gate; the ad is treated as an official SokaSoko
+    // placement, pinned at HOUSE tier for sampler weighting.
+    const wantsHouseAd = body.isHouseAd === true || body.isHouseAd === 'true';
+    if (wantsHouseAd) {
+      body.isHouseAd = true;
+      body.advertiserTier = 'HOUSE';
+    } else if (advertiserId) {
       const advertiser = await User.findById(advertiserId).select('type companyName firstName lastName').lean();
       if (!advertiser) {
         return res.status(404).json({ error: 'advertiser not found' });
@@ -188,6 +283,10 @@ router.post(PATH_LIST, uploadFor(), async (req, res) => {
         }
       }
 
+      // Geo targeting caps per tier.
+      const geoCheck = validateTargeting(tier, body);
+      if (!geoCheck.ok) return res.status(geoCheck.status).json(geoCheck.body);
+
       if (!body.advertiserName) {
         body.advertiserName = advertiser.companyName
           || `${advertiser.firstName || ''} ${advertiser.lastName || ''}`.trim();
@@ -199,18 +298,6 @@ router.post(PATH_LIST, uploadFor(), async (req, res) => {
     // Server-side photo mapping — the uploader middleware stores the path
     // at either req.file.path or req.body.photo depending on the call.
     if (req.file && req.file.path && !body.photo) body.photo = req.file.path;
-
-    // Multipart form fields arrive as strings. Mongoose would cast the
-    // JSON string into a one-element [String] array before the pre-save
-    // hook can normalise it — so parse here first.
-    if (typeof body.targetAudience === 'string') {
-      try {
-        const parsed = JSON.parse(body.targetAudience);
-        body.targetAudience = Array.isArray(parsed) ? parsed : [];
-      } catch (_) {
-        body.targetAudience = [];
-      }
-    }
 
     const created = await Advert.create(body);
     return res.status(201).json(created);
@@ -246,10 +333,12 @@ router.patch(PATH_SINGLE, uploadFor(), async (req, res) => {
 
     const body = req.body || {};
     // Only allow these fields to be changed via edit — advertiser +
-    // advertiserTier are pinned at create time.
+    // advertiserTier + isHouseAd are pinned at create time.
     const editable = [
       'title', 'description', 'link', 'adType', 'videoUrl',
-      'advertiserName', 'targetAudience', 'startDate', 'endDate',
+      'advertiserName', 'startDate', 'endDate',
+      'targetAudience', 'targetGender',
+      'targetRegions', 'targetDistricts', 'targetWards',
     ];
     const update = {};
     for (const k of editable) {
@@ -257,14 +346,24 @@ router.patch(PATH_SINGLE, uploadFor(), async (req, res) => {
     }
     // Multipart photo swap.
     if (req.file && req.file.path) update.photo = req.file.path;
-    // Same string→array coercion the POST path uses.
-    if (typeof update.targetAudience === 'string') {
-      try {
-        const parsed = JSON.parse(update.targetAudience);
-        update.targetAudience = Array.isArray(parsed) ? parsed : [];
-      } catch (_) {
-        update.targetAudience = [];
-      }
+    // Normalise any array fields that arrived as JSON strings.
+    coerceTargetArrays(update);
+
+    // Re-validate geo caps against the ad's locked-in tier. House ads
+    // skip (TIER_GEO_CAPS has no HOUSE entry → validateTargeting is a
+    // no-op). Vendors can't widen targeting beyond what their tier
+    // allowed at create time.
+    if (!existing.isHouseAd && existing.advertiserTier) {
+      // Build the merged view the ad will have post-patch, so partial
+      // edits (e.g. only touching targetRegions) still get validated
+      // against the full remaining targeting set.
+      const merged = {
+        targetRegions: update.targetRegions ?? existing.targetRegions ?? [],
+        targetDistricts: update.targetDistricts ?? existing.targetDistricts ?? [],
+        targetWards: update.targetWards ?? existing.targetWards ?? [],
+      };
+      const geoCheck = validateTargeting(existing.advertiserTier, merged);
+      if (!geoCheck.ok) return res.status(geoCheck.status).json(geoCheck.body);
     }
 
     const patched = await Advert.findByIdAndUpdate(
