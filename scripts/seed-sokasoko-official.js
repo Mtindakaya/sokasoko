@@ -17,6 +17,10 @@ const mongoose = require('mongoose');
 const { getString } = require('@lykmapipo/env');
 require('dotenv').config();
 
+// User schema has `ref: 'Academy'` — load the Academy model first so
+// Mongoose has it registered before we validate the new User doc.
+// Mirrors the pattern in find-user.js / inspect-sokasoko-account.js.
+require('../src/Academy/academy.model');
 const User = require('../src/User/user.model');
 
 async function main() {
