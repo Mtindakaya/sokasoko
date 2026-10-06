@@ -5,6 +5,7 @@ const ScoutReport = require('./scout_report.model');
 const ScoutInvoice = require('../ScoutInvoice/scout_invoice.model');
 const User = require('../User/user.model');
 const Match = require('../Match/match.model');
+const Trial = require('../Trial/trial.model');
 const ChatMessage = require('../Chat/chat.model');
 const { entityLabel } = require('../Utils/utils');
 const Notification = require('../Notification/notification.model');
@@ -218,6 +219,55 @@ async function markInvoicePaid(invoice, ctx) {
     console.log('payout-notify error:', e.message);
   }
 }
+
+// GET /v1/scout-reports/stats/:userId — aggregated scouting work counters
+// surfaced on the "Scouting Work" tile on scout + coach profiles. One
+// round-trip replaces four client-side list fetches.
+//
+// Returns:
+//   matchesScouted         — distinct Match events the user filed a
+//                            ScoutReport on (so if they evaluated 3 players
+//                            at the same match it's still 1)
+//   jobsAccepted           — Match.scouts.$.status='ACCEPTED' + legacy
+//                            Match.scout+scoutStatus='ACCEPTED' +
+//                            Trial.scouts.$.status='ACCEPTED'
+//   officialEvaluations    — ScoutReport count where isOfficial=true
+//   unofficialEvaluations  — ScoutReport count where isOfficial=false
+//
+// Jobs accepted ≥ official evaluations is normal (someone can accept a
+// job and never file the report); the UI surfaces both deliberately.
+router.get(`${BASE}/stats/:userId`, async (req, res) => {
+  try {
+    const uid = req.params.userId;
+    if (!mongoose.Types.ObjectId.isValid(uid)) {
+      return res.status(400).json({ error: 'invalid userId' });
+    }
+    const objId = new mongoose.Types.ObjectId(uid);
+    const [distinctMatchEvents, matchJobsAccepted, trialJobsAccepted,
+      officialEvaluations, unofficialEvaluations] = await Promise.all([
+      ScoutReport.distinct('eventId', { scout: objId, eventType: 'MATCH' }),
+      Match.countDocuments({
+        $or: [
+          { scout: objId, scoutStatus: 'ACCEPTED' },
+          { scouts: { $elemMatch: { scout: objId, status: 'ACCEPTED' } } },
+        ],
+      }),
+      Trial.countDocuments({
+        scouts: { $elemMatch: { scout: objId, status: 'ACCEPTED' } },
+      }),
+      ScoutReport.countDocuments({ scout: objId, isOfficial: true }),
+      ScoutReport.countDocuments({ scout: objId, isOfficial: false }),
+    ]);
+    return res.status(200).json({
+      matchesScouted: distinctMatchEvents.length,
+      jobsAccepted: matchJobsAccepted + trialJobsAccepted,
+      officialEvaluations,
+      unofficialEvaluations,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /v1/scout-reports/check?scoutId=&playerId=&eventId=
 router.get(`${BASE}/check`, async (req, res) => {
