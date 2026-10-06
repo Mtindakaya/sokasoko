@@ -222,20 +222,23 @@ async function markInvoicePaid(invoice, ctx) {
 
 // GET /v1/scout-reports/stats/:userId — aggregated scouting work counters
 // surfaced on the "Scouting Work" tile on scout + coach profiles. One
-// round-trip replaces four client-side list fetches.
+// round-trip replaces several client-side list fetches.
 //
 // Returns:
-//   matchesScouted         — distinct Match events the user filed a
-//                            ScoutReport on (so if they evaluated 3 players
-//                            at the same match it's still 1)
-//   jobsAccepted           — Match.scouts.$.status='ACCEPTED' + legacy
-//                            Match.scout+scoutStatus='ACCEPTED' +
-//                            Trial.scouts.$.status='ACCEPTED'
-//   officialEvaluations    — ScoutReport count where isOfficial=true
-//   unofficialEvaluations  — ScoutReport count where isOfficial=false
-//
-// Jobs accepted ≥ official evaluations is normal (someone can accept a
-// job and never file the report); the UI surfaces both deliberately.
+//   matchesScouted             — distinct Match events the user filed a
+//                                ScoutReport on (3 player evaluations at
+//                                the same match still count as 1)
+//   jobsReceived               — total scouting invitations ever
+//                                received (any status: PENDING / ACCEPTED
+//                                / DECLINED), across matches + trials.
+//                                Includes legacy Match.scout + .scouts[].
+//   jobsAccepted               — subset of jobsReceived with status
+//                                ACCEPTED. UI shows these two as a
+//                                fraction e.g. "14/24".
+//   officialPlayersEvaluated   — distinct player count in ScoutReports
+//                                where isOfficial=true. A scout who filed
+//                                3 reports on 2 unique players counts 2.
+//   unofficialPlayersEvaluated — same shape, isOfficial=false.
 router.get(`${BASE}/stats/:userId`, async (req, res) => {
   try {
     const uid = req.params.userId;
@@ -243,9 +246,20 @@ router.get(`${BASE}/stats/:userId`, async (req, res) => {
       return res.status(400).json({ error: 'invalid userId' });
     }
     const objId = new mongoose.Types.ObjectId(uid);
-    const [distinctMatchEvents, matchJobsAccepted, trialJobsAccepted,
-      officialEvaluations, unofficialEvaluations] = await Promise.all([
+    const [distinctMatchEvents,
+      matchJobsReceived, trialJobsReceived,
+      matchJobsAccepted, trialJobsAccepted,
+      officialPlayers, unofficialPlayers] = await Promise.all([
       ScoutReport.distinct('eventId', { scout: objId, eventType: 'MATCH' }),
+      Match.countDocuments({
+        $or: [
+          { scout: objId },
+          { scouts: { $elemMatch: { scout: objId } } },
+        ],
+      }),
+      Trial.countDocuments({
+        scouts: { $elemMatch: { scout: objId } },
+      }),
       Match.countDocuments({
         $or: [
           { scout: objId, scoutStatus: 'ACCEPTED' },
@@ -255,14 +269,15 @@ router.get(`${BASE}/stats/:userId`, async (req, res) => {
       Trial.countDocuments({
         scouts: { $elemMatch: { scout: objId, status: 'ACCEPTED' } },
       }),
-      ScoutReport.countDocuments({ scout: objId, isOfficial: true }),
-      ScoutReport.countDocuments({ scout: objId, isOfficial: false }),
+      ScoutReport.distinct('player', { scout: objId, isOfficial: true }),
+      ScoutReport.distinct('player', { scout: objId, isOfficial: false }),
     ]);
     return res.status(200).json({
       matchesScouted: distinctMatchEvents.length,
+      jobsReceived: matchJobsReceived + trialJobsReceived,
       jobsAccepted: matchJobsAccepted + trialJobsAccepted,
-      officialEvaluations,
-      unofficialEvaluations,
+      officialPlayersEvaluated: officialPlayers.length,
+      unofficialPlayersEvaluated: unofficialPlayers.length,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
