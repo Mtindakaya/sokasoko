@@ -116,8 +116,8 @@ async function seedDemoTournament(opts = {}) {
     district = 'Ilala',
     teamCount = 8,
     categories = [
-      { gender: 'MALE', ageGroup: 'U14' },
-      { gender: 'FEMALE', ageGroup: 'U14' },
+      { gender: 'MALE', ageGroup: 'U15' },
+      { gender: 'FEMALE', ageGroup: 'U15' },
     ],
     completionRatio = 0.7,
     groupCount = 2,

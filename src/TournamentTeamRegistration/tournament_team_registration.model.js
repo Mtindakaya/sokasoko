@@ -11,7 +11,15 @@ const CategorySchema = new Schema(
     gender: { type: String, enum: ['MALE', 'FEMALE', 'MIXED'], required: true },
     ageGroup: {
       type: String,
-      enum: ['U10', 'U12', 'U14', 'U16', 'U18', 'U21', 'SENIOR', 'OPEN'],
+      // Shares the canonical age-level list defined for matches +
+      // tournaments (2026-10). Must match Tournament.categories[].ageGroup
+      // enum so a team can only register for a category the tournament
+      // actually offers.
+      enum: [
+        'U9', 'U11', 'U13', 'U15', 'U17', 'U19', 'U20', 'U23',
+        'OPEN',
+        'OVER_35', 'OVER_40', 'OVER_50',
+      ],
       required: true,
     },
   },

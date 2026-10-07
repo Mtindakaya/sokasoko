@@ -27,7 +27,15 @@ const AdvisoryEntrySchema = new Schema(
     },
     ageGroup: {
       type: String,
-      enum: ['U12','U13','U14','U15','U16','U17','U18','U20','U23','OPEN',''],
+      // Shares the canonical age-level list defined for matches +
+      // tournaments (2026-10). Empty string allowed for "no specific
+      // bracket" entries.
+      enum: [
+        'U9', 'U11', 'U13', 'U15', 'U17', 'U19', 'U20', 'U23',
+        'OPEN',
+        'OVER_35', 'OVER_40', 'OVER_50',
+        '',
+      ],
       default: '',
     },
     language: {
