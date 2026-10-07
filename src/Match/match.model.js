@@ -14,9 +14,15 @@ const SCHEMA_OPTIONS = {
 
 const MATCH_STATUS = ['SCHEDULED', 'ONGOING', 'COMPLETED', 'CANCELLED', 'POSTPONED', 'DECLINED'];
 
-// Age level for the match — mirrors the player-signup age brackets so
-// scores can be filtered / labelled consistently ("U15 · M", etc.).
-const MATCH_AGE_LEVELS = ['U9', 'U11', 'U13', 'U15', 'U17', 'U20', 'ADULT'];
+// Canonical age-level list unified across matches, tournaments, trials,
+// clinics, player CVs, club/academy profiles, and the Advisory KB form
+// (2026-10). Youth brackets use odd-year "U-plus-one" convention. OPEN
+// covers mixed-age events. OVER_35/40/50 cover masters/veterans.
+const MATCH_AGE_LEVELS = [
+  'U9', 'U11', 'U13', 'U15', 'U17', 'U19', 'U20', 'U23',
+  'OPEN',
+  'OVER_35', 'OVER_40', 'OVER_50',
+];
 
 // Gender of the players in the match. Stored as MALE / FEMALE for
 // consistency with the User.gender field; client renders localized
@@ -124,6 +130,15 @@ const MatchSchema = new Schema(
       type: String,
       enum: MATCH_AGE_LEVELS,
       index: true,
+    },
+    // Full match length in minutes (both halves + stoppage expected
+    // afterwards). Defaults to 90 (adult standard); youth and veteran
+    // formats commonly use 70 / 80 / 60 so the scheduler can override.
+    durationMinutes: {
+      type: Number,
+      default: 90,
+      min: 1,
+      max: 180,
     },
     gender: {
       type: String,

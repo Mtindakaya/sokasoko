@@ -22,7 +22,15 @@ const TOURNAMENT_TYPES = [
   'FRIENDLY',
 ];
 const TOURNAMENT_STATUS = ['DRAFT', 'OPEN', 'ONGOING', 'COMPLETED', 'CANCELLED'];
-const AGE_GROUPS = ['U10', 'U12', 'U14', 'U16', 'U18', 'U21', 'SENIOR', 'OPEN'];
+// Shares the canonical age-level list defined for matches so filtering
+// stays consistent across the app (2026-10). Previously used an
+// even-year youth ladder (U10/U12/…/SENIOR/OPEN); unified to the
+// odd-year "U-plus-one" convention + explicit veteran brackets.
+const AGE_GROUPS = [
+  'U9', 'U11', 'U13', 'U15', 'U17', 'U19', 'U20', 'U23',
+  'OPEN',
+  'OVER_35', 'OVER_40', 'OVER_50',
+];
 const GENDERS = ['MALE', 'FEMALE', 'MIXED'];
 const TOURNAMENT_TIERS = ['PREMIUM', 'SOKASOKO'];
 
@@ -159,6 +167,16 @@ const TournamentSchema = new Schema(
     // tournament.demo_seed.js carry this so a cleanup script can
     // nuke them without touching real customer data.
     isDemoTournament: { type: Boolean, default: false, index: true },
+    // Default match length (minutes) for fixtures scheduled under this
+    // tournament. 90 covers adult. Youth festivals often use 60–70,
+    // veteran formats sometimes 70. Each individual Match can still
+    // override via its own durationMinutes.
+    defaultMatchDurationMinutes: {
+      type: Number,
+      default: 90,
+      min: 1,
+      max: 180,
+    },
     tier: {
       type: String,
       enum: TOURNAMENT_TIERS,
