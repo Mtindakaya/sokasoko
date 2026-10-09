@@ -65,6 +65,26 @@ router.post(BASE, async (req, res) => {
         error: 'Mchezaji tayari yuko shule. Player is already enrolled in a school.',
       });
     }
+
+    // 30-player cap on the school team roster. If this invitation
+    // includes roster membership, make sure the school isn't already
+    // full before accepting the request. Payload uses string booleans
+    // because the invitation payload is a free-form map.
+    if (kind === 'SCHOOL_LINK' && payload
+        && (payload.school_roster_member === true
+          || payload.school_roster_member === 'true')) {
+      const rosterCount = await User.countDocuments({
+        school: inviter,
+        school_roster_member: true,
+      });
+      if (rosterCount >= 30) {
+        return res.status(400).json({
+          error:
+            'Orodha ya timu ya shule imejaa (30/30). '
+            + 'School team roster is full (30/30).',
+        });
+      }
+    }
     if (kind === 'AGENT_LINK' && invitedUser.agent) {
       return res.status(400).json({
         error: 'Mchezaji tayari ana agent. Player already has an agent.',
@@ -136,7 +156,26 @@ router.post(`${BASE}/:id/verify`, async (req, res) => {
       update.school = inv.inviter;
       const p = inv.payload || {};
       if (p.school_class) update.school_class = p.school_class;
+      if (p.school_form) update.school_form = p.school_form;
+      if (p.college_program) update.college_program = p.college_program;
+      if (p.college_year) update.college_year = p.college_year;
       if (p.school_jersey_number) update.school_jersey_number = p.school_jersey_number;
+      // Re-check the 30-cap at verify time in case other invites were
+      // accepted between invitation and verification.
+      if (p.school_roster_member === true || p.school_roster_member === 'true') {
+        const rosterCount = await User.countDocuments({
+          school: inv.inviter,
+          school_roster_member: true,
+        });
+        if (rosterCount >= 30) {
+          return res.status(400).json({
+            error:
+              'Orodha ya timu ya shule imejaa (30/30). '
+              + 'School team roster is full (30/30).',
+          });
+        }
+        update.school_roster_member = true;
+      }
     } else if (inv.kind === 'AGENT_LINK') {
       update.agent = inv.inviter;
     }

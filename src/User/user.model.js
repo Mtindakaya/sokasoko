@@ -354,7 +354,41 @@ const UserSchema = new Schema(
     sports_teacher_1: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
     sports_teacher_2: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
     school: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
+    // Legacy free-form class/form string. P1 2026-10-09 replaced by the
+    // structured school_form field below; kept to avoid breaking historical
+    // profiles until a migration backfills them.
     school_class: { type: String, trim: true },
+    // Structured form/grade code assigned when the player is added to a
+    // school. Enum covers Primary (GRADE_1..7) + Secondary (FORM_1..6).
+    // College players use college_program + college_year instead and leave
+    // this blank. Empty allowed for backfill of pre-P1 players.
+    school_form: {
+      type: String,
+      trim: true,
+      enum: [
+        'GRADE_1', 'GRADE_2', 'GRADE_3', 'GRADE_4',
+        'GRADE_5', 'GRADE_6', 'GRADE_7',
+        'FORM_1', 'FORM_2', 'FORM_3', 'FORM_4', 'FORM_5', 'FORM_6',
+        '',
+      ],
+      default: '',
+    },
+    // CHUO-only. Program the student is enrolled in. Decoupled from
+    // college_year because the mapping (Certificate=1yr, Diploma=2-3yr,
+    // Degree=3-4yr/7yr for engineering, Masters=1-2yr) is handled later;
+    // UI just asks for whichever year the student is currently in.
+    college_program: {
+      type: String,
+      trim: true,
+      enum: ['CERTIFICATE', 'DIPLOMA', 'DEGREE', 'MASTERS', ''],
+      default: '',
+    },
+    college_year: { type: Number, min: 1, max: 7, default: null },
+    // Sports-teacher-controlled flag: is this player on the school /
+    // college TEAM roster (the one that represents the institution in
+    // inter-school competition). Capped at 30 per school; enforced in
+    // the invitation + roster-toggle handlers.
+    school_roster_member: { type: Boolean, default: false, index: true },
     school_jersey_number: { type: String, trim: true },
     has_football_field: { type: Boolean, default: false },
     football_field_name: { type: String, trim: true },

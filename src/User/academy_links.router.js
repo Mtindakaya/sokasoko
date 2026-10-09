@@ -163,7 +163,19 @@ router.delete('/v1/users/:id/unlink-school', async (req, res) => {
 
     const updated = await User.findByIdAndUpdate(
       req.params.id,
-      { $set: { school: null, school_class: null, school_jersey_number: null } },
+      {
+        $set: {
+          school: null,
+          school_class: null,
+          school_jersey_number: null,
+          // P1 2026-10-09 added fields — clear them when the player
+          // leaves the school so a fresh enrolment starts from zero.
+          school_form: '',
+          school_roster_member: false,
+          college_program: '',
+          college_year: null,
+        },
+      },
       { new: true }
     );
 
@@ -309,6 +321,46 @@ router.get('/v1/users/:id/school-players', async (req, res) => {
       .limit(500)
       .lean();
     return res.status(200).json({ data: players });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/school-roster  { memberOnRoster: boolean }
+// Flip a player in/out of the school team roster. Enforces the 30-player
+// cap when flipping to true. Caller authorisation (sports teacher only)
+// is handled by the client until a dedicated gate ships; the player
+// must already belong to the inviter's school.
+router.post('/v1/users/:id/school-roster', async (req, res) => {
+  try {
+    const memberOnRoster = !!(req.body && req.body.memberOnRoster);
+    const player = await User.findById(req.params.id)
+      .select('school school_roster_member').lean();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    if (!player.school) {
+      return res.status(400).json({ error: 'Player is not linked to a school' });
+    }
+
+    if (memberOnRoster && !player.school_roster_member) {
+      const rosterCount = await User.countDocuments({
+        school: player.school,
+        school_roster_member: true,
+      });
+      if (rosterCount >= 30) {
+        return res.status(400).json({
+          error:
+            'Orodha ya timu ya shule imejaa (30/30). '
+            + 'School team roster is full (30/30).',
+        });
+      }
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: { school_roster_member: memberOnRoster } },
+      { new: true },
+    );
+    return res.status(200).json({ data: updated });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
