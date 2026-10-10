@@ -38,6 +38,19 @@ router.post(BASE, async (req, res) => {
     if (!Invitation.KINDS.includes(kind)) {
       return res.status(400).json({ error: `invalid kind: ${kind}` });
     }
+    // 2026-10-10 — SCHOOL_LINK invitation flow retired. Players now
+    // self-associate via POST /v1/users/:id/join-school; sports teachers
+    // tick verify from the School Players screen. Reject new SCHOOL_LINK
+    // requests so clients cannot keep creating pending rows. Existing
+    // in-flight PENDING rows are left alone (they'll sit idle; the
+    // Verifications screen on mobile no longer surfaces them).
+    if (kind === 'SCHOOL_LINK') {
+      return res.status(410).json({
+        error: 'SCHOOL_LINK invitations are no longer accepted. '
+          + 'Players should join their school directly from signup or '
+          + 'Edit Profile.',
+      });
+    }
     if (String(invitee) === String(inviter)) {
       return res.status(400).json({ error: 'Cannot invite yourself' });
     }

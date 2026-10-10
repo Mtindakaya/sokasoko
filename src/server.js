@@ -15,6 +15,7 @@ const { Server: SocketServer } = require('socket.io');
 
 const StatsRouter = require('./Match/match.stats.router');
 const AcademyLinksRouter = require('./User/academy_links.router');
+const SchoolsRegistryRouter = require('./SchoolsRegistry/schools_registry.router');
 const ProfileViewRouter = require('./User/profile_view.router');
 const VenueImportRouter = require('./Venue/venue.import.router');
 const ReservationRouter = require('./Reservation/reservation.http.router');
@@ -170,6 +171,7 @@ connect(MONGODB_URI, (error) => {
   // 2. Mount all routes — notFound/errorHandler MUST come after all routes.
   app.use(StatsRouter);
   app.use(AcademyLinksRouter);
+  app.use(SchoolsRegistryRouter);
   app.use(ProfileViewRouter);
   app.use(VenueImportRouter);
   app.use(ReservationRouter);

@@ -174,6 +174,9 @@ router.delete('/v1/users/:id/unlink-school', async (req, res) => {
           school_roster_member: false,
           college_program: '',
           college_year: null,
+          // P1.5 2026-10-10 fields.
+          school_verified_by_staff: false,
+          student_registration_number: '',
         },
       },
       { new: true }
@@ -358,6 +361,114 @@ router.post('/v1/users/:id/school-roster', async (req, res) => {
     const updated = await User.findByIdAndUpdate(
       req.params.id,
       { $set: { school_roster_member: memberOnRoster } },
+      { new: true },
+    );
+    return res.status(200).json({ data: updated });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/join-school — player self-associates with a school.
+// Replaces the old SCHOOL_LINK invitation flow (killed 2026-10-10). Link
+// is created immediately, flagged unverified. Sports teachers are
+// notified so they can tick verify from the School Players screen.
+//
+// Body:
+//   schoolId  (required)                                  Mongo _id of the School User
+//   schoolForm                 Primary / Secondary code  ('GRADE_1'..'FORM_6')
+//   collegeProgram             CHUO only                 ('CERTIFICATE'..'MASTERS')
+//   collegeYear                CHUO only                 (1..4)
+//   studentRegistrationNumber  free text, optional
+router.post('/v1/users/:id/join-school', async (req, res) => {
+  try {
+    const {
+      schoolId,
+      schoolForm,
+      collegeProgram,
+      collegeYear,
+      studentRegistrationNumber,
+    } = req.body || {};
+    if (!schoolId) return res.status(400).json({ error: 'schoolId is required' });
+
+    const player = await User.findById(req.params.id)
+      .select('_id firstName lastName type').lean();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const school = await User.findById(schoolId)
+      .select('_id academy_name school_type sports_teacher_1 sports_teacher_2').lean();
+    if (!school || school.school_type == null) {
+      return res.status(404).json({ error: 'School not found' });
+    }
+
+    const update = {
+      school: schoolId,
+      school_verified_by_staff: false,
+      school_roster_member: false,
+    };
+    if (schoolForm) update.school_form = schoolForm;
+    if (collegeProgram) update.college_program = collegeProgram;
+    if (collegeYear != null) update.college_year = Number(collegeYear);
+    if (typeof studentRegistrationNumber === 'string') {
+      update.student_registration_number = studentRegistrationNumber.trim();
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      req.params.id, { $set: update }, { new: true },
+    );
+
+    // Fan-out notifications to the school's sports teachers (both slots).
+    const teacherIds = [school.sports_teacher_1, school.sports_teacher_2]
+      .filter((x) => !!x);
+    const playerName = `${player.firstName || ''} ${player.lastName || ''}`.trim();
+    for (const teacherId of teacherIds) {
+      try {
+        await Notification.create({
+          userId: teacherId,
+          type: 'SYSTEM',
+          title: 'Mchezaji mpya ameomba kuingia shule',
+          body: `${playerName} amejiunga na ${school.academy_name || 'shule yako'}. `
+            + 'Fungua orodha ya wachezaji wa shule kuthibitisha.',
+          titleKey: 'notif.school.self_join.title',
+          bodyKey: 'notif.school.self_join.body',
+          params: {
+            playerName,
+            schoolName: school.academy_name || '',
+          },
+          metadata: {
+            kind: 'SCHOOL_SELF_JOIN',
+            playerId: player._id,
+            schoolId: school._id,
+          },
+        });
+      } catch (nErr) {
+        console.log('[JOIN-SCHOOL] notification failed:', nErr.message);
+      }
+    }
+
+    return res.status(200).json({ data: updated });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/users/:id/school-verify  { verified: boolean }
+// Sports teacher flips the school_verified_by_staff flag on a player
+// who has already joined the school. Flipping false is allowed too, in
+// case a teacher wants to pull back verification (e.g. the player left
+// the school between the join and today's roll call).
+router.post('/v1/users/:id/school-verify', async (req, res) => {
+  try {
+    const verified = !!(req.body && req.body.verified);
+    const player = await User.findById(req.params.id)
+      .select('school school_verified_by_staff').lean();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    if (!player.school) {
+      return res.status(400).json({ error: 'Player is not linked to a school' });
+    }
+    const updated = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: { school_verified_by_staff: verified } },
       { new: true },
     );
     return res.status(200).json({ data: updated });

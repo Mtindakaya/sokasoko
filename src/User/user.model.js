@@ -389,6 +389,28 @@ const UserSchema = new Schema(
     // inter-school competition). Capped at 30 per school; enforced in
     // the invitation + roster-toggle handlers.
     school_roster_member: { type: Boolean, default: false, index: true },
+    // 2026-10-10 — players now self-associate with their school at
+    // signup (or via Edit Profile). The link is created immediately but
+    // flagged unverified; a sports teacher flips this flag true via the
+    // School Players screen, or it flips true automatically the moment
+    // a captain / assistant captain adds the player to a class / form
+    // team. Nothing in the public roster surfaces this directly; the
+    // sports teacher sees an "Unverified" badge on each row.
+    school_verified_by_staff: { type: Boolean, default: false, index: true },
+    // Free-text student / admission number captured on the signup form
+    // under the school picker. Not validated against anything upstream
+    // — it is purely for the school's internal reconciliation.
+    student_registration_number: { type: String, trim: true, default: '' },
+    // Captured on signup. Separate from the school association because
+    // a non-student can still have attended a school in the past (that
+    // education history is tracked elsewhere). Three-state enum keeps
+    // room for the "N/A" response if we need it back, though UI ships
+    // Yes / No only.
+    is_student: {
+      type: String,
+      enum: ['YES', 'NO', ''],
+      default: '',
+    },
     school_jersey_number: { type: String, trim: true },
     has_football_field: { type: Boolean, default: false },
     football_field_name: { type: String, trim: true },
