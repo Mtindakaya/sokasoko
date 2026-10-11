@@ -363,6 +363,36 @@ router.post('/v1/users/:id/school-roster', async (req, res) => {
       { $set: { school_roster_member: memberOnRoster } },
       { new: true },
     );
+
+    try {
+      const schoolFull = await User.findById(player.school)
+        .select('academy_name').lean();
+      const schoolName = (schoolFull && schoolFull.academy_name) || 'shuleni';
+      await Notification.create({
+        userId: req.params.id,
+        type: 'SYSTEM',
+        title: memberOnRoster
+          ? 'Umeongezwa kwenye timu ya shule'
+          : 'Umeondolewa kwenye timu ya shule',
+        body: memberOnRoster
+          ? `Mwalimu wa michezo amekuongeza kwenye timu ya ${schoolName}.`
+          : `Mwalimu wa michezo amekuondoa kwenye timu ya ${schoolName}.`,
+        titleKey: memberOnRoster
+          ? 'notif.school.roster_added.title'
+          : 'notif.school.roster_removed.title',
+        bodyKey: memberOnRoster
+          ? 'notif.school.roster_added.body'
+          : 'notif.school.roster_removed.body',
+        params: { schoolName },
+        metadata: {
+          kind: memberOnRoster ? 'SCHOOL_ROSTER_ADDED' : 'SCHOOL_ROSTER_REMOVED',
+          schoolId: player.school,
+        },
+      });
+    } catch (nErr) {
+      console.log('[SCHOOL-ROSTER] notification failed:', nErr.message);
+    }
+
     return res.status(200).json({ data: updated });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -417,14 +447,20 @@ router.post('/v1/users/:id/join-school', async (req, res) => {
       req.params.id, { $set: update }, { new: true },
     );
 
-    // Fan-out notifications to the school's sports teachers (both slots).
-    const teacherIds = [school.sports_teacher_1, school.sports_teacher_2]
-      .filter((x) => !!x);
+    // Fan-out notifications to the school account itself + both sports
+    // teacher slots. Dedupe so a teacher that happens to equal the
+    // school id (shouldn't happen, defensive) only receives one.
+    const audience = new Set([
+      String(school._id),
+      ...[school.sports_teacher_1, school.sports_teacher_2]
+        .filter((x) => !!x)
+        .map(String),
+    ]);
     const playerName = `${player.firstName || ''} ${player.lastName || ''}`.trim();
-    for (const teacherId of teacherIds) {
+    for (const recipientId of audience) {
       try {
         await Notification.create({
-          userId: teacherId,
+          userId: recipientId,
           type: 'SYSTEM',
           title: 'Mchezaji mpya ameomba kuingia shule',
           body: `${playerName} amejiunga na ${school.academy_name || 'shule yako'}. `
@@ -461,7 +497,7 @@ router.post('/v1/users/:id/school-verify', async (req, res) => {
   try {
     const verified = !!(req.body && req.body.verified);
     const player = await User.findById(req.params.id)
-      .select('school school_verified_by_staff').lean();
+      .select('school school_verified_by_staff firstName').lean();
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (!player.school) {
       return res.status(400).json({ error: 'Player is not linked to a school' });
@@ -471,6 +507,39 @@ router.post('/v1/users/:id/school-verify', async (req, res) => {
       { $set: { school_verified_by_staff: verified } },
       { new: true },
     );
+
+    // Notify the player. Guardian fan-out happens automatically via
+    // the post-save hook on Notification when the player has a
+    // guardian ref — nothing extra to do here.
+    try {
+      const school = await User.findById(player.school)
+        .select('academy_name').lean();
+      const schoolName = (school && school.academy_name) || 'shuleni';
+      await Notification.create({
+        userId: req.params.id,
+        type: 'SYSTEM',
+        title: verified
+          ? 'Umethibitishwa shuleni'
+          : 'Uthibitisho wako shuleni umeondolewa',
+        body: verified
+          ? `Mwalimu wa michezo amekuthibitisha kuwa mwanafunzi wa ${schoolName}.`
+          : `Mwalimu wa michezo ameondoa uthibitisho wako wa ${schoolName}.`,
+        titleKey: verified
+          ? 'notif.school.verified.title'
+          : 'notif.school.unverified.title',
+        bodyKey: verified
+          ? 'notif.school.verified.body'
+          : 'notif.school.unverified.body',
+        params: { schoolName },
+        metadata: {
+          kind: verified ? 'SCHOOL_VERIFIED' : 'SCHOOL_UNVERIFIED',
+          schoolId: player.school,
+        },
+      });
+    } catch (nErr) {
+      console.log('[SCHOOL-VERIFY] notification failed:', nErr.message);
+    }
+
     return res.status(200).json({ data: updated });
   } catch (err) {
     return res.status(500).json({ error: err.message });
