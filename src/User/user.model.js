@@ -711,6 +711,23 @@ UserSchema.pre('save', function guardianNameSafeguard(next) {
   next();
 });
 
+// Mirror academy_registration → school_id on SCHOOL accounts. The
+// signup form captures the field as academy_registration (shared with
+// ACADEMY / CLUB), but the schools-registry match + pending-student
+// promotion hook read school_id. Keep them in sync on every save so
+// one write path is enough. Hooks fire in declaration order; this
+// must run before the pending-promotion post-save hook that reads
+// school_id.
+UserSchema.pre('save', function mirrorSchoolRegistration(next) {
+  if (this.type === 'SCHOOL') {
+    const reg = (this.academy_registration || '').trim();
+    if (reg && (!this.school_id || this.school_id.trim() !== reg)) {
+      this.school_id = reg;
+    }
+  }
+  return next();
+});
+
 // Auto-set free trial dates on first save for PLAYER and SCOUT
 UserSchema.pre('save', function preValidate(done) {
   if (this.isNew && (this.type === 'PLAYER' || this.type === 'SCOUT')) {
