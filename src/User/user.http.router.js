@@ -175,21 +175,14 @@ const anonymizeGuardian = (user, requestingUserId, requesterIsAdmin) => {
   return masked;
 };
 
-const canViewFullProfile = async (requestingUserId, targetUser) => {
-  if (_.get(targetUser, 'type') !== 'PLAYER') return true;
-  if (!requestingUserId) return false;
-  const requestingUser = await User.findById(requestingUserId);
-  if (!requestingUser) return false;
-  if (requestingUser.type !== 'SCOUT') return true;
-  const accessStatus = requestingUser.getAccessStatus();
-  if (
-    accessStatus.status === 'FREE_TRIAL' ||
-    accessStatus.status === 'GRACE_PERIOD' ||
-    accessStatus.status === 'UNRESTRICTED'
-  ) return true;
-  const isSubscribed = await Subscription.isUserSubscribed(requestingUserId);
-  return isSubscribed;
-};
+// Contact / social fields are opt-in: the player (or their guardian)
+// chooses whether to fill in email / phone / social handles on Edit
+// Profile. If they filled them in, anyone can see them — including
+// scouts without a subscription. The old "subscribe to see contact"
+// paywall didn't match the user's intent (the data is self-published),
+// so we always return true now and leave stripRestrictedFields unused.
+// Kept as a function in case we re-introduce a mask on different data.
+const canViewFullProfile = async () => true;
 
 router.get(PATH_SCHEMA, schemaFor({
   getSchema: (query, done) => {
