@@ -418,23 +418,49 @@ router.post('/v1/users/:id/join-school', async (req, res) => {
       collegeProgram,
       collegeYear,
       studentRegistrationNumber,
+      // Pending-school params — used when the player picked a school
+      // from the registry that hasn't signed up on SokaSoko yet. The
+      // backend records the intent and clears school: null so a later
+      // backfill can link once the school account is created.
+      pendingSchoolName,
+      pendingSchoolRegistrationNumber,
+      pendingSchoolStage,
     } = req.body || {};
-    if (!schoolId) return res.status(400).json({ error: 'schoolId is required' });
+
+    const isPending = !schoolId
+      && (pendingSchoolName || pendingSchoolRegistrationNumber);
+    if (!schoolId && !isPending) {
+      return res.status(400).json({
+        error: 'schoolId or pendingSchool* fields are required',
+      });
+    }
 
     const player = await User.findById(req.params.id)
       .select('_id firstName lastName type').lean();
     if (!player) return res.status(404).json({ error: 'Player not found' });
 
-    const school = await User.findById(schoolId)
-      .select('_id academy_name school_type sports_teacher_1 sports_teacher_2').lean();
-    if (!school || school.school_type == null) {
-      return res.status(404).json({ error: 'School not found' });
+    let school = null;
+    if (schoolId) {
+      school = await User.findById(schoolId)
+        .select('_id academy_name school_type sports_teacher_1 sports_teacher_2')
+        .lean();
+      if (!school || school.school_type == null) {
+        return res.status(404).json({ error: 'School not found' });
+      }
     }
 
     const update = {
-      school: schoolId,
+      school: schoolId || null,
       school_verified_by_staff: false,
       school_roster_member: false,
+      // Clear previous pending values whenever a direct link lands,
+      // or set them when the link is pending.
+      pending_school_name: isPending
+        ? (pendingSchoolName || '').trim() : '',
+      pending_school_registration_number: isPending
+        ? (pendingSchoolRegistrationNumber || '').trim() : '',
+      pending_school_stage: isPending
+        ? (pendingSchoolStage || '').toUpperCase() : '',
     };
     if (schoolForm) update.school_form = schoolForm;
     if (collegeProgram) update.college_program = collegeProgram;
@@ -446,6 +472,14 @@ router.post('/v1/users/:id/join-school', async (req, res) => {
     const updated = await User.findByIdAndUpdate(
       req.params.id, { $set: update }, { new: true },
     );
+
+    // Fan-out notifications only when we actually linked to a real
+    // SokaSoko school account. Pending-school picks have no inbox to
+    // route to; the student's record is tagged and a future backfill
+    // handles the association when the school registers.
+    if (!school) {
+      return res.status(200).json({ data: updated });
+    }
 
     // Fan-out notifications to the school account itself + both sports
     // teacher slots. Dedupe so a teacher that happens to equal the

@@ -401,6 +401,20 @@ const UserSchema = new Schema(
     // under the school picker. Not validated against anything upstream
     // — it is purely for the school's internal reconciliation.
     student_registration_number: { type: String, trim: true, default: '' },
+    // Pending school match — the player picked a school from the NECTA
+    // / TCU registry that hasn't signed up on SokaSoko yet. We can't
+    // set `school: <ObjectId>` because the school account doesn't
+    // exist, but we still want the student's intent recorded so when
+    // the actual school registers (same school_id), a backfill job
+    // can link them without the student having to re-pick.
+    pending_school_name: { type: String, trim: true, default: '' },
+    pending_school_registration_number:
+      { type: String, trim: true, default: '', index: true },
+    pending_school_stage: {
+      type: String,
+      enum: ['PRIMARY', 'SECONDARY', 'CHUO', ''],
+      default: '',
+    },
     // Captured on signup. Separate from the school association because
     // a non-student can still have attended a school in the past (that
     // education history is tracked elsewhere). Three-state enum keeps
