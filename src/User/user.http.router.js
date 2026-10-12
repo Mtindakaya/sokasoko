@@ -392,7 +392,11 @@ router.get(PATH_LIST, async (req, res) => {
 
     const [data, total] = await Promise.all([
       User.find(filter)
-        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number school_form school_roster_member school_verified_by_staff college_program college_year student_registration_number dob themeColor isAnonymous hideName academy linkedAcademy')
+        // No .select() — the vCard + Info Zaidi need contact, foot,
+        // education, height/weight etc. on first paint. Trimming the
+        // projection meant the follow-up single-user GET had to hydrate
+        // them, and that round-trip ran ~5s on Render. Payload stays
+        // small (one page is tens of users, not thousands).
         .populate({
           path: 'academy',
           populate: {
@@ -645,7 +649,8 @@ router.get(PATH_SEARCH, async (request, response) => {
           ],
         };
     const data = await User.find(finalFilter)
-      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor isAnonymous hideName academy linkedAcademy school school_class school_jersey_number school_form school_roster_member school_verified_by_staff college_program college_year student_registration_number')
+      // No .select() — same reason as PATH_LIST: downstream vCard +
+      // Info Zaidi want the full user on first paint.
       .populate({
         path: 'academy',
         populate: {
