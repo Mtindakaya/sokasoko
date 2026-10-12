@@ -839,11 +839,23 @@ router.get(PATH_SINGLE, getByIdFor({
         }).catch(() => {});
       }
       if (!canView) return done(null, stripRestrictedFields(user));
-      return done(null,
-          anonymizeGuardian(
-              anonymizeSponsor(user, requestingUserId),
-              requestingUserId,
-              false));
+      const result = anonymizeGuardian(
+          anonymizeSponsor(user, requestingUserId),
+          requestingUserId,
+          false);
+      // 2026-10-12 diagnostic — contact fields reportedly missing on
+      // player Info Zaidi. Log whether email/contact survived serialisation
+      // on the way out. Remove once resolved.
+      try {
+        const asObj = (result && result.toObject) ? result.toObject() : result;
+        if (asObj && asObj.type === 'PLAYER') {
+          console.log('[GET user]', String(id),
+            'email=', JSON.stringify(asObj.email),
+            'contact_number=', JSON.stringify(asObj.contact_number),
+            'facebook=', JSON.stringify(asObj.facebook));
+        }
+      } catch (_) {}
+      return done(null, result);
     });
   },
 }));
