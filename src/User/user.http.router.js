@@ -1038,6 +1038,19 @@ router.patch(PATH_SINGLE, uploadFor(), patchFor({
   patch: (body, done) => {
     const remove = _.get(body, 'remove');
     if (remove) body = _.assign(body, { agent: null });
+    // 2026-10-12 — legacy "Not Provided" sentinel was baked into the
+    // mobile User.fromJson defaults for a long time and leaked into
+    // Edit Profile text fields as a live value. If a user tapped Save
+    // without touching those fields, the sentinel got persisted here.
+    // Treat it as empty on write so no new rows carry it forward.
+    const scrub = [
+      'email', 'contact_number', 'street', 'facebook', 'instagram',
+      'twitter', 'youtube', 'linkedin', 'fifaId', 'license_level',
+      'education_level',
+    ];
+    for (const k of scrub) {
+      if (body[k] === 'Not Provided') body[k] = '';
+    }
     return User.patch(body, done);
   },
 }));
