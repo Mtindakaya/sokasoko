@@ -430,6 +430,10 @@ const UserSchema = new Schema(
     football_field_name: { type: String, trim: true },
     field_accessible_to_community: { type: Boolean, default: false },
     school_id: { type: String, trim: true, index: true },
+    // Idempotency marker for the pending-student promotion hook. Set
+    // the first time a SCHOOL account save runs the promotion so
+    // subsequent saves don't re-notify the same students.
+    pendingPromotionDoneAt: { type: Date, default: null },
     referee_license_level: { type: String, trim: true },
     tafoca: { type: String, enum: ['YES', 'NO'] },
     talent_id_training: { type: String, enum: ['YES', 'NO'], trim: true },
@@ -815,6 +819,79 @@ UserSchema.post('save', async function faEntityRegistered(doc) {
     );
   } catch (err) {
     console.log('[user.post-save fa notify] failed:', err.message);
+  }
+});
+
+// Promote pending-school student records when a new SCHOOL account is
+// created with a matching registration number. The /join-school
+// endpoint can tag students who picked a registry-only (NECTA / TCU)
+// school; this hook finishes the job when the real school arrives.
+UserSchema.post('save', async function promotePendingStudents(doc) {
+  try {
+    if (doc.type !== 'SCHOOL') return;
+    const regNo = (doc.school_id || '').trim();
+    if (!regNo) return;
+    // Only run on the first save for this school. districtNotifiedAt
+    // is the existing marker — use the newly-added
+    // pendingPromotionDoneAt flag so this hook is idempotent across
+    // save() calls on an already-promoted school.
+    if (doc.pendingPromotionDoneAt) return;
+
+    const UserModel = doc.constructor;
+    const stage = doc.school_type || '';
+    const filter = {
+      pending_school_registration_number: regNo,
+    };
+    if (stage) filter.pending_school_stage = stage;
+    const pending = await UserModel.find(filter)
+      .select('_id firstName lastName guardian').lean();
+    if (pending.length === 0) {
+      await UserModel.updateOne(
+        { _id: doc._id, pendingPromotionDoneAt: null },
+        { $set: { pendingPromotionDoneAt: new Date() } },
+      );
+      return;
+    }
+
+    await UserModel.updateMany(filter, {
+      $set: {
+        school: doc._id,
+        pending_school_name: '',
+        pending_school_registration_number: '',
+        pending_school_stage: '',
+      },
+    });
+    await UserModel.updateOne(
+      { _id: doc._id },
+      { $set: { pendingPromotionDoneAt: new Date() } },
+    );
+
+    // Fire-and-forget notifications. Guardian fan-out via post-save on
+    // Notification handles minors automatically.
+    const Notification = mongoose.model('Notification');
+    for (const p of pending) {
+      try {
+        await Notification.create({
+          userId: p._id,
+          type: 'SYSTEM',
+          title: 'Shule yako imesajiliwa',
+          body: `${doc.academy_name || 'Shule yako'} imejisajili SokaSoko. `
+            + 'Mwalimu wa michezo atakuthibitisha hivi karibuni.',
+          titleKey: 'notif.school.pending_resolved.title',
+          bodyKey: 'notif.school.pending_resolved.body',
+          params: { schoolName: doc.academy_name || '' },
+          metadata: {
+            kind: 'SCHOOL_PENDING_RESOLVED',
+            schoolId: doc._id,
+          },
+        });
+      } catch (nErr) {
+        console.log('[promote pending] notif failed:', nErr.message);
+      }
+    }
+    console.log(`[promote pending] linked ${pending.length} student(s) to school ${doc._id}`);
+  } catch (err) {
+    console.log('[user.post-save promote pending] failed:', err.message);
   }
 });
 
