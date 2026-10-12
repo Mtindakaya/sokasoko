@@ -473,11 +473,34 @@ router.post('/v1/users/:id/join-school', async (req, res) => {
       req.params.id, { $set: update }, { new: true },
     );
 
-    // Fan-out notifications only when we actually linked to a real
-    // SokaSoko school account. Pending-school picks have no inbox to
-    // route to; the student's record is tagged and a future backfill
-    // handles the association when the school registers.
+    // Pending-school path — no sports-teacher inbox exists yet, so
+    // skip the staff notifications. Instead, drop a note on the
+    // player's own inbox so they understand what "pending" means and
+    // what unblocks the final status. Guardian fan-out via the
+    // post-save hook mirrors a copy to the guardian for minors.
     if (!school) {
+      try {
+        const pendingName = (pendingSchoolName || '').trim() || 'shuleni';
+        await Notification.create({
+          userId: req.params.id,
+          type: 'SYSTEM',
+          title: 'Umejiunga na shule inayosubiri',
+          body: `Umejiunga na ${pendingName}. Hali ya uhakika itakamilika `
+            + 'baada ya shule kujisajili SokaSoko na mwalimu wa michezo '
+            + 'kukuthibitisha.',
+          titleKey: 'notif.school.pending.title',
+          bodyKey: 'notif.school.pending.body',
+          params: { schoolName: pendingName },
+          metadata: {
+            kind: 'SCHOOL_PENDING',
+            pendingName,
+            pendingRegistrationNumber:
+              (pendingSchoolRegistrationNumber || '').trim(),
+          },
+        });
+      } catch (nErr) {
+        console.log('[JOIN-SCHOOL/pending] notification failed:', nErr.message);
+      }
       return res.status(200).json({ data: updated });
     }
 
