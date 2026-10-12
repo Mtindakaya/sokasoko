@@ -76,6 +76,12 @@ async function notifyFaOfStaffChange(link) {
       .select('type region district firstName lastName academy_name entity_name company_name football_field_name')
       .lean();
     if (!org || !ENTITY_TYPES.includes(org.type)) return;
+    // Schools: skip FA staff-change fan-out. FAs don't officially
+    // oversee school football, so passing officer contact details is
+    // out of scope. School + field registration still flows through
+    // notifyFaOfNewEntity because that one is about the school
+    // existing in the district, not about personnel.
+    if (org.type === 'SCHOOL') return;
     const staff = await User.findById(link.staff)
       .select('firstName lastName')
       .lean();
