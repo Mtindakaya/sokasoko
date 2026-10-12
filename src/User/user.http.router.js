@@ -645,7 +645,7 @@ router.get(PATH_SEARCH, async (request, response) => {
           ],
         };
     const data = await User.find(finalFilter)
-      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor isAnonymous hideName academy linkedAcademy')
+      .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca dob themeColor isAnonymous hideName academy linkedAcademy school school_class school_jersey_number school_form school_roster_member school_verified_by_staff college_program college_year student_registration_number')
       .populate({
         path: 'academy',
         populate: {
@@ -655,6 +655,12 @@ router.get(PATH_SEARCH, async (request, response) => {
       })
       .populate('linkedAcademy',
         'academy_name company_name entity_name firstName lastName type profileImage region district')
+      // Populate school on this second search endpoint too (PATH_SEARCH)
+      // so the vCard school pill shows on first paint when the Search
+      // tab hits this path. Without this, the pill waits for the
+      // follow-up single-user GET and lags ~5s behind the academy pill.
+      .populate('school',
+        'academy_name school_type _id firstName lastName profileImage')
       .limit(limit)
       .lean();
 
