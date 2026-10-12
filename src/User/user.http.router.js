@@ -399,7 +399,7 @@ router.get(PATH_LIST, async (req, res) => {
 
     const [data, total] = await Promise.all([
       User.find(filter)
-        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number dob themeColor isAnonymous hideName academy linkedAcademy')
+        .select('firstName lastName academy_name company_name entity_name profileImage type accountNumber position sponsor_type vendor_type region tafoca gender school school_class school_jersey_number school_form school_roster_member school_verified_by_staff college_program college_year student_registration_number dob themeColor isAnonymous hideName academy linkedAcademy')
         .populate({
           path: 'academy',
           populate: {
@@ -409,6 +409,11 @@ router.get(PATH_LIST, async (req, res) => {
         })
         .populate('linkedAcademy',
           'academy_name company_name entity_name firstName lastName type profileImage region district')
+        // Populate school for the vCard pill — without this the field
+        // is a bare ObjectId and the mobile school pill waits for a
+        // follow-up single-user fetch (~5s round-trip on Render).
+        .populate('school',
+          'academy_name school_type _id firstName lastName profileImage')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -826,6 +831,8 @@ router.get(PATH_SINGLE, getByIdFor({
       })
       .populate('linkedAcademy',
         'academy_name company_name entity_name firstName lastName type profileImage region district')
+      .populate('school',
+        'academy_name school_type _id firstName lastName profileImage')
       .exec(async (err, user) => {
       if (err) return done(err, null);
       if (!user) return done(null, null);
