@@ -353,6 +353,12 @@ const UserSchema = new Schema(
     academic_teacher: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
     sports_teacher_1: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
     sports_teacher_2: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
+    // Captain / asst captain designation set by the ACADEMY or CLUB
+    // owner, or by a COACH linked to this org. Reflects on the player's
+    // profile as a positive character trait. One of each per
+    // academy/club; set to null to clear.
+    academy_captain: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    academy_assistant_captain: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     school: { type: Schema.Types.ObjectId, ref: 'User', default: null, autopopulate: true },
     // Legacy free-form class/form string. P1 2026-10-09 replaced by the
     // structured school_form field below; kept to avoid breaking historical

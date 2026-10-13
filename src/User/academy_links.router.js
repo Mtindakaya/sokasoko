@@ -609,4 +609,72 @@ router.post('/v1/users/:id/school-verify', async (req, res) => {
   }
 });
 
+// POST /v1/academies/:academyId/captain  { playerId: <id|null>,
+// role: 'captain' | 'assistant' }
+// Sets or clears the captain / assistant captain on an ACADEMY or
+// CLUB. Validates the player is linked to this org. Caller auth is
+// still open — a sports-teacher/academy-owner/coach check is on the
+// P3 close-out punch list.
+router.post('/v1/academies/:academyId/captain', async (req, res) => {
+  try {
+    const { playerId, role } = req.body || {};
+    if (role !== 'captain' && role !== 'assistant') {
+      return res.status(400).json({
+        error: "role must be 'captain' or 'assistant'",
+      });
+    }
+    const field = role === 'captain'
+      ? 'academy_captain'
+      : 'academy_assistant_captain';
+
+    const org = await User.findById(req.params.academyId)
+      .select('_id type academy_captain academy_assistant_captain')
+      .lean();
+    if (!org) return res.status(404).json({ error: 'Org not found' });
+    if (org.type !== 'ACADEMY' && org.type !== 'CLUB') {
+      return res.status(400).json({
+        error: 'Captain assignment only applies to ACADEMY or CLUB',
+      });
+    }
+
+    const nextValue = playerId || null;
+    if (nextValue) {
+      const player = await User.findById(nextValue)
+        .select('_id type academy').lean();
+      if (!player || player.type !== 'PLAYER') {
+        return res.status(400).json({
+          error: 'playerId must reference a PLAYER account',
+        });
+      }
+      if (String(player.academy) !== String(req.params.academyId)) {
+        return res.status(400).json({
+          error: 'Player is not linked to this org',
+        });
+      }
+    }
+
+    // Prevent the same person holding both roles — if they're being
+    // promoted to captain while they were assistant (or vice versa),
+    // clear the other field in the same update.
+    const update = { [field]: nextValue };
+    if (nextValue) {
+      const otherField = role === 'captain'
+        ? 'academy_assistant_captain'
+        : 'academy_captain';
+      if (String(org[otherField]) === String(nextValue)) {
+        update[otherField] = null;
+      }
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      req.params.academyId,
+      { $set: update },
+      { new: true },
+    );
+    return res.status(200).json({ data: updated });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -249,7 +249,8 @@ router.get('/academys/roster/:academyId', async (req, res) => {
       )
       .populate(
         'addedBy',
-        'academy_name company_name entity_name firstName lastName',
+        'academy_name company_name entity_name firstName lastName '
+        + 'academy_captain academy_assistant_captain',
       )
       .sort({ createdAt: -1 })
       .limit(500)
