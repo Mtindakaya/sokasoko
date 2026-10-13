@@ -60,17 +60,21 @@ async function assertEligibleMember(team, playerId, kind) {
   if (String(player.school) !== String(team.school)) {
     return { ok: false, status: 400, error: 'Player is not linked to this school' };
   }
-  const expected = team.formLevel;
-  const actual = (player.school_form || '').trim();
-  // College uses college_year — build a YEAR_<n> sentinel from the
-  // player's college_year so the comparison stays single-field.
-  const normalisedActual = actual
-    || (player.college_year ? `YEAR_${player.college_year}` : '');
-  if (normalisedActual !== expected) {
-    return {
-      ok: false, status: 400,
-      error: `Player's form (${normalisedActual || 'unset'}) does not match team formLevel (${expected})`,
-    };
+  // Idara (college department) teams span years — skip the formLevel
+  // match and accept any player on the school.
+  if (!team.department) {
+    const expected = team.formLevel;
+    const actual = (player.school_form || '').trim();
+    // College uses college_year — build a YEAR_<n> sentinel from the
+    // player's college_year so the comparison stays single-field.
+    const normalisedActual = actual
+      || (player.college_year ? `YEAR_${player.college_year}` : '');
+    if (normalisedActual !== expected) {
+      return {
+        ok: false, status: 400,
+        error: `Player's form (${normalisedActual || 'unset'}) does not match team formLevel (${expected})`,
+      };
+    }
   }
   // Exclusive membership per kind per school.
   const existing = await Model.findOne({
@@ -114,14 +118,19 @@ registerList('class');
 function registerCreate(kind) {
   router.post(`/v1/schools/:schoolId/${kind}-teams`, async (req, res) => {
     try {
-      const { formLevel, streamLetter } = req.body || {};
-      if (!formLevel || !FORM_LEVELS.includes(formLevel)) {
-        return res.status(400).json({ error: 'formLevel is required and must be a canonical code' });
-      }
-      if (kind === 'class') {
-        const letter = (streamLetter || '').trim();
-        if (!letter) {
-          return res.status(400).json({ error: 'streamLetter is required for class teams' });
+      const { formLevel, streamLetter, department } = req.body || {};
+      const departmentName = (department || '').toString().trim();
+      const isIdaraTeam = kind === 'class' && departmentName.length > 0;
+
+      if (!isIdaraTeam) {
+        if (!formLevel || !FORM_LEVELS.includes(formLevel)) {
+          return res.status(400).json({ error: 'formLevel is required and must be a canonical code' });
+        }
+        if (kind === 'class') {
+          const letter = (streamLetter || '').trim();
+          if (!letter) {
+            return res.status(400).json({ error: 'streamLetter is required for class teams' });
+          }
         }
       }
       const school = await User.findById(req.params.schoolId)
@@ -131,17 +140,21 @@ function registerCreate(kind) {
       }
       const payload = {
         school: req.params.schoolId,
-        formLevel,
         players: [],
       };
-      if (kind === 'class') payload.streamLetter = streamLetter.trim();
+      if (isIdaraTeam) {
+        payload.department = departmentName;
+      } else {
+        payload.formLevel = formLevel;
+        if (kind === 'class') payload.streamLetter = streamLetter.trim();
+      }
       const doc = await modelFor(kind).create(payload);
       return res.status(201).json({ data: doc });
     } catch (err) {
       if (err.code === 11000) {
         return res.status(409).json({
           error: kind === 'class'
-            ? 'A class team with this stream already exists for this form'
+            ? 'A class team with this stream or department already exists for this school'
             : 'A form team for this level already exists',
         });
       }
@@ -187,12 +200,15 @@ function registerAddPlayer(kind) {
         titleKey: `notif.school_team.${kind}.added.title`,
         bodyKey: `notif.school_team.${kind}.added.body`,
         title: `Umeongezwa kwenye ${labelFor(kind)}`,
-        body: `Umeongezwa kwenye timu ya ${team.formLevel}`
-          + (kind === 'class' && team.streamLetter
-            ? ` stream ${team.streamLetter}` : ''),
+        body: team.department
+          ? `Umeongezwa kwenye timu ya Idara ya ${team.department}`
+          : `Umeongezwa kwenye timu ya ${team.formLevel}`
+            + (kind === 'class' && team.streamLetter
+              ? ` stream ${team.streamLetter}` : ''),
         params: {
-          formLevel: team.formLevel,
+          formLevel: team.formLevel || '',
           streamLetter: team.streamLetter || '',
+          department: team.department || '',
         },
         metadata: {
           kind: kind === 'class'
@@ -230,12 +246,15 @@ function registerRemovePlayer(kind) {
           titleKey: `notif.school_team.${kind}.removed.title`,
           bodyKey: `notif.school_team.${kind}.removed.body`,
           title: `Umeondolewa kwenye ${labelFor(kind)}`,
-          body: `Mwalimu wa michezo amekuondoa kwenye timu ya ${team.formLevel}`
-            + (kind === 'class' && team.streamLetter
-              ? ` stream ${team.streamLetter}` : ''),
+          body: team.department
+            ? `Mwalimu wa michezo amekuondoa kwenye timu ya Idara ya ${team.department}`
+            : `Mwalimu wa michezo amekuondoa kwenye timu ya ${team.formLevel}`
+              + (kind === 'class' && team.streamLetter
+                ? ` stream ${team.streamLetter}` : ''),
           params: {
-            formLevel: team.formLevel,
+            formLevel: team.formLevel || '',
             streamLetter: team.streamLetter || '',
+            department: team.department || '',
           },
           metadata: {
             kind: kind === 'class'
@@ -289,12 +308,15 @@ function registerSetCaptain(kind, role) {
             title: role === 'captain'
               ? 'Umekuwa Kiongozi wa timu'
               : 'Umekuwa Msaidizi wa Kiongozi',
-            body: `Timu ya ${team.formLevel}`
-              + (kind === 'class' && team.streamLetter
-                ? ` stream ${team.streamLetter}` : ''),
+            body: team.department
+              ? `Timu ya Idara ya ${team.department}`
+              : `Timu ya ${team.formLevel}`
+                + (kind === 'class' && team.streamLetter
+                  ? ` stream ${team.streamLetter}` : ''),
             params: {
-              formLevel: team.formLevel,
+              formLevel: team.formLevel || '',
               streamLetter: team.streamLetter || '',
+              department: team.department || '',
             },
             metadata: {
               kind: `SCHOOL_${kind.toUpperCase()}_TEAM_${role.toUpperCase()}_SET`,

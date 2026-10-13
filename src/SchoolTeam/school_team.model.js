@@ -20,13 +20,19 @@ const { Schema, model } = mongoose;
 //                        a disabled team. Only Sports Teacher can
 //                        toggle.
 //
-// ClassTeam adds:
+// ClassTeam adds EITHER:
 //   streamLetter         A / B / C / ... — the stream label under the
-//                        form, required
+//                        form (used by primary / secondary class teams)
+// OR for college "Timu ya Idara" teams:
+//   department           free-text department name (e.g. "Uhasibu").
+//                        When department is set, formLevel + streamLetter
+//                        are both optional — idara teams span years.
 //
 // Unique index per (school, formLevel) for FormTeam so a school can't
-// register two all-stars teams for the same grade. Unique per
-// (school, formLevel, streamLetter) for ClassTeam.
+// register two all-stars teams for the same grade. For ClassTeam we
+// keep two partial unique indexes:
+//   (school, formLevel, streamLetter)   — stream-based class teams
+//   (school, department)                — idara (college department)
 const FORM_LEVELS = [
   'GRADE_1', 'GRADE_2', 'GRADE_3', 'GRADE_4',
   'GRADE_5', 'GRADE_6', 'GRADE_7',
@@ -40,12 +46,6 @@ const commonFields = {
   school: {
     type: Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    index: true,
-  },
-  formLevel: {
-    type: String,
-    enum: FORM_LEVELS,
     required: true,
     index: true,
   },
@@ -66,7 +66,15 @@ const commonFields = {
   active: { type: Boolean, default: true, index: true },
 };
 
-const FormTeamSchema = new Schema(commonFields, {
+const FormTeamSchema = new Schema({
+  ...commonFields,
+  formLevel: {
+    type: String,
+    enum: FORM_LEVELS,
+    required: true,
+    index: true,
+  },
+}, {
   timestamps: true,
   toJSON: { getters: true },
   toObject: { getters: true },
@@ -75,11 +83,23 @@ FormTeamSchema.index({ school: 1, formLevel: 1 }, { unique: true });
 
 const ClassTeamSchema = new Schema({
   ...commonFields,
+  formLevel: {
+    type: String,
+    enum: FORM_LEVELS,
+    required() { return !this.department; },
+    index: true,
+  },
   streamLetter: {
     type: String,
     trim: true,
-    required: true,
     maxlength: 4,
+    required() { return !this.department; },
+  },
+  department: {
+    type: String,
+    trim: true,
+    maxlength: 60,
+    index: true,
   },
 }, {
   timestamps: true,
@@ -88,7 +108,17 @@ const ClassTeamSchema = new Schema({
 });
 ClassTeamSchema.index(
   { school: 1, formLevel: 1, streamLetter: 1 },
-  { unique: true },
+  {
+    unique: true,
+    partialFilterExpression: { department: { $exists: false } },
+  },
+);
+ClassTeamSchema.index(
+  { school: 1, department: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { department: { $type: 'string' } },
+  },
 );
 
 module.exports.FormTeam = model('FormTeam', FormTeamSchema);
