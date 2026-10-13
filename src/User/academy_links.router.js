@@ -358,9 +358,15 @@ router.post('/v1/users/:id/school-roster', async (req, res) => {
       }
     }
 
+    const rosterUpdate = { school_roster_member: memberOnRoster };
+    // Being added to the roster implies the sports teacher has
+    // vouched for the player — auto-flip verified so the "Hajathibitishwa"
+    // badge disappears without a second manual action.
+    if (memberOnRoster) rosterUpdate.school_verified_by_staff = true;
+
     const updated = await User.findByIdAndUpdate(
       req.params.id,
-      { $set: { school_roster_member: memberOnRoster } },
+      { $set: rosterUpdate },
       { new: true },
     );
 
