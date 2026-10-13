@@ -631,22 +631,37 @@ router.post('/v1/academies/:academyId/captain', async (req, res) => {
       .select('_id type academy_captain academy_assistant_captain')
       .lean();
     if (!org) return res.status(404).json({ error: 'Org not found' });
-    if (org.type !== 'ACADEMY' && org.type !== 'CLUB') {
+    if (!['ACADEMY', 'CLUB', 'SCHOOL'].includes(org.type)) {
       return res.status(400).json({
-        error: 'Captain assignment only applies to ACADEMY or CLUB',
+        error: 'Captain assignment only applies to ACADEMY, CLUB or SCHOOL',
       });
     }
 
     const nextValue = playerId || null;
     if (nextValue) {
       const player = await User.findById(nextValue)
-        .select('_id type academy').lean();
+        .select('_id type academy school school_roster_member').lean();
       if (!player || player.type !== 'PLAYER') {
         return res.status(400).json({
           error: 'playerId must reference a PLAYER account',
         });
       }
-      if (String(player.academy) !== String(req.params.academyId)) {
+      // SCHOOL vs ACADEMY/CLUB linkage: schools use the player.school
+      // field (and we additionally require the player to be on the
+      // roster — the captain of the school roster must be rostered);
+      // academies/clubs use player.academy.
+      if (org.type === 'SCHOOL') {
+        if (String(player.school) !== String(req.params.academyId)) {
+          return res.status(400).json({
+            error: 'Player is not linked to this school',
+          });
+        }
+        if (!player.school_roster_member) {
+          return res.status(400).json({
+            error: 'Player must be on the school roster first',
+          });
+        }
+      } else if (String(player.academy) !== String(req.params.academyId)) {
         return res.status(400).json({
           error: 'Player is not linked to this org',
         });
