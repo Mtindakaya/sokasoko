@@ -114,6 +114,29 @@ function registerList(kind) {
 registerList('form');
 registerList('class');
 
+// GET /v1/users/:playerId/my-school-teams — all teams on which the
+// player is captain or assistant captain. Returns both kinds so the
+// client can render a single list without two round-trips. School is
+// populated so the captain screen can navigate into the detail view
+// without a separate school fetch.
+router.get('/v1/users/:playerId/my-school-teams', async (req, res) => {
+  try {
+    const pid = req.params.playerId;
+    const filter = { $or: [{ captain: pid }, { assistantCaptain: pid }] };
+    const populateSchool = (q) => q.populate('school',
+      '_id academy_name school_type profileImage accountNumber');
+    const [formTeams, classTeams] = await Promise.all([
+      populateSchool(populatePlayers(FormTeam.find(filter))).lean(),
+      populateSchool(populatePlayers(ClassTeam.find(filter))).lean(),
+    ]);
+    return res.status(200).json({
+      data: { form: formTeams, class: classTeams },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/schools/:schoolId/<kind>-teams — create.
 function registerCreate(kind) {
   router.post(`/v1/schools/:schoolId/${kind}-teams`, async (req, res) => {
