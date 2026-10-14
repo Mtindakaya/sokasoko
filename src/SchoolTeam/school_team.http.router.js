@@ -329,8 +329,8 @@ function registerSetCaptain(kind, role) {
             titleKey: `notif.school_team.${kind}.${role}_set.title`,
             bodyKey: `notif.school_team.${kind}.${role}_set.body`,
             title: role === 'captain'
-              ? 'Umekuwa Kapteni wa timu'
-              : 'Umekuwa Msaidizi wa Kapteni',
+              ? 'Umekuwa Nahodha wa timu'
+              : 'Umekuwa Msaidizi wa Nahodha',
             body: team.department
               ? `Timu ya Idara ya ${team.department}`
               : `Timu ya ${team.formLevel}`
