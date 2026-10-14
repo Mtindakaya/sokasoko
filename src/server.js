@@ -55,6 +55,7 @@ const AdvisoryRouter = require('./Advisory/advisory.http.router');
 const LegalRouter = require('./Legal/legal.http.router');
 const ReportRouter = require('./Report/report.http.router');
 const RefereeRatingRouter = require('./RefereeRating/referee_rating.http.router');
+const FairPlayRouter = require('./RefereeRating/fair_play.http.router');
 const RecommendationRouter = require('./Recommendation/recommendation.http.router');
 const GuardianConsentRouter = require('./GuardianConsent/guardian_consent.http.router');
 const SponsorshipRouter = require('./Sponsorship/sponsorship.http.router');
@@ -198,6 +199,7 @@ connect(MONGODB_URI, (error) => {
   app.use(ClinicRouter);
   app.use(ScoutReportRouter);
   app.use(RefereeRatingRouter);
+  app.use(FairPlayRouter);
   app.use(RecommendationRouter);
   app.use(GuardianConsentRouter);
   app.use(SponsorshipRouter);
