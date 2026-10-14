@@ -109,11 +109,20 @@ const PlaylistSchema = new Schema(
         enum: ['OPEN', 'MALE', 'FEMALE'],
         default: 'OPEN',
       },
+      // Legacy single-bracket field. New briefs write ageBrackets
+      // instead; kept so old docs still read sensibly. If BOTH are
+      // populated, ageBrackets wins at register-time.
       ageBracket: {
         type: String,
         enum: ['OPEN', 'U13', 'U15', 'U17', 'U20', 'SENIOR'],
         default: 'OPEN',
       },
+      // Multi-select age filter. Empty array = OPEN. Participant is
+      // eligible if their age matches any entry.
+      ageBrackets: [{
+        type: String,
+        enum: ['U13', 'U15', 'U17', 'U20', 'SENIOR'],
+      }],
       // 'SOKASOKO' = admin-initiated. 'RECOMMENDATION' = admin promoted
       // a Platinum user's recommendation (Phase 2 intake).
       source: {

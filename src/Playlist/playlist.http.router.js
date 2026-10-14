@@ -199,6 +199,7 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
       groupSize = null,
       genderRequirement = 'OPEN',
       ageBracket = 'OPEN',
+      ageBrackets,
     } = req.body;
 
     if (!title || !String(title).trim()) {
@@ -325,6 +326,10 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
           .includes(genderRequirement) ? genderRequirement : 'OPEN',
         ageBracket: ['OPEN', 'U13', 'U15', 'U17', 'U20', 'SENIOR']
           .includes(ageBracket) ? ageBracket : 'OPEN',
+        ageBrackets: Array.isArray(ageBrackets)
+          ? ageBrackets.filter((b) =>
+              ['U13', 'U15', 'U17', 'U20', 'SENIOR'].includes(b))
+          : [],
       },
     });
 
@@ -454,6 +459,21 @@ function eligibleForBracket(ageY, bracket) {
   return false;
 }
 
+// Resolves eligibility across (new) ageBrackets array OR the legacy
+// single ageBracket. Empty / OPEN → everyone passes.
+function eligibleForBriefAge(ageY, brief) {
+  const arr = Array.isArray(brief.ageBrackets) ? brief.ageBrackets : [];
+  if (arr.length > 0) return arr.some((b) => eligibleForBracket(ageY, b));
+  const single = brief.ageBracket || 'OPEN';
+  return eligibleForBracket(ageY, single);
+}
+
+function describeBrackets(brief) {
+  const arr = Array.isArray(brief.ageBrackets) ? brief.ageBrackets : [];
+  if (arr.length > 0) return arr.join(' / ');
+  return brief.ageBracket || 'OPEN';
+}
+
 function eligibleForGender(gender, requirement) {
   if (requirement === 'OPEN') return true;
   if (!gender) return false;
@@ -478,8 +498,8 @@ router.post('/challenges/:id/register', async (req, res) => {
     }
     const b = challenge.brief || {};
     const type = b.participationType || 'INDIVIDUAL';
-    const bracket = b.ageBracket || 'OPEN';
     const gender = b.genderRequirement || 'OPEN';
+    const bracketLabel = describeBrackets(b);
 
     const regUser = await User.findById(registrant)
       .select('_id type gender dob').lean();
@@ -505,9 +525,9 @@ router.post('/challenges/:id/register', async (req, res) => {
           errorKey: 'challenge.reg.err.gender',
         });
       }
-      if (!eligibleForBracket(age, bracket)) {
+      if (!eligibleForBriefAge(age, b)) {
         return res.status(400).json({
-          error: `Age bracket ${bracket} requirement not met`,
+          error: `Age bracket ${bracketLabel} requirement not met`,
           errorKey: 'challenge.reg.err.age',
         });
       }
@@ -550,9 +570,9 @@ router.post('/challenges/:id/register', async (req, res) => {
           });
         }
         const age = ageYears(u.dob, now);
-        if (!eligibleForBracket(age, bracket)) {
+        if (!eligibleForBriefAge(age, b)) {
           return res.status(400).json({
-            error: `Member ${u._id} does not match age bracket ${bracket}`,
+            error: `Member ${u._id} does not match age bracket ${bracketLabel}`,
             errorKey: 'challenge.reg.err.age',
           });
         }
