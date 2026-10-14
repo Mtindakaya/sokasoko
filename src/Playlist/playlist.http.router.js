@@ -195,6 +195,10 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
       sponsor = null,
       sponsorBrandColor = '',
       targetAudiences,
+      participationType = 'INDIVIDUAL',
+      groupSize = null,
+      genderRequirement = 'OPEN',
+      ageBracket = 'OPEN',
     } = req.body;
 
     if (!title || !String(title).trim()) {
@@ -312,6 +316,15 @@ router.post('/playlists/with-brief', uploadFor(), async (req, res) => {
         expiresAt,
         showOnHome: true,
         carouselWeight: 1,
+        participationType: ['INDIVIDUAL', 'GROUP', 'ORG']
+          .includes(participationType) ? participationType : 'INDIVIDUAL',
+        groupSize: participationType === 'GROUP'
+          ? Math.max(2, Math.min(25, parseInt(groupSize, 10) || 0)) || null
+          : null,
+        genderRequirement: ['OPEN', 'MALE', 'FEMALE']
+          .includes(genderRequirement) ? genderRequirement : 'OPEN',
+        ageBracket: ['OPEN', 'U13', 'U15', 'U17', 'U20', 'SENIOR']
+          .includes(ageBracket) ? ageBracket : 'OPEN',
       },
     });
 
@@ -411,6 +424,237 @@ router.get('/playlists/briefs', async (req, res) => {
     return res.status(200).json({ data: items });
   } catch (err) {
     console.error('[GET /v1/playlists/briefs] failed:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// CHALLENGE REGISTRATION — participants enter via one of three shapes
+// (INDIVIDUAL / GROUP / ORG), gated on gender + age bracket set at
+// brief creation. Enforcement lives here, not just in the client.
+// ─────────────────────────────────────────────────────────────────────
+const ChallengeRegistration =
+  require('./challenge_registration.model');
+
+function ageYears(dob, asOf) {
+  if (!dob) return null;
+  const birth = new Date(dob);
+  if (Number.isNaN(birth.getTime())) return null;
+  return (asOf.getFullYear() - birth.getFullYear());
+}
+
+function eligibleForBracket(ageY, bracket) {
+  if (bracket === 'OPEN') return true;
+  if (ageY === null) return false;
+  if (bracket === 'U13') return ageY < 13;
+  if (bracket === 'U15') return ageY < 15;
+  if (bracket === 'U17') return ageY < 17;
+  if (bracket === 'U20') return ageY < 20;
+  if (bracket === 'SENIOR') return ageY >= 20;
+  return false;
+}
+
+function eligibleForGender(gender, requirement) {
+  if (requirement === 'OPEN') return true;
+  if (!gender) return false;
+  return String(gender).toUpperCase() === requirement;
+}
+
+// POST /v1/challenges/:id/register
+// Body: { registrant: userId, memberIds?: [userId,...], orgId?: userId }
+// Caller sends registrant (same convention as other routes — the
+// auth middleware will replace this later). participationType is
+// read off the brief; the caller must send the shape that matches.
+router.post('/challenges/:id/register', async (req, res) => {
+  try {
+    const { registrant, memberIds, orgId } = req.body || {};
+    if (!registrant) {
+      return res.status(400).json({ error: 'registrant is required' });
+    }
+    const challenge = await Playlist.findById(req.params.id)
+      .select('brief').lean();
+    if (!challenge) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+    const b = challenge.brief || {};
+    const type = b.participationType || 'INDIVIDUAL';
+    const bracket = b.ageBracket || 'OPEN';
+    const gender = b.genderRequirement || 'OPEN';
+
+    const regUser = await User.findById(registrant)
+      .select('_id type gender dob').lean();
+    if (!regUser) {
+      return res.status(400).json({ error: 'Registrant not found' });
+    }
+
+    const now = new Date();
+    let members = [];
+    let orgRef = null;
+
+    if (type === 'INDIVIDUAL') {
+      if (regUser.type !== 'PLAYER') {
+        return res.status(400).json({
+          error: 'Only PLAYER accounts can enter an individual challenge',
+          errorKey: 'challenge.reg.err.individual_player_only',
+        });
+      }
+      const age = ageYears(regUser.dob, now);
+      if (!eligibleForGender(regUser.gender, gender)) {
+        return res.status(400).json({
+          error: 'Gender does not match the challenge requirement',
+          errorKey: 'challenge.reg.err.gender',
+        });
+      }
+      if (!eligibleForBracket(age, bracket)) {
+        return res.status(400).json({
+          error: `Age bracket ${bracket} requirement not met`,
+          errorKey: 'challenge.reg.err.age',
+        });
+      }
+      members = [regUser._id];
+    } else if (type === 'GROUP') {
+      const ids = Array.isArray(memberIds)
+        ? memberIds.filter((x) => x && typeof x === 'string')
+        : [];
+      if (!b.groupSize) {
+        return res.status(400).json({
+          error: 'Brief has no groupSize configured',
+          errorKey: 'challenge.reg.err.no_group_size',
+        });
+      }
+      if (ids.length !== b.groupSize) {
+        return res.status(400).json({
+          error: `Group must have exactly ${b.groupSize} members`,
+          errorKey: 'challenge.reg.err.group_size',
+        });
+      }
+      const found = await User.find({ _id: { $in: ids } })
+        .select('_id type gender dob').lean();
+      if (found.length !== ids.length) {
+        return res.status(400).json({
+          error: 'One or more memberIds not found',
+          errorKey: 'challenge.reg.err.member_missing',
+        });
+      }
+      for (const u of found) {
+        if (u.type !== 'PLAYER') {
+          return res.status(400).json({
+            error: 'All group members must be PLAYER accounts',
+            errorKey: 'challenge.reg.err.member_type',
+          });
+        }
+        if (!eligibleForGender(u.gender, gender)) {
+          return res.status(400).json({
+            error: `Member ${u._id} does not match gender requirement`,
+            errorKey: 'challenge.reg.err.gender',
+          });
+        }
+        const age = ageYears(u.dob, now);
+        if (!eligibleForBracket(age, bracket)) {
+          return res.status(400).json({
+            error: `Member ${u._id} does not match age bracket ${bracket}`,
+            errorKey: 'challenge.reg.err.age',
+          });
+        }
+      }
+      members = ids;
+    } else if (type === 'ORG') {
+      if (!['ACADEMY', 'CLUB', 'SCHOOL'].includes(regUser.type)) {
+        return res.status(400).json({
+          error: 'Only ACADEMY, CLUB or SCHOOL accounts can enter an org challenge',
+          errorKey: 'challenge.reg.err.org_type',
+        });
+      }
+      // orgId is optional — if provided it must equal registrant.
+      if (orgId && String(orgId) !== String(regUser._id)) {
+        return res.status(400).json({
+          error: 'orgId must match the registrant',
+          errorKey: 'challenge.reg.err.org_mismatch',
+        });
+      }
+      orgRef = regUser._id;
+      members = [];
+    } else {
+      return res.status(400).json({
+        error: `Unknown participationType: ${type}`,
+      });
+    }
+
+    try {
+      const doc = await ChallengeRegistration.create({
+        challenge: challenge._id,
+        participationType: type,
+        registrant: regUser._id,
+        members,
+        org: orgRef,
+      });
+      return res.status(201).json({ data: doc });
+    } catch (err) {
+      if (err.code === 11000) {
+        return res.status(409).json({
+          error: 'You have already registered for this challenge',
+          errorKey: 'challenge.reg.err.duplicate',
+        });
+      }
+      throw err;
+    }
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/challenges/:id/registrations — admin / brief owner view.
+router.get('/challenges/:id/registrations', async (req, res) => {
+  try {
+    const { status = 'ACTIVE' } = req.query;
+    const filter = { challenge: req.params.id };
+    if (status === 'ACTIVE' || status === 'WITHDRAWN') filter.status = status;
+    const rows = await ChallengeRegistration.find(filter)
+      .populate('registrant',
+        'firstName lastName academy_name accountNumber type')
+      .populate('members',
+        'firstName lastName accountNumber dob gender profileImage')
+      .populate('org',
+        'academy_name firstName lastName accountNumber type')
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:userId/challenge-registrations — my entries.
+router.get('/users/:userId/challenge-registrations', async (req, res) => {
+  try {
+    const rows = await ChallengeRegistration.find({
+      registrant: req.params.userId,
+      status: 'ACTIVE',
+    })
+      .populate('challenge', 'title brief')
+      .populate('members', 'firstName lastName accountNumber profileImage')
+      .populate('org', 'academy_name accountNumber')
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /v1/challenge-registrations/:id — withdraw (soft-delete).
+router.delete('/challenge-registrations/:id', async (req, res) => {
+  try {
+    const updated = await ChallengeRegistration.findByIdAndUpdate(
+      req.params.id,
+      { $set: { status: 'WITHDRAWN' } },
+      { new: true },
+    );
+    if (!updated) {
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+    return res.status(200).json({ data: updated });
+  } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });

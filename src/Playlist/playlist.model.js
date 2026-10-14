@@ -91,6 +91,29 @@ const PlaylistSchema = new Schema(
       video: { type: Schema.Types.ObjectId, ref: 'Media', default: null },
       instructions: { type: String, trim: true, default: '' },
       createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      // How participants enter. INDIVIDUAL = each player registers
+      // themselves. GROUP = one registrant forms a crew of groupSize
+      // (members can come from different academies). ORG = the
+      // academy / club / school registers as a team.
+      participationType: {
+        type: String,
+        enum: ['INDIVIDUAL', 'GROUP', 'ORG'],
+        default: 'INDIVIDUAL',
+      },
+      // Required headcount for GROUP registrations; ignored otherwise.
+      groupSize: { type: Number, default: null, min: 2, max: 25 },
+      // Eligibility filters checked at registration time. OPEN = no
+      // check. Age brackets map to a dob window at register-time.
+      genderRequirement: {
+        type: String,
+        enum: ['OPEN', 'MALE', 'FEMALE'],
+        default: 'OPEN',
+      },
+      ageBracket: {
+        type: String,
+        enum: ['OPEN', 'U13', 'U15', 'U17', 'U20', 'SENIOR'],
+        default: 'OPEN',
+      },
       // 'SOKASOKO' = admin-initiated. 'RECOMMENDATION' = admin promoted
       // a Platinum user's recommendation (Phase 2 intake).
       source: {
