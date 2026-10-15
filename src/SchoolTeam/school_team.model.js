@@ -132,11 +132,16 @@ ClassTeamSchema.pre('validate', function enforceShape(next) {
   }
   next();
 });
+// MongoDB partial filters only allow positive matchers — $exists:
+// false, $not, $ne aren't supported. So we identify stream teams by
+// "has a string formLevel" (always set on stream rows, always null
+// on idara rows) and idara teams by "has a string department"
+// (reverse). Each index only applies to its half of the collection.
 ClassTeamSchema.index(
   { school: 1, formLevel: 1, streamLetter: 1 },
   {
     unique: true,
-    partialFilterExpression: { department: { $exists: false } },
+    partialFilterExpression: { formLevel: { $type: 'string' } },
   },
 );
 ClassTeamSchema.index(
