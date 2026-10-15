@@ -2178,4 +2178,65 @@ router.get('/users/:guardianId/wards', async (req, res) => {
   }
 });
 
+// POST /v1/users/:id/verified
+// Body: { verified: boolean, reviewerId: userId }
+// Admin-only (reviewerId must resolve to a user with isAdmin=true).
+// Flips orgVerified + stamps metadata. Also emits a SYSTEM
+// notification so the org knows their status changed.
+router.post('/users/:id/verified', async (req, res) => {
+  try {
+    const { verified, reviewerId } = req.body || {};
+    if (typeof verified !== 'boolean') {
+      return res.status(400).json({ error: 'verified must be boolean' });
+    }
+    if (!reviewerId) {
+      return res.status(400).json({ error: 'reviewerId required' });
+    }
+    const Notification = require('../Notification/notification.model');
+    const reviewer = await User.findById(reviewerId)
+      .select('_id isAdmin').lean();
+    if (!reviewer || !reviewer.isAdmin) {
+      return res.status(403).json({
+        error: 'Only SokaSoko admins can verify an org',
+        errorKey: 'verify.err.admin_only',
+      });
+    }
+    const user = await User.findById(req.params.id)
+      .select('_id type academy_name firstName lastName orgVerified').lean();
+    if (!user) return res.status(404).json({ error: 'Account not found' });
+    const update = {
+      orgVerified: verified,
+      orgVerifiedAt: verified ? new Date() : null,
+      orgVerifiedBy: verified ? reviewer._id : null,
+    };
+    const updated = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: update },
+      { new: true },
+    );
+    try {
+      await Notification.create({
+        userId: user._id,
+        type: 'SYSTEM',
+        title: verified
+          ? 'Akaunti yako imehakikiwa'
+          : 'Uhakiki wa akaunti umeondolewa',
+        body: verified
+          ? 'Akaunti yako sasa inaonyesha alama ya uhakiki (✓).'
+          : 'Alama ya uhakiki imeondolewa kwenye akaunti yako.',
+        titleKey: verified
+          ? 'notif.org.verified.title'
+          : 'notif.org.unverified.title',
+        bodyKey: verified
+          ? 'notif.org.verified.body'
+          : 'notif.org.unverified.body',
+        metadata: { kind: 'ORG_VERIFICATION' },
+      });
+    } catch (_) { /* best-effort */ }
+    return res.status(200).json({ data: updated });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

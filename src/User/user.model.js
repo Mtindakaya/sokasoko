@@ -326,6 +326,20 @@ const UserSchema = new Schema(
       default: null,
     },
     ownerName: { type: String, trim: true },
+    // Verified-org tick. Admin flips to true after reviewing an
+    // uploaded registration doc; vCard pills then render a trailing
+    // ✓ next to the org name so viewers can distinguish a verified
+    // SCHOOL / ACADEMY / CLUB / ENTITY from an unverified self-signup.
+    // Individuals (PLAYER / COACH / etc) get the same column but the
+    // client flow is gated off for now — infra lands, UX is entity-
+    // only at launch.
+    orgVerified: { type: Boolean, default: false, index: true },
+    orgVerifiedAt: { type: Date, default: null },
+    orgVerifiedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     secretary: {
       type: Schema.Types.ObjectId,
       ref: 'User',

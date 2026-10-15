@@ -106,12 +106,16 @@ function extractCallerId(req) {
 
 async function isSportsTeacherOf(schoolId, callerId) {
   if (!callerId) return false;
+  // The SCHOOL account logged in as itself always wins — ownerless
+  // schools rely on this path.
   if (String(callerId) === String(schoolId)) return true;
   const school = await User.findById(schoolId)
-    .select('sports_teacher_1 sports_teacher_2').lean();
+    .select('owner secretary sports_teacher_1 sports_teacher_2').lean();
   if (!school) return false;
   return (
-    String(school.sports_teacher_1 || '') === String(callerId)
+    String(school.owner || '') === String(callerId)
+    || String(school.secretary || '') === String(callerId)
+    || String(school.sports_teacher_1 || '') === String(callerId)
     || String(school.sports_teacher_2 || '') === String(callerId)
   );
 }

@@ -1533,9 +1533,11 @@ async function assertIntraCaller(team, callerId, schoolId) {
   if (!callerId) return false;
   if (String(callerId) === String(schoolId)) return true;
   const school = await User.findById(schoolId)
-    .select('sports_teacher_1 sports_teacher_2').lean();
+    .select('owner secretary sports_teacher_1 sports_teacher_2').lean();
   if (school
-      && (String(school.sports_teacher_1 || '') === String(callerId)
+      && (String(school.owner || '') === String(callerId)
+          || String(school.secretary || '') === String(callerId)
+          || String(school.sports_teacher_1 || '') === String(callerId)
           || String(school.sports_teacher_2 || '') === String(callerId))) {
     return true;
   }
