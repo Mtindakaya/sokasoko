@@ -83,17 +83,21 @@ FormTeamSchema.index({ school: 1, formLevel: 1 }, { unique: true });
 
 const ClassTeamSchema = new Schema({
   ...commonFields,
+  // formLevel / streamLetter are required ONLY when this doc isn't an
+  // idara (college department) team. Mongoose's `required: fn()` with
+  // `this.department` reads undefined on some builds (depending on
+  // when the validator fires vs when the doc payload is attached),
+  // so we enforce the pair-constraint in a pre-validate hook below
+  // where `this` is reliably the document.
   formLevel: {
     type: String,
     enum: FORM_LEVELS,
-    required() { return !this.department; },
     index: true,
   },
   streamLetter: {
     type: String,
     trim: true,
     maxlength: 4,
-    required() { return !this.department; },
   },
   department: {
     type: String,
@@ -105,6 +109,28 @@ const ClassTeamSchema = new Schema({
   timestamps: true,
   toJSON: { getters: true },
   toObject: { getters: true },
+});
+
+ClassTeamSchema.pre('validate', function enforceShape(next) {
+  if (this.department && this.department.trim().length > 0) {
+    // Idara team — department wins; clear the stream fields so the
+    // doc doesn't carry stale '' values into the partial index.
+    this.formLevel = undefined;
+    this.streamLetter = undefined;
+    return next();
+  }
+  if (!this.formLevel || !FORM_LEVELS.includes(this.formLevel)) {
+    return next(new Error(
+      'formLevel is required and must be a canonical code '
+      + 'when the team has no department',
+    ));
+  }
+  if (!this.streamLetter || !String(this.streamLetter).trim()) {
+    return next(new Error(
+      'streamLetter is required when the team has no department',
+    ));
+  }
+  next();
 });
 ClassTeamSchema.index(
   { school: 1, formLevel: 1, streamLetter: 1 },
