@@ -65,6 +65,38 @@ const MatchSchema = new Schema(
       required: [true, 'Away team is required'],
       index: true,
     },
+    // Intra-school fixture pointers. When both are populated the match
+    // is a scrimmage inside one school; homeTeam === awayTeam === the
+    // parent SCHOOL User, and the sub-team's displayName renders on
+    // the Scores row as "Wagosigos vs Accountants (Mzumbe University)".
+    // Null on every inter-org match.
+    homeSchoolTeam: {
+      type: Schema.Types.ObjectId,
+      refPath: 'homeSchoolTeamKind',
+      default: null,
+    },
+    awaySchoolTeam: {
+      type: Schema.Types.ObjectId,
+      refPath: 'awaySchoolTeamKind',
+      default: null,
+    },
+    // Mongoose dynamic ref keys. Form teams and class teams live in
+    // separate collections, so each sub-team pointer carries which
+    // model to populate from.
+    homeSchoolTeamKind: {
+      type: String,
+      enum: ['FormTeam', 'ClassTeam', null],
+      default: null,
+    },
+    awaySchoolTeamKind: {
+      type: String,
+      enum: ['FormTeam', 'ClassTeam', null],
+      default: null,
+    },
+    // Convenience flag — set once at create time so Scores + filters
+    // don't have to probe both sub-team fields. Also lets the FA /
+    // district calendar surface honor intra-school visibility.
+    isIntraSchool: { type: Boolean, default: false, index: true },
     venue: {
       type: Schema.Types.ObjectId,
       ref: 'Venue',

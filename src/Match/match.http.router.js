@@ -187,6 +187,12 @@ router.get(BASE, async (req, res) => {
       Match.find(filter)
         .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
         .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+        // Intra-school sub-team pointers — select only the fields the
+        // Scores row needs to render the "(SchoolName)" suffix.
+        .populate('homeSchoolTeam',
+          'formLevel streamLetter department active')
+        .populate('awaySchoolTeam',
+          'formLevel streamLetter department active')
         .populate('venue', 'name region district ward')
         .populate('tournament', 'name type')
         .populate('referee', 'firstName lastName accountNumber type')
@@ -291,6 +297,10 @@ router.get(`${BASE}/:id`, async (req, res) => {
     const match = await Match.findById(req.params.id)
       .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
       .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
+      .populate('homeSchoolTeam',
+        'formLevel streamLetter department active')
+      .populate('awaySchoolTeam',
+        'formLevel streamLetter department active')
       .populate('venue', 'name region district ward')
       .populate('tournament', 'name type')
       .populate('playerStats.player', 'firstName lastName profileImage accountNumber position type')
@@ -1498,5 +1508,163 @@ router.post(`${BASE}/:id/organizer-result`, async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// ── Intra-school fixtures ───────────────────────────────────────────
+// A SchoolTeam vs SchoolTeam game inside one school. Captains + asst
+// captains of either team can schedule it; sports teacher gets a
+// notification. Writes into the same Match collection with the
+// homeSchoolTeam / awaySchoolTeam pointers populated so Scores
+// renders it inline with every other fixture.
+const { FormTeam, ClassTeam } = require('../SchoolTeam/school_team.model');
+
+function schoolTeamModel(kind) {
+  if (kind === 'form') return FormTeam;
+  if (kind === 'class') return ClassTeam;
+  return null;
+}
+
+function schoolTeamKindToRef(kind) {
+  if (kind === 'form') return 'FormTeam';
+  if (kind === 'class') return 'ClassTeam';
+  return null;
+}
+
+async function assertIntraCaller(team, callerId, schoolId) {
+  if (!callerId) return false;
+  if (String(callerId) === String(schoolId)) return true;
+  const school = await User.findById(schoolId)
+    .select('sports_teacher_1 sports_teacher_2').lean();
+  if (school
+      && (String(school.sports_teacher_1 || '') === String(callerId)
+          || String(school.sports_teacher_2 || '') === String(callerId))) {
+    return true;
+  }
+  return (
+    String(team.captain || '') === String(callerId)
+    || String(team.assistantCaptain || '') === String(callerId)
+  );
+}
+
+// POST /v1/schools/:schoolId/intra-matches
+// Body: {
+//   homeKind, homeTeamId, awayKind, awayTeamId, scheduledFor,
+//   manualVenue?: { name, region, district, ward }, callerId
+// }
+// Caller must be a captain / asst captain of one of the two teams, or
+// a sports teacher at this school. Sends a notification to each sports
+// teacher who exists.
+router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
+  async (req, res) => {
+    try {
+      const {
+        homeKind, homeTeamId, awayKind, awayTeamId,
+        scheduledFor, manualVenue, callerId,
+      } = req.body || {};
+      const school = await User.findById(req.params.schoolId)
+        .select('_id type academy_name sports_teacher_1 sports_teacher_2')
+        .lean();
+      if (!school || school.type !== 'SCHOOL') {
+        return res.status(404).json({ error: 'School not found' });
+      }
+      if (!['form', 'class'].includes(homeKind)
+          || !['form', 'class'].includes(awayKind)) {
+        return res.status(400).json({
+          error: 'homeKind / awayKind must be form or class',
+        });
+      }
+      if (!homeTeamId || !awayTeamId) {
+        return res.status(400).json({
+          error: 'homeTeamId and awayTeamId are required',
+        });
+      }
+      if (String(homeTeamId) === String(awayTeamId)) {
+        return res.status(400).json({
+          error: 'A team cannot play itself',
+        });
+      }
+      if (!scheduledFor) {
+        return res.status(400).json({ error: 'scheduledFor is required' });
+      }
+      const homeTeam = await schoolTeamModel(homeKind)
+        .findById(homeTeamId).lean();
+      const awayTeam = await schoolTeamModel(awayKind)
+        .findById(awayTeamId).lean();
+      if (!homeTeam || !awayTeam) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      if (String(homeTeam.school) !== String(school._id)
+          || String(awayTeam.school) !== String(school._id)) {
+        return res.status(400).json({
+          error: 'Both teams must belong to this school',
+        });
+      }
+      // Caller must be sports teacher of the school OR a captain/asst
+      // of either team.
+      const callerOk = await assertIntraCaller(homeTeam, callerId, school._id)
+        || await assertIntraCaller(awayTeam, callerId, school._id);
+      if (!callerOk) {
+        return res.status(403).json({
+          error: 'Only captains / sports teachers can create this match',
+          errorKey: 'intra_match.err.caller_denied',
+        });
+      }
+
+      const payload = {
+        homeTeam: school._id,
+        awayTeam: school._id,
+        homeSchoolTeam: homeTeam._id,
+        homeSchoolTeamKind: schoolTeamKindToRef(homeKind),
+        awaySchoolTeam: awayTeam._id,
+        awaySchoolTeamKind: schoolTeamKindToRef(awayKind),
+        isIntraSchool: true,
+        scheduledFor: new Date(scheduledFor),
+        status: 'SCHEDULED',
+        homeConfirmed: true,
+        awayConfirmed: true,
+      };
+      if (manualVenue && manualVenue.name) {
+        payload.manualVenue = {
+          name: String(manualVenue.name).trim(),
+          region: String(manualVenue.region || '').trim(),
+          district: String(manualVenue.district || '').trim(),
+          ward: String(manualVenue.ward || '').trim(),
+        };
+      }
+      const doc = await Match.create(payload);
+
+      // Notify sports teachers (if different from the caller).
+      const notifyTargets = new Set();
+      if (school.sports_teacher_1
+          && String(school.sports_teacher_1) !== String(callerId)) {
+        notifyTargets.add(String(school.sports_teacher_1));
+      }
+      if (school.sports_teacher_2
+          && String(school.sports_teacher_2) !== String(callerId)) {
+        notifyTargets.add(String(school.sports_teacher_2));
+      }
+      for (const uid of notifyTargets) {
+        try {
+          await Notification.create({
+            userId: uid,
+            type: 'SYSTEM',
+            title: 'Mechi mpya ya ndani',
+            body: `Nahodha amepanga mechi mpya ndani ya ${school.academy_name || 'shule yako'}.`,
+            titleKey: 'notif.intra_match.scheduled.title',
+            bodyKey: 'notif.intra_match.scheduled.body',
+            params: { school: school.academy_name || '' },
+            metadata: {
+              kind: 'INTRA_MATCH_SCHEDULED',
+              matchId: doc._id,
+              schoolId: school._id,
+            },
+          });
+        } catch (_) { /* best-effort */ }
+      }
+
+      return res.status(201).json({ data: doc });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
 module.exports = router;
