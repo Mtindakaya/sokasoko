@@ -190,9 +190,9 @@ router.get(BASE, async (req, res) => {
         // Intra-school sub-team pointers — select only the fields the
         // Scores row needs to render the "(SchoolName)" suffix.
         .populate('homeSchoolTeam',
-          'formLevel streamLetter department active')
+          'formLevel streamLetter department active captain assistantCaptain')
         .populate('awaySchoolTeam',
-          'formLevel streamLetter department active')
+          'formLevel streamLetter department active captain assistantCaptain')
         .populate('venue', 'name region district ward')
         .populate('tournament', 'name type')
         .populate('referee', 'firstName lastName accountNumber type')
@@ -298,9 +298,9 @@ router.get(`${BASE}/:id`, async (req, res) => {
       .populate('homeTeam', 'firstName lastName academy_name type accountNumber profileImage')
       .populate('awayTeam', 'firstName lastName academy_name type accountNumber profileImage')
       .populate('homeSchoolTeam',
-        'formLevel streamLetter department active')
+        'formLevel streamLetter department active captain assistantCaptain')
       .populate('awaySchoolTeam',
-        'formLevel streamLetter department active')
+        'formLevel streamLetter department active captain assistantCaptain')
       .populate('venue', 'name region district ward')
       .populate('tournament', 'name type')
       .populate('playerStats.player', 'firstName lastName profileImage accountNumber position type')
@@ -392,8 +392,12 @@ router.post(BASE, async (req, res) => {
     // canManageTeam only accepts school staff and would 403 a captain
     // trying to schedule their own fixture. Expand the gate to also
     // accept the captain / asst captain of the home SchoolTeam.
+    // scheduledByStaff is captured here so the Match.create block
+    // can decide whether to auto-confirm the handshake.
+    let scheduledByStaff = false;
     if (scheduledBy) {
-      let allowed = await canManageTeam(scheduledBy, homeTeam);
+      scheduledByStaff = await canManageTeam(scheduledBy, homeTeam);
+      let allowed = scheduledByStaff;
       if (!allowed && isIntra) {
         const { FormTeam, ClassTeam } =
           require('../SchoolTeam/school_team.model');
@@ -605,19 +609,63 @@ router.post(BASE, async (req, res) => {
       scouts: normalizedScouts,
       // Intra-school pair — set together with isIntraSchool so Scores
       // + Match detail render the sub-team names and the parent-school
-      // suffix without a schema sniff.
+      // suffix without a schema sniff. Confirm state branches on
+      // whether school staff or a sub-team captain scheduled:
+      //   staff   → auto-confirm schedule + both score sides (sports
+      //             teacher authority covers both teams).
+      //   captain → leave scheduleConfirmed false so the away sub-team
+      //             captain accepts via the normal handshake. Score
+      //             confirms stay auto for now; revisit once we wire
+      //             per-side confirm for intra score entry.
       ...(isIntra ? {
         homeSchoolTeam,
         homeSchoolTeamKind,
         awaySchoolTeam,
         awaySchoolTeamKind,
         isIntraSchool: true,
-        // Intra scrimmages don't need the away-side confirm handshake
-        // — both sides are the same school.
-        homeConfirmed: true,
-        awayConfirmed: true,
+        scheduleConfirmed: scheduledByStaff,
+        homeConfirmed: scheduledByStaff,
+        awayConfirmed: scheduledByStaff,
       } : {}),
     });
+
+    // Captain-scheduled intra fixture — notify school staff so they
+    // see the fixture appear even though no action is required on
+    // their side (sports teacher is informed, not blocking).
+    if (isIntra && !scheduledByStaff) {
+      try {
+        const schoolRow = await User.findById(homeTeam)
+          .select('academy_name owner secretary sports_teacher_1 sports_teacher_2')
+          .lean();
+        if (schoolRow) {
+          const staff = new Set([
+            String(schoolRow._id || homeTeam),
+            schoolRow.owner, schoolRow.secretary,
+            schoolRow.sports_teacher_1, schoolRow.sports_teacher_2,
+          ].filter(Boolean).map(String));
+          staff.delete(String(scheduledBy));
+          const schoolName = schoolRow.academy_name || 'shule yako';
+          for (const uid of staff) {
+            try {
+              await Notification.create({
+                userId: uid,
+                type: 'SYSTEM',
+                title: 'Nahodha amepanga mechi ya ndani',
+                body: `Mechi mpya ya ndani kwenye ${schoolName}.`,
+                titleKey: 'notif.intra_match.captain_scheduled.title',
+                bodyKey: 'notif.intra_match.captain_scheduled.body',
+                params: { school: schoolName },
+                metadata: {
+                  kind: 'INTRA_MATCH_CAPTAIN_SCHEDULED',
+                  matchId: match._id,
+                  schoolId: homeTeam,
+                },
+              });
+            } catch (_) { /* best-effort */ }
+          }
+        }
+      } catch (_) { /* best-effort */ }
+    }
 
     // Notify each assigned referee. Guardian fan-out picks up minors.
     const refSlots = [
@@ -1014,7 +1062,26 @@ router.post(`${BASE}/:id/confirm-schedule`, async (req, res) => {
       // side whose consent turns a scheduled match into a confirmed
       // one). Replaces the old "away team OR any COACH" hack — any
       // COACH user could previously confirm ANY schedule.
-      if (!(await canManageTeam(confirmedBy, match.awayTeam))) {
+      //
+      // Intra-school: both match.awayTeam and match.homeTeam point at
+      // the parent SCHOOL, so a sub-team captain never passes
+      // canManageTeam. Fall back to accepting the away SchoolTeam's
+      // captain or assistantCaptain in that case.
+      let allowed = await canManageTeam(confirmedBy, match.awayTeam);
+      if (!allowed && match.isIntraSchool && match.awaySchoolTeam) {
+        const { FormTeam, ClassTeam } =
+          require('../SchoolTeam/school_team.model');
+        const Model = match.awaySchoolTeamKind === 'ClassTeam'
+          ? ClassTeam : FormTeam;
+        const awaySub = await Model.findById(match.awaySchoolTeam)
+          .select('captain assistantCaptain').lean();
+        if (awaySub) {
+          allowed = String(awaySub.captain || '') === String(confirmedBy)
+            || String(awaySub.assistantCaptain || '')
+                === String(confirmedBy);
+        }
+      }
+      if (!allowed) {
         return res.status(403).json({
           error: 'Huna ruhusa ya kuthibitisha ratiba ya timu hii.',
           errorKey: 'matches.error.action_forbidden',
