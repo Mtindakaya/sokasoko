@@ -238,7 +238,27 @@ function registerCreate(kind) {
             : 'A form team for this level already exists',
         });
       }
-      return res.status(500).json({ error: err.message });
+      // Mongoose ValidationError — surface the field names so the
+      // client toast reads "formLevel, streamLetter" instead of the
+      // full sentence that FluttertToast truncates.
+      if (err.name === 'ValidationError' && err.errors) {
+        const fields = Object.keys(err.errors);
+        const first = fields.length > 0
+          ? err.errors[fields[0]].message
+          : err.message;
+        console.log('[SchoolTeam.create] ValidationError',
+          { kind, payload, fields, first });
+        return res.status(400).json({
+          error: `ValidationError on ${fields.join(', ')}: ${first}`,
+          errorKey: 'school_team.err.validation',
+          fields,
+        });
+      }
+      console.log('[SchoolTeam.create] 500',
+        { kind, payload, name: err.name, msg: err.message });
+      return res.status(500).json({
+        error: `${err.name || 'Error'}: ${err.message}`,
+      });
     }
   });
 }
