@@ -2178,6 +2178,218 @@ router.get('/users/:guardianId/wards', async (req, res) => {
   }
 });
 
+// ── Org verification requests (admin-reviewed) ─────────────────────
+const VerificationRequest = require('./verification_request.model');
+const UserFile = require('../UserFile/user_file.model');
+
+async function callerCanRepresent(orgId, callerId) {
+  if (!callerId) return false;
+  if (String(callerId) === String(orgId)) return true;
+  const org = await User.findById(orgId)
+    .select('owner secretary sports_teacher_1 sports_teacher_2').lean();
+  if (!org) return false;
+  return (
+    String(org.owner || '') === String(callerId)
+    || String(org.secretary || '') === String(callerId)
+    || String(org.sports_teacher_1 || '') === String(callerId)
+    || String(org.sports_teacher_2 || '') === String(callerId)
+  );
+}
+
+// POST /v1/orgs/:orgId/verification-request
+// Body: { callerId, documentId, officialName? }
+// Caller must be the org itself or linked owner / secretary /
+// sports-teacher. documentId must be a UserFile owned by the caller
+// with category ORG_REGISTRATION.
+router.post('/orgs/:orgId/verification-request', async (req, res) => {
+  try {
+    const { callerId, documentId, officialName } = req.body || {};
+    if (!callerId) {
+      return res.status(400).json({ error: 'callerId required' });
+    }
+    if (!documentId) {
+      return res.status(400).json({
+        error: 'documentId required',
+        errorKey: 'verify.err.doc_required',
+      });
+    }
+    if (!(await callerCanRepresent(req.params.orgId, callerId))) {
+      return res.status(403).json({
+        error: 'Only org staff can submit verification',
+        errorKey: 'verify.err.caller_denied',
+      });
+    }
+    const doc = await UserFile.findById(documentId)
+      .select('owner category visibility').lean();
+    if (!doc) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    if (String(doc.owner) !== String(callerId)) {
+      return res.status(400).json({
+        error: 'Document must be owned by the submitter',
+        errorKey: 'verify.err.doc_owner',
+      });
+    }
+    if (doc.category !== 'ORG_REGISTRATION') {
+      return res.status(400).json({
+        error: 'Document must be in the ORG_REGISTRATION vault',
+        errorKey: 'verify.err.doc_category',
+      });
+    }
+    // Upsert so a resubmission (new doc / name) overwrites the
+    // pending row cleanly. Partial unique index on (org, status)
+    // keeps us honest.
+    const request = await VerificationRequest.findOneAndUpdate(
+      { org: req.params.orgId, status: 'PENDING' },
+      {
+        $set: {
+          submittedBy: callerId,
+          document: documentId,
+          officialName: (officialName || '').toString().trim(),
+          status: 'PENDING',
+          reviewedBy: null,
+          reviewedAt: null,
+          reviewNote: '',
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    // Notify every admin so the Support Inbox surfaces the request.
+    try {
+      const admins = await User.find({ isAdmin: true })
+        .select('_id').lean();
+      const Notification = require('../Notification/notification.model');
+      const org = await User.findById(req.params.orgId)
+        .select('academy_name type').lean();
+      for (const a of admins) {
+        await Notification.create({
+          userId: a._id,
+          type: 'SYSTEM',
+          title: 'Ombi la uhakiki wa akaunti',
+          body: `${org?.academy_name || 'Taasisi'} wameomba uhakiki.`,
+          titleKey: 'notif.org.verify_request.title',
+          bodyKey: 'notif.org.verify_request.body',
+          params: { org: org?.academy_name || '' },
+          metadata: {
+            kind: 'ORG_VERIFY_REQUEST',
+            requestId: request._id,
+            orgId: req.params.orgId,
+            orgType: org?.type || '',
+          },
+        });
+      }
+    } catch (_) { /* best-effort */ }
+
+    return res.status(201).json({ data: request });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/users/:orgId/verification-request — self-check for the org
+// to render status on the chip. Returns the newest row (any status).
+router.get('/users/:orgId/verification-request', async (req, res) => {
+  try {
+    const row = await VerificationRequest.findOne({ org: req.params.orgId })
+      .sort({ createdAt: -1 })
+      .populate('document', 'url mimeType category createdAt')
+      .lean();
+    return res.status(200).json({ data: row });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /v1/verification-requests?status=PENDING — admin list.
+router.get('/verification-requests', async (req, res) => {
+  try {
+    const { status = 'PENDING' } = req.query;
+    const filter = {};
+    if (['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+      filter.status = status;
+    }
+    const rows = await VerificationRequest.find(filter)
+      .populate('org',
+        'academy_name firstName lastName type accountNumber profileImage')
+      .populate('submittedBy',
+        'firstName lastName accountNumber type')
+      .populate('document', 'url mimeType category createdAt')
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean();
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /v1/verification-requests/:id/review
+// Body: { decision: 'APPROVED' | 'REJECTED', reviewerId, note? }
+// Admin-only. On APPROVED, also flips User.orgVerified = true.
+router.post('/verification-requests/:id/review', async (req, res) => {
+  try {
+    const { decision, reviewerId, note } = req.body || {};
+    if (decision !== 'APPROVED' && decision !== 'REJECTED') {
+      return res.status(400).json({
+        error: "decision must be 'APPROVED' or 'REJECTED'",
+      });
+    }
+    const reviewer = await User.findById(reviewerId)
+      .select('_id isAdmin').lean();
+    if (!reviewer || !reviewer.isAdmin) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    const request = await VerificationRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    request.status = decision;
+    request.reviewedBy = reviewer._id;
+    request.reviewedAt = new Date();
+    request.reviewNote = (note || '').toString().trim();
+    await request.save();
+
+    if (decision === 'APPROVED') {
+      await User.findByIdAndUpdate(request.org, {
+        $set: {
+          orgVerified: true,
+          orgVerifiedAt: new Date(),
+          orgVerifiedBy: reviewer._id,
+        },
+      });
+    }
+
+    try {
+      const Notification = require('../Notification/notification.model');
+      await Notification.create({
+        userId: request.org,
+        type: 'SYSTEM',
+        title: decision === 'APPROVED'
+          ? 'Akaunti yako imehakikiwa'
+          : 'Ombi la uhakiki limekataliwa',
+        body: decision === 'APPROVED'
+          ? 'Akaunti yako sasa inaonyesha alama ya uhakiki (✓).'
+          : (request.reviewNote
+              ? `Sababu: ${request.reviewNote}`
+              : 'Tafadhali pakia hati sahihi kisha jaribu tena.'),
+        titleKey: decision === 'APPROVED'
+          ? 'notif.org.verified.title'
+          : 'notif.org.verify_rejected.title',
+        bodyKey: decision === 'APPROVED'
+          ? 'notif.org.verified.body'
+          : 'notif.org.verify_rejected.body',
+        params: { reason: request.reviewNote || '' },
+        metadata: { kind: 'ORG_VERIFICATION', requestId: request._id },
+      });
+    } catch (_) { /* best-effort */ }
+
+    return res.status(200).json({ data: request });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /v1/users/:id/verified
 // Body: { verified: boolean, reviewerId: userId }
 // Admin-only (reviewerId must resolve to a user with isAdmin=true).
