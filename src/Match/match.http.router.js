@@ -1611,6 +1611,8 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
         });
       }
 
+      // Match schema field is `scheduledDate`, not scheduledFor —
+      // the client sends `scheduledFor` which we rename here.
       const payload = {
         homeTeam: school._id,
         awayTeam: school._id,
@@ -1619,7 +1621,7 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
         awaySchoolTeam: awayTeam._id,
         awaySchoolTeamKind: schoolTeamKindToRef(awayKind),
         isIntraSchool: true,
-        scheduledFor: new Date(scheduledFor),
+        scheduledDate: new Date(scheduledFor),
         status: 'SCHEDULED',
         homeConfirmed: true,
         awayConfirmed: true,
@@ -1665,7 +1667,24 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
 
       return res.status(201).json({ data: doc });
     } catch (err) {
-      return res.status(500).json({ error: err.message });
+      if (err.name === 'ValidationError' && err.errors) {
+        const fields = Object.keys(err.errors);
+        const first = fields.length > 0
+          ? err.errors[fields[0]].message
+          : err.message;
+        console.log('[IntraMatch.create] ValidationError',
+          { fields, first });
+        return res.status(400).json({
+          error: `ValidationError on ${fields.join(', ')}: ${first}`,
+          errorKey: 'intra_match.err.validation',
+          fields,
+        });
+      }
+      console.log('[IntraMatch.create] 500',
+        { name: err.name, msg: err.message });
+      return res.status(500).json({
+        error: `${err.name || 'Error'}: ${err.message}`,
+      });
     }
   });
 
