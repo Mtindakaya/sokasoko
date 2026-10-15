@@ -1560,7 +1560,7 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
     try {
       const {
         homeKind, homeTeamId, awayKind, awayTeamId,
-        scheduledFor, manualVenue, callerId,
+        scheduledFor, venueId, manualVenue, callerId,
       } = req.body || {};
       const school = await User.findById(req.params.schoolId)
         .select('_id type academy_name sports_teacher_1 sports_teacher_2')
@@ -1626,13 +1626,20 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
         homeConfirmed: true,
         awayConfirmed: true,
       };
-      if (manualVenue && manualVenue.name) {
+      if (venueId) {
+        payload.venue = venueId;
+      } else if (manualVenue && manualVenue.name && manualVenue.region) {
         payload.manualVenue = {
           name: String(manualVenue.name).trim(),
-          region: String(manualVenue.region || '').trim(),
+          region: String(manualVenue.region).trim(),
           district: String(manualVenue.district || '').trim(),
           ward: String(manualVenue.ward || '').trim(),
         };
+      } else {
+        return res.status(400).json({
+          error: 'Pick a venue from the list before saving the match.',
+          errorKey: 'intra_match.err.venue_required',
+        });
       }
       const doc = await Match.create(payload);
 
@@ -1667,6 +1674,12 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
 
       return res.status(201).json({ data: doc });
     } catch (err) {
+      if (err.message === 'VENUE_REQUIRED') {
+        return res.status(400).json({
+          error: 'Pick a venue from the list before saving the match.',
+          errorKey: 'intra_match.err.venue_required',
+        });
+      }
       if (err.name === 'ValidationError' && err.errors) {
         const fields = Object.keys(err.errors);
         const first = fields.length > 0
@@ -1675,7 +1688,7 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
         console.log('[IntraMatch.create] ValidationError',
           { fields, first });
         return res.status(400).json({
-          error: `ValidationError on ${fields.join(', ')}: ${first}`,
+          error: `Match couldn't be saved — missing ${fields.join(', ')}.`,
           errorKey: 'intra_match.err.validation',
           fields,
         });
@@ -1683,7 +1696,7 @@ router.post(`/v${API_VERSION.split('.')[0]}/schools/:schoolId/intra-matches`,
       console.log('[IntraMatch.create] 500',
         { name: err.name, msg: err.message });
       return res.status(500).json({
-        error: `${err.name || 'Error'}: ${err.message}`,
+        error: 'Something went wrong saving the match. Try again shortly.',
       });
     }
   });
