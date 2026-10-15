@@ -387,12 +387,33 @@ router.post(BASE, async (req, res) => {
     // team — either the team account itself OR ACTIVE staff with role
     // OWNER / MANAGER / COACH / SECRETARY. Away team consents to the
     // schedule via POST /:id/confirm-schedule; no gate here for them.
-    if (scheduledBy && !(await canManageTeam(scheduledBy, homeTeam))) {
-      return res.status(403).json({
-        error: 'Huna ruhusa ya kupanga mechi kwa niaba ya timu hii.',
-        errorKey: 'matches.error.action_forbidden',
-        reason: 'MATCH_ACTION_FORBIDDEN',
-      });
+    //
+    // Intra-school scrimmages have homeTeam === parent SCHOOL, so
+    // canManageTeam only accepts school staff and would 403 a captain
+    // trying to schedule their own fixture. Expand the gate to also
+    // accept the captain / asst captain of the home SchoolTeam.
+    if (scheduledBy) {
+      let allowed = await canManageTeam(scheduledBy, homeTeam);
+      if (!allowed && isIntra) {
+        const { FormTeam, ClassTeam } =
+          require('../SchoolTeam/school_team.model');
+        const Model =
+          homeSchoolTeamKind === 'ClassTeam' ? ClassTeam : FormTeam;
+        const homeSub = await Model.findById(homeSchoolTeam)
+          .select('captain assistantCaptain').lean();
+        if (homeSub) {
+          allowed = String(homeSub.captain || '') === String(scheduledBy)
+            || String(homeSub.assistantCaptain || '')
+                === String(scheduledBy);
+        }
+      }
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Huna ruhusa ya kupanga mechi kwa niaba ya timu hii.',
+          errorKey: 'matches.error.action_forbidden',
+          reason: 'MATCH_ACTION_FORBIDDEN',
+        });
+      }
     }
 
     // GUARDIAN cap — bare guardians cannot schedule matches. Delegated
