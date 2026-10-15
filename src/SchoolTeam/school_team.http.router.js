@@ -46,10 +46,13 @@ async function notifyPlayer(playerId, {
 }
 
 // Rejects a player whose school_form doesn't match the team's formLevel.
-// Also forbids adding a player to two different teams of the same kind
-// in the same school.
+// Intra-school exclusivity was dropped 2026-10-15 per close-out spec —
+// a player can now hold multiple teams within the same school (e.g.
+// a Form 2 all-stars + a Form 2-A stream team + an Idara team at
+// once) because the sports teacher / captain picks where that player
+// contributes. Cross-school single-link is still enforced via
+// player.school.
 async function assertEligibleMember(team, playerId, kind) {
-  const Model = modelFor(kind);
   const player = await User.findById(playerId)
     .select('_id type school school_form college_year')
     .lean();
@@ -76,24 +79,73 @@ async function assertEligibleMember(team, playerId, kind) {
       };
     }
   }
-  // Exclusive membership per kind per school.
-  const existing = await Model.findOne({
-    school: team.school,
-    _id: { $ne: team._id },
-    players: playerId,
-  }).select('_id').lean();
-  if (existing) {
-    return {
-      ok: false, status: 400,
-      error: `Player already on another ${kind} team in this school`,
-    };
-  }
   return { ok: true };
 }
 
-// Guard rail — Sports Teacher authorisation is still client-side only
-// here (the client only exposes these actions to school staff). A
-// future gate can bind this to req.user when auth middleware lands.
+// ── Caller-identity gate ────────────────────────────────────────────
+// Routes accept a `callerId` field (query or body) so the backend can
+// decide whether the caller is allowed to run the mutation. This is
+// the pragmatic auth posture used across the beta — a real middleware
+// will replace it when it lands.
+//
+// Capability levels:
+//   SPORTS_TEACHER = the SCHOOL account itself OR the user linked as
+//                    sports_teacher_1 / sports_teacher_2
+//   CAPTAIN        = team.captain or team.assistantCaptain
+//
+// Rule set (2026-10-15 close-out):
+//   create team / delete team            → SPORTS_TEACHER only
+//   add/remove player, set (asst)captain,
+//     disable/enable                     → SPORTS_TEACHER or CAPTAIN
+function extractCallerId(req) {
+  const raw = req.body && req.body.callerId
+    ? req.body.callerId
+    : req.query.callerId;
+  return raw ? String(raw).trim() : '';
+}
+
+async function isSportsTeacherOf(schoolId, callerId) {
+  if (!callerId) return false;
+  if (String(callerId) === String(schoolId)) return true;
+  const school = await User.findById(schoolId)
+    .select('sports_teacher_1 sports_teacher_2').lean();
+  if (!school) return false;
+  return (
+    String(school.sports_teacher_1 || '') === String(callerId)
+    || String(school.sports_teacher_2 || '') === String(callerId)
+  );
+}
+
+function isCaptainOf(team, callerId) {
+  if (!callerId) return false;
+  return (
+    String(team.captain || '') === String(callerId)
+    || String(team.assistantCaptain || '') === String(callerId)
+  );
+}
+
+async function requireSportsTeacher(req, res, schoolId) {
+  const caller = extractCallerId(req);
+  if (!(await isSportsTeacherOf(schoolId, caller))) {
+    res.status(403).json({
+      error: 'Only the sports teacher of this school can perform this action',
+      errorKey: 'school_team.err.sports_teacher_only',
+    });
+    return false;
+  }
+  return true;
+}
+
+async function requireSportsTeacherOrCaptain(req, res, team) {
+  const caller = extractCallerId(req);
+  if (await isSportsTeacherOf(team.school, caller)) return true;
+  if (isCaptainOf(team, caller)) return true;
+  res.status(403).json({
+    error: 'Only the sports teacher or team captain can perform this action',
+    errorKey: 'school_team.err.caller_denied',
+  });
+  return false;
+}
 
 // ── Routes ──────────────────────────────────────────────────────────
 
@@ -161,6 +213,7 @@ function registerCreate(kind) {
       if (!school || school.type !== 'SCHOOL') {
         return res.status(404).json({ error: 'School not found' });
       }
+      if (!(await requireSportsTeacher(req, res, school._id))) return;
       const payload = {
         school: req.params.schoolId,
         players: [],
@@ -196,6 +249,7 @@ function registerAddPlayer(kind) {
       if (!playerId) return res.status(400).json({ error: 'playerId is required' });
       const team = await modelFor(kind).findById(req.params.id);
       if (!team) return res.status(404).json({ error: 'Team not found' });
+      if (!(await requireSportsTeacherOrCaptain(req, res, team))) return;
       if (team.players.length >= PLAYER_CAP) {
         return res.status(400).json({
           error: `Team is full (${PLAYER_CAP}/${PLAYER_CAP})`,
@@ -258,6 +312,7 @@ function registerRemovePlayer(kind) {
       try {
         const team = await modelFor(kind).findById(req.params.id);
         if (!team) return res.status(404).json({ error: 'Team not found' });
+        if (!(await requireSportsTeacherOrCaptain(req, res, team))) return;
         const pid = req.params.playerId;
         team.players = team.players.filter((p) => String(p) !== String(pid));
         if (String(team.captain) === String(pid)) team.captain = null;
@@ -306,6 +361,7 @@ function registerSetCaptain(kind, role) {
         const { playerId } = req.body || {};
         const team = await modelFor(kind).findById(req.params.id);
         if (!team) return res.status(404).json({ error: 'Team not found' });
+        if (!(await requireSportsTeacherOrCaptain(req, res, team))) return;
         if (playerId) {
           if (!team.players.some((p) => String(p) === String(playerId))) {
             return res.status(400).json({
@@ -363,12 +419,13 @@ registerSetCaptain('class', 'assistantCaptain');
 function registerDisable(kind) {
   router.post(`/v1/${kind}-teams/:id/disable`, async (req, res) => {
     try {
+      const team = await modelFor(kind).findById(req.params.id);
+      if (!team) return res.status(404).json({ error: 'Team not found' });
+      if (!(await requireSportsTeacherOrCaptain(req, res, team))) return;
       const active = !(req.body && req.body.active === false
         || req.body && req.body.active === 'false');
-      const team = await modelFor(kind).findByIdAndUpdate(
-        req.params.id, { $set: { active } }, { new: true },
-      );
-      if (!team) return res.status(404).json({ error: 'Team not found' });
+      team.active = active;
+      await team.save();
       return res.status(200).json({ data: team });
     } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -378,12 +435,17 @@ function registerDisable(kind) {
 registerDisable('form');
 registerDisable('class');
 
-// DELETE /v1/<kind>-teams/:id — hard-delete. Sports teacher only.
+// DELETE /v1/<kind>-teams/:id — hard-delete. SPORTS TEACHER ONLY.
+// Captains deliberately cannot drop the team they lead; dismantling
+// the structure is a structural action reserved for the school.
 function registerDelete(kind) {
   router.delete(`/v1/${kind}-teams/:id`, async (req, res) => {
     try {
+      const team = await modelFor(kind).findById(req.params.id)
+        .select('_id school').lean();
+      if (!team) return res.status(404).json({ error: 'Team not found' });
+      if (!(await requireSportsTeacher(req, res, team.school))) return;
       const removed = await modelFor(kind).findByIdAndDelete(req.params.id);
-      if (!removed) return res.status(404).json({ error: 'Team not found' });
       return res.status(200).json({ data: removed });
     } catch (err) {
       return res.status(500).json({ error: err.message });
