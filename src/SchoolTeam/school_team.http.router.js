@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('../User/user.model');
 const Notification = require('../Notification/notification.model');
+const Match = require('../Match/match.model');
 const {
   FormTeam, ClassTeam, FORM_LEVELS, PLAYER_CAP,
 } = require('./school_team.model');
@@ -478,5 +479,64 @@ function registerDelete(kind) {
 }
 registerDelete('form');
 registerDelete('class');
+
+// GET /v1/<kind>-teams/:id/stats — Played / Won / Drawn / Lost + Goals
+// For / Against + last-5 form (most recent completed match first).
+// Aggregates every COMPLETED Match where this SchoolTeam is either
+// side. Intra-school matches carry homeSchoolTeam/awaySchoolTeam
+// pointers populated by the scheduler; non-intra matches never
+// reference a SchoolTeam, so they're naturally excluded.
+function registerStats(kind) {
+  router.get(`/v1/${kind}-teams/:id/stats`, async (req, res) => {
+    try {
+      const teamId = req.params.id;
+      const matches = await Match.find({
+        status: 'COMPLETED',
+        $or: [
+          { homeSchoolTeam: teamId, homeSchoolTeamKind: kind },
+          { awaySchoolTeam: teamId, awaySchoolTeamKind: kind },
+        ],
+      })
+        .select('homeSchoolTeam awaySchoolTeam homeScore awayScore date')
+        .sort({ date: -1 })
+        .lean();
+
+      let played = 0;
+      let won = 0;
+      let drawn = 0;
+      let lost = 0;
+      let goalsFor = 0;
+      let goalsAgainst = 0;
+      const form = []; // most recent first; cap at 5
+
+      for (const m of matches) {
+        const isHome = String(m.homeSchoolTeam) === String(teamId);
+        const gf = isHome ? (m.homeScore ?? 0) : (m.awayScore ?? 0);
+        const ga = isHome ? (m.awayScore ?? 0) : (m.homeScore ?? 0);
+        played += 1;
+        goalsFor += gf;
+        goalsAgainst += ga;
+        let result;
+        if (gf > ga) { won += 1; result = 'W'; }
+        else if (gf < ga) { lost += 1; result = 'L'; }
+        else { drawn += 1; result = 'D'; }
+        if (form.length < 5) form.push(result);
+      }
+
+      return res.status(200).json({
+        data: {
+          played, won, drawn, lost,
+          goalsFor, goalsAgainst,
+          goalDifference: goalsFor - goalsAgainst,
+          form, // ['W','D','L',...] most recent first, up to 5
+        },
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+}
+registerStats('form');
+registerStats('class');
 
 module.exports = router;
