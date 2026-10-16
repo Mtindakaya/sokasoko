@@ -25,7 +25,7 @@ const SCORE_ACCESS_ROLES = ['OWNER', 'MANAGER', 'COACH', 'SECRETARY'];
  * Pass excludeId to filter out the acting user so they don't get
  * their own action pinged back at them.
  */
-async function getTeamRecipients(teamId, excludeId, options = {}) {
+async function getTeamRecipients(teamId, excludeId) {
   if (!teamId) return [];
   const teamIdStr = String(teamId);
   const links = await OrgStaffLink
@@ -36,30 +36,6 @@ async function getTeamRecipients(teamId, excludeId, options = {}) {
   for (const l of links) {
     if (l.staff) set.add(String(l.staff));
   }
-
-  // Intra-school fan-out: when a match carries a SchoolTeam pointer
-  // on this side, include that sub-team's captain + assistantCaptain
-  // + players so the actual playing roster gets confirm / result /
-  // completed notifications (not just the parent school's staff).
-  const { schoolTeamId, schoolTeamKind } = options;
-  if (schoolTeamId && schoolTeamKind) {
-    try {
-      const { FormTeam, ClassTeam } =
-        require('../SchoolTeam/school_team.model');
-      const Model = schoolTeamKind === 'ClassTeam' ? ClassTeam : FormTeam;
-      const sub = await Model.findById(schoolTeamId)
-        .select('captain assistantCaptain players')
-        .lean();
-      if (sub) {
-        if (sub.captain) set.add(String(sub.captain));
-        if (sub.assistantCaptain) set.add(String(sub.assistantCaptain));
-        for (const pid of sub.players || []) {
-          if (pid) set.add(String(pid));
-        }
-      }
-    } catch (_) { /* best-effort */ }
-  }
-
   if (excludeId) set.delete(String(excludeId));
   return Array.from(set);
 }
@@ -122,24 +98,9 @@ async function notifyMatchAction({ match, kind, actorId, extras = {} }) {
   if (!match || !kind) return;
   try {
     const parties = await fetchMatchParties(match, actorId);
-    // Intra fixtures: fan each side out to its sub-team roster so the
-    // playing captain / players get the same notifications their
-    // opponents' external audience would get on a regular match.
-    const homeSubOpts = match.isIntraSchool && match.homeSchoolTeam
-      ? {
-          schoolTeamId: match.homeSchoolTeam,
-          schoolTeamKind: match.homeSchoolTeamKind,
-        }
-      : {};
-    const awaySubOpts = match.isIntraSchool && match.awaySchoolTeam
-      ? {
-          schoolTeamId: match.awaySchoolTeam,
-          schoolTeamKind: match.awaySchoolTeamKind,
-        }
-      : {};
     const [homeRecipients, awayRecipients, actorSide] = await Promise.all([
-      getTeamRecipients(match.homeTeam, actorId, homeSubOpts),
-      getTeamRecipients(match.awayTeam, actorId, awaySubOpts),
+      getTeamRecipients(match.homeTeam, actorId),
+      getTeamRecipients(match.awayTeam, actorId),
       resolveActorSide(match, actorId),
     ]);
 

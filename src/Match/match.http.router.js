@@ -175,61 +175,13 @@ router.get(`${BASE}/scouting/:userId`, async (req, res) => {
 });
 
 // GET /v1/matches
-// Mechi (My Matches / Scores) lists hide schedule-pending fixtures by
-// default so a captain's just-created intra match doesn't show up on
-// everyone's feed before the away side has confirmed. The away captain
-// / sports teacher gets a notification; tapping it deep-links to the
-// Match Detail screen which carries Confirm/Decline buttons.
-// A caller can set ?pending=true to opt in to pending fixtures (used
-// by the confirm/decline flow if we ever surface a dedicated inbox).
 router.get(BASE, async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, tournament, team, pending } = req.query;
+    const { page = 1, limit = 20, status, tournament, team } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (tournament) filter.tournament = tournament;
-    if (pending !== 'true') {
-      // scheduleConfirmed is undefined on regular (non-intra) matches
-      // that pre-date the handshake flag — treat undefined as confirmed
-      // so we don't accidentally hide legacy fixtures.
-      filter.$and = [
-        { $or: [{ scheduleConfirmed: true }, { scheduleConfirmed: { $exists: false } }] },
-      ];
-    }
-
-    // Team filter: direct home/away match OR, for sub-team captains /
-    // assistant captains / players, matches referencing their intra
-    // SchoolTeam. One cheap lookup per request so the client's existing
-    // `?team=<me>` call surfaces intra fixtures without needing a new
-    // endpoint.
-    if (team) {
-      const subFilter = {
-        $or: [{ captain: team }, { assistantCaptain: team }, { players: team }],
-      };
-      let formIds = [];
-      let classIds = [];
-      try {
-        const { FormTeam, ClassTeam } =
-          require('../SchoolTeam/school_team.model');
-        const [myForms, myClasses] = await Promise.all([
-          FormTeam.find(subFilter).select('_id').lean(),
-          ClassTeam.find(subFilter).select('_id').lean(),
-        ]);
-        formIds = myForms.map((t) => t._id);
-        classIds = myClasses.map((t) => t._id);
-      } catch (_) { /* best-effort; direct side filter still applies */ }
-
-      const teamOr = [{ homeTeam: team }, { awayTeam: team }];
-      if (formIds.length) {
-        teamOr.push({ homeSchoolTeam: { $in: formIds }, homeSchoolTeamKind: 'FormTeam' });
-        teamOr.push({ awaySchoolTeam: { $in: formIds }, awaySchoolTeamKind: 'FormTeam' });
-      }
-      if (classIds.length) {
-        teamOr.push({ homeSchoolTeam: { $in: classIds }, homeSchoolTeamKind: 'ClassTeam' });
-        teamOr.push({ awaySchoolTeam: { $in: classIds }, awaySchoolTeamKind: 'ClassTeam' });
-      }
-      filter.$and = (filter.$and || []).concat([{ $or: teamOr }]);
-    }
+    if (team) filter.$or = [{ homeTeam: team }, { awayTeam: team }];
 
     const [matches, total] = await Promise.all([
       Match.find(filter)
@@ -677,108 +629,40 @@ router.post(BASE, async (req, res) => {
       } : {}),
     });
 
-    // Captain-scheduled intra fixture — fan out to:
-    //   • school staff (owner / secretary / sports teachers) for
-    //     awareness, no action required.
-    //   • away sub-team captain + assistant captain — these are the
-    //     parties whose Confirm/Decline unlocks the fixture on Mechi.
-    // Notification body carries sub-team names, scheduled time, and
-    // the venue name so the recipient has everything they need before
-    // tapping through to Match Detail.
+    // Captain-scheduled intra fixture — notify school staff so they
+    // see the fixture appear even though no action is required on
+    // their side (sports teacher is informed, not blocking).
     if (isIntra && !scheduledByStaff) {
       try {
-        const { FormTeam, ClassTeam } =
-          require('../SchoolTeam/school_team.model');
-        const HomeModel = homeSchoolTeamKind === 'ClassTeam'
-          ? ClassTeam : FormTeam;
-        const AwayModel = awaySchoolTeamKind === 'ClassTeam'
-          ? ClassTeam : FormTeam;
-        const [schoolRow, homeSub, awaySub, venueDoc] = await Promise.all([
-          User.findById(homeTeam)
-            .select('academy_name owner secretary sports_teacher_1 sports_teacher_2')
-            .lean(),
-          HomeModel.findById(homeSchoolTeam)
-            .select('formLevel streamLetter department').lean(),
-          AwayModel.findById(awaySchoolTeam)
-            .select('formLevel streamLetter department captain assistantCaptain').lean(),
-          venue
-            ? require('../Venue/venue.model').findById(venue).select('name').lean()
-            : Promise.resolve(null),
-        ]);
-
-        // Mirror of the mobile `_subTeamName` helper.
-        const subLabel = (sub) => {
-          if (!sub) return '-';
-          const dept = (sub.department || '').toString().trim();
-          if (dept) return `Idara ya ${dept}`;
-          const fl = (sub.formLevel || '').toString();
-          let base = fl;
-          if (fl.startsWith('GRADE_')) base = `Darasa ${fl.substring(6)}`;
-          else if (fl.startsWith('FORM_')) base = `Fomu ${fl.substring(5)}`;
-          else if (fl.startsWith('YEAR_')) base = `Mwaka ${fl.substring(5)}`;
-          const stream = (sub.streamLetter || '').toString().trim();
-          return stream ? `${base}-${stream}` : base;
-        };
-
-        const homeLabel = subLabel(homeSub);
-        const awayLabel = subLabel(awaySub);
-        const venueName = venueDoc?.name
-          || (manualVenue && manualVenue.name)
-          || 'uwanja utakaotangazwa';
-        const schoolName = schoolRow?.academy_name || 'shule yako';
-        let whenLabel = '';
-        try {
-          const d = new Date(scheduledDate);
-          whenLabel = d.toLocaleString('sw-TZ', {
-            weekday: 'short', day: 'numeric', month: 'short',
-            hour: '2-digit', minute: '2-digit', hour12: false,
-          });
-        } catch (_) { whenLabel = String(scheduledDate || ''); }
-
-        const matchLabel = `${homeLabel} vs ${awayLabel}`;
-        const body = `${matchLabel} — ${whenLabel} @ ${venueName}`;
-
-        // Build recipient set:
-        //   staff (awareness) + away captain + away asst captain
-        // Dedupe by stringified ids and drop the scheduler themselves.
-        const recipients = new Set();
+        const schoolRow = await User.findById(homeTeam)
+          .select('academy_name owner secretary sports_teacher_1 sports_teacher_2')
+          .lean();
         if (schoolRow) {
-          [
+          const staff = new Set([
             String(schoolRow._id || homeTeam),
             schoolRow.owner, schoolRow.secretary,
             schoolRow.sports_teacher_1, schoolRow.sports_teacher_2,
-          ].filter(Boolean).forEach((id) => recipients.add(String(id)));
-        }
-        if (awaySub?.captain) recipients.add(String(awaySub.captain));
-        if (awaySub?.assistantCaptain) {
-          recipients.add(String(awaySub.assistantCaptain));
-        }
-        recipients.delete(String(scheduledBy));
-
-        for (const uid of recipients) {
-          try {
-            await Notification.create({
-              userId: uid,
-              type: 'SYSTEM',
-              title: 'Nahodha amepanga mechi ya ndani',
-              body,
-              titleKey: 'notif.intra_match.captain_scheduled.title',
-              bodyKey: 'notif.intra_match.captain_scheduled.body',
-              params: {
-                school: schoolName,
-                home: homeLabel,
-                away: awayLabel,
-                when: whenLabel,
-                venue: venueName,
-                match: matchLabel,
-              },
-              metadata: {
-                kind: 'INTRA_MATCH_CAPTAIN_SCHEDULED',
-                matchId: match._id,
-                schoolId: homeTeam,
-              },
-            });
-          } catch (_) { /* best-effort */ }
+          ].filter(Boolean).map(String));
+          staff.delete(String(scheduledBy));
+          const schoolName = schoolRow.academy_name || 'shule yako';
+          for (const uid of staff) {
+            try {
+              await Notification.create({
+                userId: uid,
+                type: 'SYSTEM',
+                title: 'Nahodha amepanga mechi ya ndani',
+                body: `Mechi mpya ya ndani kwenye ${schoolName}.`,
+                titleKey: 'notif.intra_match.captain_scheduled.title',
+                bodyKey: 'notif.intra_match.captain_scheduled.body',
+                params: { school: schoolName },
+                metadata: {
+                  kind: 'INTRA_MATCH_CAPTAIN_SCHEDULED',
+                  matchId: match._id,
+                  schoolId: homeTeam,
+                },
+              });
+            } catch (_) { /* best-effort */ }
+          }
         }
       } catch (_) { /* best-effort */ }
     }
