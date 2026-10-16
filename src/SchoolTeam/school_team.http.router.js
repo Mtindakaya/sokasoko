@@ -539,4 +539,25 @@ function registerStats(kind) {
 registerStats('form');
 registerStats('class');
 
+// GET /v1/<kind>-teams/:id/players — the sub-team's own roster. Powers
+// the intra-fixture lineup entry screen: captain picks starters/subs
+// from the team's players rather than the parent school's full roster.
+function registerListPlayers(kind) {
+  router.get(`/v1/${kind}-teams/:id/players`, async (req, res) => {
+    try {
+      const t = await modelFor(kind).findById(req.params.id)
+        .populate('players',
+          'firstName lastName accountNumber profileImage position '
+          + 'school_form college_year')
+        .lean();
+      if (!t) return res.status(404).json({ error: 'Team not found' });
+      return res.status(200).json({ data: t.players || [] });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+}
+registerListPlayers('form');
+registerListPlayers('class');
+
 module.exports = router;
