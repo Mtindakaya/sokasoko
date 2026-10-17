@@ -449,9 +449,11 @@ function renderCopy(kind, p, extras) {
       };
     case 'MATCH_LINEUP_SET':
       return {
-        title: 'Lineup imewekwa',
+        // Noun-class concordance: "kikosi" is class 7 (ki-/vi-), so
+        // the verb prefix is ki- (kimewekwa), connector is -cha-.
+        title: 'Kikosi kimewekwa',
         body:
-          `${actorLabel} ameweka lineup ya mechi ${matchLabel}. ` +
+          `${actorLabel} ameweka kikosi cha mechi ${matchLabel}. ` +
           `Fungua mechi kuiona.`,
         titleKey: 'notif.match.lineup_set.title',
         bodyKey: 'notif.match.lineup_set.body',
