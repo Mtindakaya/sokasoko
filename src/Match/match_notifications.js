@@ -114,6 +114,22 @@ function matchVenueName(match) {
   return '';
 }
 
+// Async variant — notifyMatchAction receives the just-saved Match doc
+// before venue was populated. If matchVenueName() comes back empty but
+// match.venue is a bare ObjectId reference, resolve it once so the
+// scheduled-match notification body carries the actual field name.
+async function resolveVenueName(match) {
+  const direct = matchVenueName(match);
+  if (direct) return direct;
+  const v = match.venue;
+  if (!v) return '';
+  try {
+    const Venue = require('../Venue/venue.model');
+    const doc = await Venue.findById(v).select('name').lean();
+    return (doc && doc.name) || '';
+  } catch (_) { return ''; }
+}
+
 async function fetchMatchParties(match, actorId) {
   const ids = [match.homeTeam, match.awayTeam].filter(Boolean);
   if (actorId) ids.push(actorId);
@@ -155,7 +171,7 @@ async function fetchMatchParties(match, actorId) {
   const whenLabel = formatScheduleWhen(match.scheduledDate);
   const dateLabel = formatScheduleDate(match.scheduledDate);
   const timeLabel = formatScheduleTime(match.scheduledDate);
-  const venueLabel = matchVenueName(match);
+  const venueLabel = await resolveVenueName(match);
 
   return {
     home,
