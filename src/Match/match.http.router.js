@@ -802,12 +802,37 @@ router.post(`${BASE}/:id/lineup`, async (req, res) => {
       });
     }
     const teamId = team === 'HOME' ? match.homeTeam : match.awayTeam;
-    if (actorId && !(await canManageTeam(actorId, teamId))) {
-      return res.status(403).json({
-        error: 'Huna ruhusa ya kuweka lineup kwa timu hii.',
-        errorKey: 'matches.error.action_forbidden',
-        reason: 'MATCH_ACTION_FORBIDDEN',
-      });
+    if (actorId) {
+      let allowed = await canManageTeam(actorId, teamId);
+      // Intra fixtures: homeTeam / awayTeam are both the parent SCHOOL,
+      // so canManageTeam only accepts school staff and 403s a sub-team
+      // captain editing their own kikosi. Fall through to the matching
+      // SchoolTeam's captain / assistantCaptain, same pattern as
+      // /confirm-schedule.
+      if (!allowed && match.isIntraSchool) {
+        const subId = team === 'HOME'
+          ? match.homeSchoolTeam : match.awaySchoolTeam;
+        const subKind = team === 'HOME'
+          ? match.homeSchoolTeamKind : match.awaySchoolTeamKind;
+        if (subId) {
+          const { FormTeam, ClassTeam } =
+            require('../SchoolTeam/school_team.model');
+          const Model = subKind === 'ClassTeam' ? ClassTeam : FormTeam;
+          const sub = await Model.findById(subId)
+            .select('captain assistantCaptain').lean();
+          if (sub) {
+            allowed = String(sub.captain || '') === String(actorId)
+              || String(sub.assistantCaptain || '') === String(actorId);
+          }
+        }
+      }
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Huna ruhusa ya kuweka kikosi kwa timu hii.',
+          errorKey: 'matches.error.action_forbidden',
+          reason: 'MATCH_ACTION_FORBIDDEN',
+        });
+      }
     }
     const side = team === 'HOME' ? 'home' : 'away';
     match.lineups = match.lineups || {};
