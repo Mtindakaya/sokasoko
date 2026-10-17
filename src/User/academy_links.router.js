@@ -321,6 +321,13 @@ router.post('/v1/users/:id/link-school', async (req, res) => {
 router.get('/v1/users/:id/school-players', async (req, res) => {
   try {
     const players = await User.find({ school: req.params.id, type: 'PLAYER' })
+      // Populate school on each player so the vCard school pill
+      // renders on first paint — without this the UserInfo pane
+      // waits for _refreshUser's follow-up single-user fetch to
+      // hydrate school, which can take 5-10s on cold Render dynos.
+      // Matches the pattern on GET /v1/users / /v1/users/:id.
+      .populate('school',
+        'academy_name school_type _id firstName lastName profileImage')
       .limit(500)
       .lean();
     return res.status(200).json({ data: players });
