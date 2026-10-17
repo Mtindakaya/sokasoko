@@ -88,6 +88,24 @@ function formatScheduleWhen(d) {
   } catch (_) { return ''; }
 }
 
+function formatScheduleDate(d) {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleString('sw-TZ', {
+      weekday: 'short', day: 'numeric', month: 'short',
+    });
+  } catch (_) { return ''; }
+}
+
+function formatScheduleTime(d) {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleString('sw-TZ', {
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  } catch (_) { return ''; }
+}
+
 function matchVenueName(match) {
   const v = match.venue;
   if (v && typeof v === 'object' && v.name) return v.name;
@@ -135,6 +153,8 @@ async function fetchMatchParties(match, actorId) {
   }
 
   const whenLabel = formatScheduleWhen(match.scheduledDate);
+  const dateLabel = formatScheduleDate(match.scheduledDate);
+  const timeLabel = formatScheduleTime(match.scheduledDate);
   const venueLabel = matchVenueName(match);
 
   return {
@@ -146,6 +166,8 @@ async function fetchMatchParties(match, actorId) {
     actorLabel: entityLabel(actor) || 'Mfanyakazi',
     matchLabel: `${homeLabel} vs ${awayLabel}`,
     whenLabel,
+    dateLabel,
+    timeLabel,
     venueLabel,
   };
 }
@@ -355,27 +377,28 @@ async function notifyMatchAction({ match, kind, actorId, extras = {} }) {
 // strings ever end up on-screen.
 function renderCopy(kind, p, extras) {
   const { homeLabel, awayLabel, matchLabel, actorLabel,
-    whenLabel, venueLabel } = p;
+    whenLabel, dateLabel, timeLabel, venueLabel } = p;
   const when = extras.newDate ? isoDate(extras.newDate) : isoDate(p && p.home ? undefined : null);
   const sideLabel = extras.side === 'HOME' ? homeLabel : (extras.side === 'AWAY' ? awayLabel : null);
 
   switch (kind) {
     case 'MATCH_SCHEDULED': {
-      // Body now carries the full "{home} vs {away} — {when} @ {venue}"
-      // inline so the reader doesn't need to tap through to find the
-      // date and venue. The old "Fungua Mechi…" sentence was dropped
-      // per user feedback — notification is already tappable, redundant.
-      const whenPart = whenLabel ? ` — ${whenLabel}` : '';
-      const venuePart = venueLabel ? ` @ ${venueLabel}` : '';
+      // Body carries {match} + "{venue} - {date} - {time}" inline so
+      // the reader doesn't need to tap through. Order per user ask:
+      // field name, then date, then time. "Fungua Mechi…" closer is
+      // dropped — notification is already tappable, redundant.
       return {
         title: 'Mechi mpya imepangwa',
-        body: `${actorLabel} amepanga: ${matchLabel}${whenPart}${venuePart}.`,
+        body: `${actorLabel} amepanga: ${matchLabel}. `
+          + `${venueLabel} - ${dateLabel} - ${timeLabel}.`,
         titleKey: 'notif.match.scheduled.title',
         bodyKey: 'notif.match.scheduled.body',
         params: {
           actor: actorLabel,
           match: matchLabel,
           when: whenLabel || '',
+          date: dateLabel || '',
+          time: timeLabel || '',
           venue: venueLabel || '',
         },
       };
