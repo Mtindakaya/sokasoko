@@ -64,6 +64,38 @@ async function getTeamRecipients(teamId, excludeId, options = {}) {
   return Array.from(set);
 }
 
+// Mirrors the mobile `_subTeamName` helper.
+function subTeamLabel(sub) {
+  if (!sub) return null;
+  const dept = (sub.department || '').toString().trim();
+  if (dept) return `Idara ya ${dept}`;
+  const fl = (sub.formLevel || '').toString();
+  let base = fl;
+  if (fl.startsWith('GRADE_')) base = `Darasa ${fl.substring(6)}`;
+  else if (fl.startsWith('FORM_')) base = `Fomu ${fl.substring(5)}`;
+  else if (fl.startsWith('YEAR_')) base = `Mwaka ${fl.substring(5)}`;
+  const stream = (sub.streamLetter || '').toString().trim();
+  return stream ? `${base}-${stream}` : base;
+}
+
+function formatScheduleWhen(d) {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleString('sw-TZ', {
+      weekday: 'short', day: 'numeric', month: 'short',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  } catch (_) { return ''; }
+}
+
+function matchVenueName(match) {
+  const v = match.venue;
+  if (v && typeof v === 'object' && v.name) return v.name;
+  const mv = match.manualVenue;
+  if (mv && mv.name) return mv.name;
+  return '';
+}
+
 async function fetchMatchParties(match, actorId) {
   const ids = [match.homeTeam, match.awayTeam].filter(Boolean);
   if (actorId) ids.push(actorId);
@@ -74,14 +106,47 @@ async function fetchMatchParties(match, actorId) {
   const home = byId.get(String(match.homeTeam));
   const away = byId.get(String(match.awayTeam));
   const actor = actorId ? byId.get(String(actorId)) : null;
+
+  // Intra-school fixtures: both sides point at the parent SCHOOL,
+  // so entityLabel(home) === entityLabel(away). Rehydrate the sub-
+  // team docs and use "Year 1" / "Idara ya Uhandisi" etc. so the
+  // notification body reads correctly instead of "{school} vs {school}".
+  let homeLabel = entityLabel(home) || 'Timu ya nyumbani';
+  let awayLabel = entityLabel(away) || 'Timu ya ugenini';
+  if (match.isIntraSchool && match.homeSchoolTeam && match.awaySchoolTeam) {
+    try {
+      const { FormTeam, ClassTeam } =
+        require('../SchoolTeam/school_team.model');
+      const HomeModel = match.homeSchoolTeamKind === 'ClassTeam'
+        ? ClassTeam : FormTeam;
+      const AwayModel = match.awaySchoolTeamKind === 'ClassTeam'
+        ? ClassTeam : FormTeam;
+      const [homeSub, awaySub] = await Promise.all([
+        HomeModel.findById(match.homeSchoolTeam)
+          .select('formLevel streamLetter department').lean(),
+        AwayModel.findById(match.awaySchoolTeam)
+          .select('formLevel streamLetter department').lean(),
+      ]);
+      const hl = subTeamLabel(homeSub);
+      const al = subTeamLabel(awaySub);
+      if (hl) homeLabel = hl;
+      if (al) awayLabel = al;
+    } catch (_) { /* best-effort — fall back to parent labels */ }
+  }
+
+  const whenLabel = formatScheduleWhen(match.scheduledDate);
+  const venueLabel = matchVenueName(match);
+
   return {
     home,
     away,
     actor,
-    homeLabel: entityLabel(home) || 'Timu ya nyumbani',
-    awayLabel: entityLabel(away) || 'Timu ya ugenini',
+    homeLabel,
+    awayLabel,
     actorLabel: entityLabel(actor) || 'Mfanyakazi',
-    matchLabel: `${entityLabel(home) || 'Home'} vs ${entityLabel(away) || 'Away'}`,
+    matchLabel: `${homeLabel} vs ${awayLabel}`,
+    whenLabel,
+    venueLabel,
   };
 }
 
@@ -289,21 +354,32 @@ async function notifyMatchAction({ match, kind, actorId, extras = {} }) {
 // English string from their local dictionary — no mixed-language
 // strings ever end up on-screen.
 function renderCopy(kind, p, extras) {
-  const { homeLabel, awayLabel, matchLabel, actorLabel } = p;
+  const { homeLabel, awayLabel, matchLabel, actorLabel,
+    whenLabel, venueLabel } = p;
   const when = extras.newDate ? isoDate(extras.newDate) : isoDate(p && p.home ? undefined : null);
   const sideLabel = extras.side === 'HOME' ? homeLabel : (extras.side === 'AWAY' ? awayLabel : null);
 
   switch (kind) {
-    case 'MATCH_SCHEDULED':
+    case 'MATCH_SCHEDULED': {
+      // Body now carries the full "{home} vs {away} — {when} @ {venue}"
+      // inline so the reader doesn't need to tap through to find the
+      // date and venue. The old "Fungua Mechi…" sentence was dropped
+      // per user feedback — notification is already tappable, redundant.
+      const whenPart = whenLabel ? ` — ${whenLabel}` : '';
+      const venuePart = venueLabel ? ` @ ${venueLabel}` : '';
       return {
         title: 'Mechi mpya imepangwa',
-        body:
-          `${actorLabel} amepanga mechi: ${matchLabel}. ` +
-          `Fungua Mechi ili kukagua tarehe na uwanja.`,
+        body: `${actorLabel} amepanga: ${matchLabel}${whenPart}${venuePart}.`,
         titleKey: 'notif.match.scheduled.title',
         bodyKey: 'notif.match.scheduled.body',
-        params: { actor: actorLabel, match: matchLabel },
+        params: {
+          actor: actorLabel,
+          match: matchLabel,
+          when: whenLabel || '',
+          venue: venueLabel || '',
+        },
       };
+    }
     case 'MATCH_RESULT_SAVED':
       return {
         title: 'Matokeo yamewekwa',
