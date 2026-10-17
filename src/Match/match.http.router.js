@@ -175,17 +175,27 @@ router.get(`${BASE}/scouting/:userId`, async (req, res) => {
 });
 
 // GET /v1/matches
-// Mechi (My Matches / Scores) lists include schedule-pending fixtures
-// so the away captain + sports teacher see them on their own Mechi and
-// can confirm from the row itself (matches the regular-match flow —
-// the earlier "hide unconfirmed" filter was over-aggressive and left
-// both sides blind to pending intra fixtures).
+// Public Scores feed (no team= param) hides schedule-pending fixtures
+// so an unconfirmed match doesn't leak onto everyone's home tab until
+// the away side has confirmed. Involved parties call with team=<me>
+// (Mechi Zangu / Timu Zangu captain view) and see pending fixtures so
+// they can confirm from the row itself (matches the regular-match
+// confirm flow).
 router.get(BASE, async (req, res) => {
   try {
     const { page = 1, limit = 20, status, tournament, team } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (tournament) filter.tournament = tournament;
+    if (!team) {
+      // Public listing — only confirmed fixtures. scheduleConfirmed is
+      // undefined on regular (non-intra) matches that pre-date the
+      // handshake flag; treat undefined as confirmed so we don't drop
+      // legacy fixtures.
+      filter.$and = [
+        { $or: [{ scheduleConfirmed: true }, { scheduleConfirmed: { $exists: false } }] },
+      ];
+    }
 
     // Team filter: direct home/away match OR, for sub-team captains /
     // assistant captains / players, matches referencing their intra
