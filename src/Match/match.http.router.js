@@ -1003,22 +1003,28 @@ router.post(`${BASE}/:id/result`, async (req, res) => {
 // POST /v1/matches/:id/confirm — confirm result
 router.post(`${BASE}/:id/confirm`, async (req, res) => {
   try {
-    const { confirmedBy, team } = req.body;
+    const { confirmedBy, team, side } = req.body;
     const match = await Match.findById(req.params.id);
     if (!match) return res.status(404).json({ error: 'Match not found' });
 
-    // Auth: caller must be authorized on the side (team) they're
-    // confirming. Home-team staff cannot confirm the away side and
-    // vice versa — the semantics of "confirm" is per-side. For intra
-    // fixtures the side-specific sub-team captain / asst captain is
-    // also accepted via canActOnMatchSide.
-    if (confirmedBy && team) {
-      const sideCode = String(team) === String(match.homeTeam) ? 'HOME'
-        : String(team) === String(match.awayTeam) ? 'AWAY' : null;
-      const allowed = sideCode
-        ? await canActOnMatchSide(confirmedBy, match, sideCode)
-        : await canManageTeam(confirmedBy, team);
-      if (!allowed) {
+    // Resolve sideCode once up front. For intra fixtures homeTeam ===
+    // awayTeam === parent SCHOOL, so the team param can't distinguish
+    // sides — the mobile client passes an explicit `side: 'HOME' | 'AWAY'`
+    // which we honor whenever it's set. Fall back to team-param
+    // resolution for legacy callers / regular matches.
+    let sideCode = null;
+    if (side === 'HOME' || side === 'AWAY') {
+      sideCode = side;
+    } else if (team) {
+      if (String(team) === String(match.homeTeam)) sideCode = 'HOME';
+      else if (String(team) === String(match.awayTeam)) sideCode = 'AWAY';
+    }
+
+    // Auth: caller must be authorized on the side they're confirming.
+    // canActOnMatchSide covers both regular (canManageTeam) and intra
+    // (sub-team captain) authority.
+    if (confirmedBy && sideCode) {
+      if (!(await canActOnMatchSide(confirmedBy, match, sideCode))) {
         return res.status(403).json({
           error: 'Huna ruhusa ya kuthibitisha matokeo kwa timu hii.',
           errorKey: 'matches.error.action_forbidden',
@@ -1028,16 +1034,14 @@ router.post(`${BASE}/:id/confirm`, async (req, res) => {
     }
 
     // Workflow order: home enters → away confirms → home submits.
-    const isAwaySide = String(team) === String(match.awayTeam);
-    const isHomeSide = String(team) === String(match.homeTeam);
-    if (isAwaySide && match.homeScore == null) {
+    if (sideCode === 'AWAY' && match.homeScore == null) {
       return res.status(400).json({
         error: 'Timu ya nyumbani bado haijaweka matokeo. Subiri kabla ya kuthibitisha.',
         errorKey: 'matches.error.no_score_yet',
         reason: 'MATCH_NO_SCORE_YET',
       });
     }
-    if (isHomeSide && !match.awayConfirmed) {
+    if (sideCode === 'HOME' && !match.awayConfirmed) {
       return res.status(400).json({
         error: 'Timu ya ugenini bado haijathibitisha. Subiri kabla ya kufunga matokeo.',
         errorKey: 'matches.error.away_not_confirmed',
@@ -1045,15 +1049,12 @@ router.post(`${BASE}/:id/confirm`, async (req, res) => {
       });
     }
 
-    let sideCode = null;
-    if (team === match.homeTeam.toString()) {
+    if (sideCode === 'HOME') {
       match.homeConfirmed = true;
       match.homeConfirmedBy = confirmedBy;
-      sideCode = 'HOME';
-    } else if (team === match.awayTeam.toString()) {
+    } else if (sideCode === 'AWAY') {
       match.awayConfirmed = true;
       match.awayConfirmedBy = confirmedBy;
-      sideCode = 'AWAY';
     }
 
     await match.save();
