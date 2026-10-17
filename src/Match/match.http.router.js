@@ -11,7 +11,7 @@ const { Subscription } = require('../Subscription/subscription.model');
 const { entityLabel } = require('../Utils/utils');
 const { busyUserIds, venueBusy, busyTeamIds } = require('./conflict.helper');
 const { notifyMatchAction } = require('./match_notifications');
-const { canManageTeam, canManageMatch } = require('./match_access');
+const { canManageTeam, canManageMatch, canActOnMatchSide } = require('./match_access');
 
 const API_VERSION = getString('API_VERSION', '1.0.0');
 const router = express.Router();
@@ -801,38 +801,12 @@ router.post(`${BASE}/:id/lineup`, async (req, res) => {
         errorKey: 'matches.lineup.err.cancelled',
       });
     }
-    const teamId = team === 'HOME' ? match.homeTeam : match.awayTeam;
-    if (actorId) {
-      let allowed = await canManageTeam(actorId, teamId);
-      // Intra fixtures: homeTeam / awayTeam are both the parent SCHOOL,
-      // so canManageTeam only accepts school staff and 403s a sub-team
-      // captain editing their own kikosi. Fall through to the matching
-      // SchoolTeam's captain / assistantCaptain, same pattern as
-      // /confirm-schedule.
-      if (!allowed && match.isIntraSchool) {
-        const subId = team === 'HOME'
-          ? match.homeSchoolTeam : match.awaySchoolTeam;
-        const subKind = team === 'HOME'
-          ? match.homeSchoolTeamKind : match.awaySchoolTeamKind;
-        if (subId) {
-          const { FormTeam, ClassTeam } =
-            require('../SchoolTeam/school_team.model');
-          const Model = subKind === 'ClassTeam' ? ClassTeam : FormTeam;
-          const sub = await Model.findById(subId)
-            .select('captain assistantCaptain').lean();
-          if (sub) {
-            allowed = String(sub.captain || '') === String(actorId)
-              || String(sub.assistantCaptain || '') === String(actorId);
-          }
-        }
-      }
-      if (!allowed) {
-        return res.status(403).json({
-          error: 'Huna ruhusa ya kuweka kikosi kwa timu hii.',
-          errorKey: 'matches.error.action_forbidden',
-          reason: 'MATCH_ACTION_FORBIDDEN',
-        });
-      }
+    if (actorId && !(await canActOnMatchSide(actorId, match, team))) {
+      return res.status(403).json({
+        error: 'Huna ruhusa ya kuweka kikosi kwa timu hii.',
+        errorKey: 'matches.error.action_forbidden',
+        reason: 'MATCH_ACTION_FORBIDDEN',
+      });
     }
     const side = team === 'HOME' ? 'home' : 'away';
     match.lineups = match.lineups || {};
@@ -1035,13 +1009,22 @@ router.post(`${BASE}/:id/confirm`, async (req, res) => {
 
     // Auth: caller must be authorized on the side (team) they're
     // confirming. Home-team staff cannot confirm the away side and
-    // vice versa — the semantics of "confirm" is per-side.
-    if (confirmedBy && team && !(await canManageTeam(confirmedBy, team))) {
-      return res.status(403).json({
-        error: 'Huna ruhusa ya kuthibitisha matokeo kwa timu hii.',
-        errorKey: 'matches.error.action_forbidden',
-        reason: 'MATCH_ACTION_FORBIDDEN',
-      });
+    // vice versa — the semantics of "confirm" is per-side. For intra
+    // fixtures the side-specific sub-team captain / asst captain is
+    // also accepted via canActOnMatchSide.
+    if (confirmedBy && team) {
+      const sideCode = String(team) === String(match.homeTeam) ? 'HOME'
+        : String(team) === String(match.awayTeam) ? 'AWAY' : null;
+      const allowed = sideCode
+        ? await canActOnMatchSide(confirmedBy, match, sideCode)
+        : await canManageTeam(confirmedBy, team);
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Huna ruhusa ya kuthibitisha matokeo kwa timu hii.',
+          errorKey: 'matches.error.action_forbidden',
+          reason: 'MATCH_ACTION_FORBIDDEN',
+        });
+      }
     }
 
     // Workflow order: home enters → away confirms → home submits.
@@ -1104,26 +1087,10 @@ router.post(`${BASE}/:id/confirm-schedule`, async (req, res) => {
       // Auth: caller must be authorized on the AWAY team (that's the
       // side whose consent turns a scheduled match into a confirmed
       // one). Replaces the old "away team OR any COACH" hack — any
-      // COACH user could previously confirm ANY schedule.
-      //
-      // Intra-school: both match.awayTeam and match.homeTeam point at
-      // the parent SCHOOL, so a sub-team captain never passes
-      // canManageTeam. Fall back to accepting the away SchoolTeam's
-      // captain or assistantCaptain in that case.
-      let allowed = await canManageTeam(confirmedBy, match.awayTeam);
-      if (!allowed && match.isIntraSchool && match.awaySchoolTeam) {
-        const { FormTeam, ClassTeam } =
-          require('../SchoolTeam/school_team.model');
-        const Model = match.awaySchoolTeamKind === 'ClassTeam'
-          ? ClassTeam : FormTeam;
-        const awaySub = await Model.findById(match.awaySchoolTeam)
-          .select('captain assistantCaptain').lean();
-        if (awaySub) {
-          allowed = String(awaySub.captain || '') === String(confirmedBy)
-            || String(awaySub.assistantCaptain || '')
-                === String(confirmedBy);
-        }
-      }
+      // COACH user could previously confirm ANY schedule. For intra
+      // fixtures canActOnMatchSide('AWAY') covers both school staff
+      // and the away sub-team's captain / assistantCaptain.
+      const allowed = await canActOnMatchSide(confirmedBy, match, 'AWAY');
       if (!allowed) {
         return res.status(403).json({
           error: 'Huna ruhusa ya kuthibitisha ratiba ya timu hii.',
